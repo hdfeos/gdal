@@ -248,7 +248,7 @@ void OGRIDFDataSource::Parse()
     std::map<GIntBig, OGRLineString*> oMapLinkCoordinate; // map from LINK_ID to OGRLineString*
     CPLString osTablename, osAtr, osFrm;
     int iX = -1, iY = -1, iZ = -1;
-    bool bAdvertizeUTF8 = false;
+    bool bAdvertiseUTF8 = false;
     bool bRecodeFromLatin1 = false;
     int iNodeID = -1;
     int iLinkID = -1;
@@ -278,7 +278,7 @@ void OGRIDFDataSource::Parse()
 
         if( strcmp(pszLine, "chs;ISO_LATIN_1") == 0)
         {
-            bAdvertizeUTF8 = true;
+            bAdvertiseUTF8 = true;
             bRecodeFromLatin1 = true;
         }
         else if( STARTS_WITH(pszLine, "tbl;") )
@@ -309,7 +309,7 @@ void OGRIDFDataSource::Parse()
                 char** papszFrm = CSLTokenizeString2(osFrm,";",
                         CSLT_ALLOWEMPTYTOKENS|CSLT_STRIPLEADSPACES|CSLT_STRIPENDSPACES);
                 char* apszOptions[2] = { nullptr, nullptr };
-                if( bAdvertizeUTF8 && !bGPKG )
+                if( bAdvertiseUTF8 && !bGPKG )
                     apszOptions[0] = (char*)"ADVERTIZE_UTF8=YES";
                 else if( bGPKG && !bSpatialIndex )
                     apszOptions[0] = (char*)"SPATIAL_INDEX=NO";
@@ -321,7 +321,8 @@ void OGRIDFDataSource::Parse()
                     iZ = CSLFindString(papszAtr, "Z");
                     eLayerType = LAYER_NODE;
                     iNodeID = CSLFindString(papszAtr, "NODE_ID");
-                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84);
+                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+                    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     poCurLayer = m_poTmpDS->CreateLayer(osTablename, poSRS,
                             iZ < 0 ? wkbPoint : wkbPoint25D, apszOptions);
                     poSRS->Release();
@@ -332,7 +333,8 @@ void OGRIDFDataSource::Parse()
                         ((iToNode = CSLFindString(papszAtr, "TO_NODE")) >= 0) )
                 {
                     eLayerType = LAYER_LINK;
-                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84);
+                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+                    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     poCurLayer = m_poTmpDS->CreateLayer(osTablename, poSRS,
                         iZ < 0 ? wkbLineString : wkbLineString25D, apszOptions);
                     poSRS->Release();
@@ -345,7 +347,8 @@ void OGRIDFDataSource::Parse()
                 {
                     iZ = CSLFindString(papszAtr, "Z");
                     eLayerType = LAYER_LINKCOORDINATE;
-                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84);
+                    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+                    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     poCurLayer = m_poTmpDS->CreateLayer(osTablename, poSRS,
                             iZ < 0 ? wkbPoint : wkbPoint25D, apszOptions);
                     poSRS->Release();
@@ -910,7 +913,8 @@ OGRVDVLayer::OGRVDVLayer(const CPLString& osTableName,
     if( m_iLongitudeVDV452 >= 0 && m_iLatitudeVDV452 >= 0 )
     {
         m_poFeatureDefn->SetGeomType(wkbPoint);
-        OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84);
+        OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         m_poFeatureDefn->GetGeomFieldDefn(0)->SetSpatialRef(poSRS);
         poSRS->Release();
     }
@@ -1996,7 +2000,7 @@ void RegisterOGRVDV()
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "VDV-451/VDV-452/INTREST Data Format" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_vdv.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/vdv.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSIONS, "txt x10");
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONFIELDDATATYPES,

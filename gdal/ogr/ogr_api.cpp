@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2009-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -62,7 +62,7 @@ inline OGRGeometryH ToHandle(OGRGeometry* poGeom)
 /*                        OGR_G_GetPointCount()                         */
 /************************************************************************/
 /**
- * \brief Fetch number of points from a geometry.
+ * \brief Fetch number of points from a Point or a LineString/LinearRing geometry.
  *
  * Only wkbPoint[25D] or wkbLineString[25D] may return a valid value.
  * Other geometry types will silently return 0.
@@ -177,7 +177,7 @@ static double OGR_G_Get_Component( OGRGeometryH hGeom, int i )
 /*                             OGR_G_GetX()                             */
 /************************************************************************/
 /**
- * \brief Fetch the x coordinate of a point from a geometry.
+ * \brief Fetch the x coordinate of a point from a Point or a LineString/LinearRing geometry.
  *
  * @param hGeom handle to the geometry from which to get the x coordinate.
  * @param i point to get the x coordinate.
@@ -200,7 +200,7 @@ double OGR_G_GetX( OGRGeometryH hGeom, int i )
 /*                             OGR_G_GetY()                             */
 /************************************************************************/
 /**
- * \brief Fetch the x coordinate of a point from a geometry.
+ * \brief Fetch the x coordinate of a point from a Point or a LineString/LinearRing geometry.
  *
  * @param hGeom handle to the geometry from which to get the y coordinate.
  * @param i point to get the Y coordinate.
@@ -223,7 +223,7 @@ double OGR_G_GetY( OGRGeometryH hGeom, int i )
 /*                             OGR_G_GetZ()                             */
 /************************************************************************/
 /**
- * \brief Fetch the z coordinate of a point from a geometry.
+ * \brief Fetch the z coordinate of a point from a Point or a LineString/LinearRing geometry.
  *
  * @param hGeom handle to the geometry from which to get the Z coordinate.
  * @param i point to get the Z coordinate.
@@ -1284,7 +1284,7 @@ int OGR_G_GetGeometryCount( OGRGeometryH hGeom )
 /**
  * \brief Fetch geometry from a geometry container.
  *
- * This function returns an handle to a geometry within the container.
+ * This function returns a handle to a geometry within the container.
  * The returned geometry remains owned by the container, and should not be
  * modified.  The handle is only valid until the next change to the
  * geometry container.  Use OGR_G_Clone() to make a copy.
@@ -1819,7 +1819,7 @@ OGRGeometryH OGR_G_Value( OGRGeometryH hGeom, double dfDistance )
  * Libraries should generally *not* use that method, since that could interfere
  * with other libraries or applications.
  *
- * Note that it *does* not affect the behaviour of the C++ API.
+ * Note that it *does* not affect the behavior of the C++ API.
  *
  * @param bFlag TRUE if non-linear geometries might be returned (default value).
  *              FALSE to ask for non-linear geometries to be approximated as

@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Adam Nowacki
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2017, Dmitry Baryshnikov, <polimax@mail.ru>
  * Copyright (c) 2017, NextGIS, <info@nextgis.com>
  *
@@ -41,9 +41,8 @@
 #include <vector>
 #include <utility>
 
-#include <curl/curl.h>
-
 #include "cpl_conv.h"
+#include "cpl_curl_priv.h"
 #include "cpl_http.h"
 #include "gdal_alg.h"
 #include "gdal_pam.h"
@@ -237,6 +236,7 @@ public:
     virtual GDALDataset* GetDataset(const char *pszKey,
                                     char **papszOpenOptions) const = 0;
     virtual void Clean() = 0;
+    virtual int GetCleanThreadRunTimeout() = 0;
 protected:
     CPLString m_soPath;
 };
@@ -272,15 +272,22 @@ private:
 /*                            GDALWMSDataset                            */
 /************************************************************************/
 
-class GDALWMSDataset : public GDALPamDataset {
+class GDALWMSDataset final: public GDALPamDataset {
     friend class GDALWMSRasterBand;
 
 public:
     GDALWMSDataset();
     virtual ~GDALWMSDataset();
 
-    virtual const char *GetProjectionRef() override;
-    virtual CPLErr SetProjection(const char *proj) override;
+    virtual const char *_GetProjectionRef() override;
+    virtual CPLErr _SetProjection(const char *proj) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
+
     virtual CPLErr GetGeoTransform(double *gt) override;
     virtual CPLErr SetGeoTransform(double *gt) override;
     virtual CPLErr AdviseRead(int x0, int y0, int sx, int sy, int bsx, int bsy, GDALDataType bdt, int band_count, int *band_map, char **options) override;
@@ -375,6 +382,11 @@ public:
         list2vec(vMax,pszMax);
     }
 
+    // Set open options for tiles
+    // Works like a <set>, only one entry with a give name can exist, last one set wins
+    // If the value is null, the entry is deleted
+    void SetTileOO(const char* pszName, const char* pszValue);
+
     void SetXML(const char *psz) {
         m_osXML.clear();
         if (psz)
@@ -432,6 +444,7 @@ protected:
     CPLString m_osUserAgent;
     CPLString m_osReferer;
     CPLString m_osUserPwd;
+    std::string m_osAccept{}; // HTTP Accept header
 
     GDALWMSDataWindow m_default_data_window;
     int m_default_block_size_x;
@@ -454,7 +467,7 @@ protected:
 /*                            GDALWMSRasterBand                         */
 /************************************************************************/
 
-class GDALWMSRasterBand : public GDALPamRasterBand {
+class GDALWMSRasterBand final: public GDALPamRasterBand {
     friend class GDALWMSDataset;
     void    ComputeRequestInfo( GDALWMSImageRequestInfo &iri,
                                 GDALWMSTiledImageRequestInfo &tiri,
@@ -497,7 +510,7 @@ protected:
                               int to_buffer_band, void *buffer, int advise_read);
     CPLErr ReadBlockFromDataset(GDALDataset *ds, int x, int y, int to_buffer_band,
                                                    void *buffer, int advise_read);
-    CPLErr ZeroBlock(int x, int y, int to_buffer_band, void *buffer);
+    CPLErr EmptyBlock(int x, int y, int to_buffer_band, void *buffer);
     static CPLErr ReportWMSException(const char *file_name);
 
 protected:

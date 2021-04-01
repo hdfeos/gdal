@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -9,7 +9,7 @@
 #
 ###############################################################################
 # Copyright (c) 2003, Frank Warmerdam <warmerdam@pobox.com>
-# Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -31,35 +31,23 @@
 ###############################################################################
 
 import os
-import sys
 import shutil
 from time import sleep
 import hashlib
+import base64
 from osgeo import gdal
-
-sys.path.append('../pymod')
-
 import gdaltest
+import pytest
 
-###############################################################################
-# Verify we have the driver.
-
-
-def wms_1():
-
-    gdaltest.wms_drv = gdal.GetDriverByName('WMS')
-    if gdaltest.wms_drv is None:
-        return 'skip'
-    return 'success'
+pytestmark = pytest.mark.require_driver('WMS')
 
 ###############################################################################
 # Open the WMS dataset
 
 
 def wms_2():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+    #Set the driver so we don't have to search it by name again
+    gdaltest.wms_drv = gdal.GetDriverByName('WMS')
 
     # NOTE - mloskot:
     # This is a dirty hack checking if remote WMS service is online.
@@ -70,14 +58,12 @@ def wms_2():
     gdaltest.wms_ds = None
 
     if not gdaltest.wms_srv1_ok:
-        return 'skip'
+        pytest.skip()
 
-    gdaltest.wms_ds = gdal.Open('data/pop_wms.xml')
+    gdaltest.wms_ds = gdal.Open('data/wms/pop_wms.xml')
 
-    if gdaltest.wms_ds is not None:
-        return 'success'
-    gdaltest.post_reason('open failed.')
-    return 'fail'
+    if gdaltest.wms_ds is None:
+        pytest.fail('open failed.')
 
 ###############################################################################
 # Check various things about the configuration.
@@ -85,43 +71,23 @@ def wms_2():
 
 def wms_3():
 
-    if gdaltest.wms_drv is None or gdaltest.wms_ds is None:
-        return 'skip'
+    if gdaltest.wms_ds is None or not gdaltest.wms_srv1_ok:
+        pytest.skip()
 
-    if not gdaltest.wms_srv1_ok:
-        return 'skip'
-
-    if gdaltest.wms_ds.RasterXSize != 36000 \
-       or gdaltest.wms_ds.RasterYSize != 14500 \
-       or gdaltest.wms_ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert gdaltest.wms_ds.RasterXSize == 36000 and gdaltest.wms_ds.RasterYSize == 14500 and gdaltest.wms_ds.RasterCount == 3, \
+        'wrong size or bands'
 
     wkt = gdaltest.wms_ds.GetProjectionRef()
-    if wkt[:14] != 'GEOGCS["WGS 84':
-        gdaltest.post_reason('Got wrong SRS: ' + wkt)
-        return 'fail'
+    assert wkt[:14] == 'GEOGCS["WGS 84', ('Got wrong SRS: ' + wkt)
 
     gt = gdaltest.wms_ds.GetGeoTransform()
-    if abs(gt[0] - -180) > 0.00001 \
-       or abs(gt[3] - 85) > 0.00001 \
-       or abs(gt[1] - 0.01) > 0.00001 \
-       or abs(gt[2] - 0) > 0.00001 \
-       or abs(gt[5] - -0.01) > 0.00001 \
-       or abs(gt[4] - 0) > 0.00001:
-        gdaltest.post_reason('wrong geotransform')
-        print(gt)
-        return 'fail'
+    assert gt[0] == pytest.approx(-180, abs=0.00001) and gt[3] == pytest.approx(85, abs=0.00001) and gt[1] == pytest.approx(0.01, abs=0.00001) and gt[2] == pytest.approx(0, abs=0.00001) and gt[5] == pytest.approx(-0.01, abs=0.00001) and gt[4] == pytest.approx(0, abs=0.00001), \
+        'wrong geotransform'
 
-    if gdaltest.wms_ds.GetRasterBand(1).GetOverviewCount() < 1:
-        gdaltest.post_reason('no overviews!')
-        return 'fail'
+    assert gdaltest.wms_ds.GetRasterBand(1).GetOverviewCount() >= 1, 'no overviews!'
 
-    if gdaltest.wms_ds.GetRasterBand(1).DataType < gdal.GDT_Byte:
-        gdaltest.post_reason('wrong band data type')
-        return 'fail'
-
-    return 'success'
+    assert gdaltest.wms_ds.GetRasterBand(1).DataType >= gdal.GDT_Byte, \
+        'wrong band data type'
 
 ###############################################################################
 # Check checksum for a small region.
@@ -129,11 +95,8 @@ def wms_3():
 
 def wms_4():
 
-    if gdaltest.wms_drv is None or gdaltest.wms_ds is None:
-        return 'skip'
-
-    if not gdaltest.wms_srv1_ok:
-        return 'skip'
+    if gdaltest.wms_ds is None or not gdaltest.wms_srv1_ok:
+        pytest.skip()
 
     gdal.SetConfigOption('CPL_ACCUM_ERROR_MSG', 'ON')
     gdal.PushErrorHandler('CPLQuietErrorHandler')
@@ -146,88 +109,57 @@ def wms_4():
     gdal.ErrorReset()
 
     if msg is not None and msg.find('Service denied due to system overload') != -1:
-        print(msg)
-        return 'skip'
+        pytest.skip(msg)
 
-    if cs != 57182:
-        gdaltest.post_reason('Wrong checksum: ' + str(cs))
-        return 'fail'
-
-    return 'success'
+    assert cs == 57182, ('Wrong checksum: ' + str(cs))
 
 ###############################################################################
 # Open the WMS service using XML as filename.
 
 
-def wms_5():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
-
+def test_wms_5():
     # We don't need to check if the remote service is online as we
     # don't need a connection for this test
 
     fn = '<GDAL_WMS><Service name="WMS"><Version>1.1.1</Version><ServerUrl>http://onearth.jpl.nasa.gov/wms.cgi?</ServerUrl><SRS>EPSG:4326</SRS><ImageFormat>image/jpeg</ImageFormat><Layers>modis,global_mosaic</Layers><Styles></Styles></Service><DataWindow><UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90.0</UpperLeftY><LowerRightX>180.0</LowerRightX><LowerRightY>-90.0</LowerRightY><SizeX>2666666</SizeX><SizeY>1333333</SizeY></DataWindow><Projection>EPSG:4326</Projection><BandsCount>3</BandsCount></GDAL_WMS>'
-
     ds = gdal.Open(fn)
 
-    if ds is None:
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+    assert ds is not None, 'open failed.'
 
-    if ds.RasterXSize != 2666666 \
-       or ds.RasterYSize != 1333333 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 2666666 and ds.RasterYSize == 1333333 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test TileService
 
 
-def wms_6():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_6():
 
     # We don't need to check if the remote service is online as we
     # don't need a connection for this test
 
     fn = '<GDAL_WMS><Service name="TileService"><Version>1</Version><ServerUrl>http://s0.tileservice.worldwindcentral.com/getTile?</ServerUrl><Dataset>za.johannesburg_2006_20cm</Dataset></Service><DataWindow><UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90.0</UpperLeftY><LowerRightX>180.0</LowerRightX><LowerRightY>-90.0</LowerRightY><SizeX>268435456</SizeX><SizeY>134217728</SizeY><TileLevel>19</TileLevel></DataWindow><Projection>EPSG:4326</Projection><OverviewCount>16</OverviewCount><BlockSizeX>512</BlockSizeX><BlockSizeY>512</BlockSizeY><BandsCount>3</BandsCount></GDAL_WMS>'
-
     ds = gdal.Open(fn)
 
-    if ds is None:
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+    assert ds is not None, 'open failed.'
 
-    if ds.RasterXSize != 268435456 \
-       or ds.RasterYSize != 134217728 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 268435456 and ds.RasterYSize == 134217728 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test TMS
 
 
-def wms_7():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_7():
 
     srv = 'http://tilecache.osgeo.org/wms-c/Basic.py'
     gdaltest.metacarta_tms = False
     if gdaltest.gdalurlopen(srv) is None:
-        return 'skip'
+        pytest.skip()
     gdaltest.metacarta_tms = True
 
     tms = """<GDAL_WMS>
@@ -253,38 +185,22 @@ def wms_7():
 
     ds = gdal.Open(tms)
 
-    if ds is None:
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+    assert ds is not None, 'open failed.'
 
-    if ds.RasterXSize != 268435456 \
-       or ds.RasterYSize != 134217728 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        print(ds.RasterXSize)
-        print(ds.RasterYSize)
-        return 'fail'
+    assert ds.RasterXSize == 268435456 and ds.RasterYSize == 134217728 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
-    if ds.GetRasterBand(1).GetOverview(18).XSize != 512 \
-       or ds.GetRasterBand(1).GetOverview(18).YSize != 256:
-        print(ds.GetRasterBand(1).GetOverview(18).XSize)
-        print(ds.GetRasterBand(1).GetOverview(18).YSize)
-        return 'fail'
+    assert ds.GetRasterBand(1).GetOverview(18).XSize == 512 and ds.GetRasterBand(1).GetOverview(18).YSize == 256
 
     ds.GetRasterBand(1).GetOverview(18).ReadRaster(0, 0, 512, 256)
 
     ds = None
 
-    return 'success'
-
 
 ###############################################################################
 # Test TMS with cache
 
-def wms_8():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_8():
 
     # server_url = 'http://tilecache.osgeo.org/wms-c/Basic.py'
     # wmstms_version = '/1.0.0/basic'
@@ -383,7 +299,7 @@ def wms_8():
 </GDAL_WMS>""" % server_url_mask
 
     if gdaltest.gdalurlopen(server_url) is None:
-        return 'skip'
+        pytest.skip()
 
     try:
         shutil.rmtree('tmp/gdalwmscache')
@@ -392,15 +308,11 @@ def wms_8():
 
     ds = gdal.Open(tms)
 
-    if ds is None:
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+    assert ds is not None, 'open failed.'
 
     # Check cache metadata item
     cache_path = ds.GetMetadataItem("CACHE_PATH")
-    if not cache_path:
-        gdaltest.post_reason('did not get expected cache path metadata item')
-        return 'fail'
+    assert cache_path, 'did not get expected cache path metadata item'
 
     cache_subfolder = hashlib.md5(server_url_mask.encode('utf-8')).hexdigest()
 
@@ -408,7 +320,7 @@ def wms_8():
     data = ds.GetRasterBand(1).GetOverview(ovr_upper_level).ReadRaster(0, 0, 512, 512)
     if gdal.GetLastErrorMsg() != '':
         if gdaltest.gdalurlopen(server_url + zero_tile) is None:
-            return 'skip'
+            pytest.skip()
 
     ds = None
 
@@ -425,17 +337,14 @@ def wms_8():
         try:
             os.stat(expected_file)
         except OSError:
-            gdaltest.post_reason('%s should exist' % expected_file)
-            return 'fail'
+            pytest.fail('%s should exist' % expected_file)
 
     # Now, we should read from the cache
     ds = gdal.Open(tms)
     cached_data = ds.GetRasterBand(1).GetOverview(ovr_upper_level).ReadRaster(0, 0, 512, 512)
     ds = None
 
-    if data != cached_data:
-        gdaltest.post_reason('data != cached_data')
-        return 'fail'
+    assert data == cached_data, 'data != cached_data'
 
     # Replace the cache with fake data
     for expected_file in expected_files:
@@ -451,9 +360,7 @@ def wms_8():
     ds = gdal.Open(tms)
     cs = ds.GetRasterBand(1).GetOverview(ovr_upper_level).Checksum()
     ds = None
-    if cs != 0:
-        gdaltest.post_reason('cs != 0')
-        return 'fail'
+    assert cs == 0, 'cs != 0'
 
     # Test with GDAL_DEFAULT_WMS_CACHE_PATH
     # Now, we should read from the cache
@@ -462,9 +369,7 @@ def wms_8():
     cs = ds.GetRasterBand(1).GetOverview(ovr_upper_level).Checksum()
     ds = None
     gdal.SetConfigOption("GDAL_DEFAULT_WMS_CACHE_PATH", None)
-    if cs != 0:
-        gdaltest.post_reason('cs != 0')
-        return 'fail'
+    assert cs == 0, 'cs != 0'
 
     # Check maxsize and expired tags
     tms_expires = """<GDAL_WMS>
@@ -500,19 +405,14 @@ def wms_8():
 
     # tiles should be overwritten by new ones
     for expected_file in expected_files:
-        if os.path.getmtime(expected_file) <= mod_time:
-            return 'fail'
+        assert os.path.getmtime(expected_file) > mod_time
 
-    return 'success'
 
 ###############################################################################
 # Test OnEarth Tiled WMS minidriver
 
-
+# Permanently down
 def wms_9():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
 
     tms = """<GDAL_WMS>
     <Service name="TiledWMS">
@@ -521,129 +421,91 @@ def wms_9():
     </Service>
 </GDAL_WMS>
 """
-
     ds = gdal.Open(tms)
 
     if ds is None:
         srv = 'http://onearth.jpl.nasa.gov/wms.cgi?'
         if gdaltest.gdalurlopen(srv) is None:
-            return 'skip'
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+            pytest.skip()
+        pytest.fail('open failed.')
 
     expected_cs = 5478
     cs = ds.GetRasterBand(1).GetOverview(9).Checksum()
 
-    if cs != expected_cs:
-        gdaltest.post_reason('Did not get expected SRTM checksum.')
-        print(cs)
-        return 'fail'
+    assert cs == expected_cs, 'Did not get expected SRTM checksum.'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test getting subdatasets from GetCapabilities
 
-
 def wms_10():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
-
     if not gdaltest.wms_srv1_ok:
-        return 'skip'
+        pytest.skip()
 
     name = "WMS:http://sedac.ciesin.columbia.edu/mapserver/map/GPWv3?"
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     subdatasets = ds.GetMetadata("SUBDATASETS")
-    if not subdatasets:
-        gdaltest.post_reason('did not get expected subdataset count')
-        print(subdatasets)
-        return 'fail'
+    assert subdatasets, 'did not get expected subdataset count'
 
     ds = None
 
     name = subdatasets['SUBDATASET_1_NAME']
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test getting subdatasets from GetTileService
 
 
+# Permanently down
 def wms_11():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
-
     if gdaltest.skip_on_travis():
-        return 'skip'
+        pytest.skip()
 
     srv = 'http://onearth.jpl.nasa.gov/wms.cgi'
     if gdaltest.gdalurlopen(srv) is None:
-        return 'skip'
+        pytest.skip()
 
     name = "WMS:http://onearth.jpl.nasa.gov/wms.cgi?request=GetTileService"
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     subdatasets = ds.GetMetadata("SUBDATASETS")
-    if not subdatasets:
-        gdaltest.post_reason('did not get expected subdataset count')
-        print(subdatasets)
-        return 'fail'
+    assert subdatasets, 'did not get expected subdataset count'
 
     ds = None
 
     name = subdatasets['SUBDATASET_1_NAME']
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test getting subdatasets from a TMS server
 
 
-def wms_12():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_12():
 
     if gdaltest.metacarta_tms is not True:
-        return 'skip'
+        pytest.skip()
 
     name = "http://tilecache.osgeo.org/wms-c/Basic.py/1.0.0/"
     ds = gdal.Open(name)
     if ds is None:
         if gdaltest.gdalurlopen('http://tilecache.osgeo.org/wms-c/Basic.py/1.0.0/basic/0/0/0.png') is None:
-            return 'skip'
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+            pytest.skip()
+        pytest.fail('open of %s failed.' % name)
 
     subdatasets = ds.GetMetadata("SUBDATASETS")
-    if not subdatasets:
-        gdaltest.post_reason('did not get expected subdataset count')
-        print(subdatasets)
-        return 'fail'
+    assert subdatasets, 'did not get expected subdataset count'
 
     ds = None
 
@@ -654,40 +516,31 @@ def wms_12():
             ds = gdal.Open(name)
             if ds is None:
                 if gdaltest.gdalurlopen('http://tilecache.osgeo.org/wms-c/Basic.py/1.0.0/basic/0/0/0.png') is None:
-                    return 'skip'
-                gdaltest.post_reason('open of %s failed.' % name)
-                return 'fail'
+                    pytest.skip()
+                pytest.fail('open of %s failed.' % name)
             ds = None
 
-    return 'success'
 
 ###############################################################################
 # Test reading WMS through VRT (test effect of r21866)
 
 
-def wms_13():
+def test_wms_13():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
-
-    ds = gdal.Open("data/DNEC_250K.vrt")
+    ds = gdal.Open("data/wms/DNEC_250K.vrt")
     if ds.ReadRaster(0, 0, 1024, 682) is None:
         srv = 'http://wms.geobase.ca/wms-bin/cubeserv.cgi?SERVICE=WMS&VERSION=1.1.1&REQUEST=GeCapabilities'
         if gdaltest.gdalurlopen(srv) is None:
-            return 'skip'
-        return 'fail'
+            pytest.skip()
+        pytest.fail()
     ds = None
-
-    return 'success'
 
 
 ###############################################################################
 # Test reading Virtual Earth layer
 
-def wms_14():
+def test_wms_14():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
     ds = gdal.Open("""<GDAL_WMS>
   <Service name="VirtualEarth">
     <ServerUrl>http://a${server_num}.ortho.tiles.virtualearth.net/tiles/a${quadkey}.jpeg?g=90</ServerUrl>
@@ -696,122 +549,77 @@ def wms_14():
     if ds is None:
         return' fail'
 
-    if ds.RasterXSize != 134217728 \
-       or ds.RasterYSize != 134217728 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 536870912 and ds.RasterYSize == 536870912 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     wkt = ds.GetProjectionRef()
-    if wkt.find('PROJCS["Google Maps Global Mercator"') != 0:
-        gdaltest.post_reason('Got wrong SRS: ' + wkt)
-        return 'fail'
+    assert 'EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"]' in wkt, \
+        ('Got wrong SRS: ' + wkt)
 
     gt = ds.GetGeoTransform()
-    if abs(gt[0] - -20037508.34278924,) > 0.00001 \
-       or abs(gt[3] - 20037508.34278924,) > 0.00001 \
-       or abs(gt[1] - 0.2985821417389697) > 0.00001 \
-       or abs(gt[2] - 0) > 0.00001 \
-       or abs(gt[5] - -0.2985821417389697,) > 0.00001 \
-       or abs(gt[4] - 0) > 0.00001:
-        gdaltest.post_reason('wrong geotransform')
-        print(gt)
-        return 'fail'
+    assert abs(gt[0] - -20037508.34278924,) <= 0.00001 and abs(gt[3] - 20037508.34278924,) <= 0.00001 and gt[1] == pytest.approx(0.07464553543474242, abs=0.00001) and gt[2] == pytest.approx(0, abs=0.00001) and abs(gt[5] - -0.07464553543474242,) <= 0.00001 and gt[4] == pytest.approx(0, abs=0.00001), \
+        'wrong geotransform'
 
-    if ds.GetRasterBand(1).GetOverviewCount() != 18:
-        gdaltest.post_reason('bad overview count')
-        print(ds.GetRasterBand(1).GetOverviewCount())
-        return 'fail'
+    assert ds.GetRasterBand(1).GetOverviewCount() == 20, 'bad overview count'
 
     (block_xsize, block_ysize) = ds.GetRasterBand(1).GetBlockSize()
     if block_xsize != 256 or block_ysize != 256:
-        gdaltest.post_reason('bad block size')
         print("(%d, %d)" % (block_xsize, block_ysize))
-        return 'fail'
+        pytest.fail('bad block size')
 
-    return 'success'
 
 ###############################################################################
 # Test reading ArcGIS MapServer JSon definition and CreateCopy()
 
 
-def wms_15():
+def test_wms_15():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
-    src_ds = gdal.Open("http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json&pretty=true")
+    srv = 'http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json&pretty=true'
+    src_ds = gdal.Open(srv)
     if src_ds is None:
-        srv = 'http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json&pretty=true'
         if gdaltest.gdalurlopen(srv) is None:
-            return 'skip'
-        return 'fail'
+            pytest.skip()
+        pytest.fail()
     ds = gdal.GetDriverByName("WMS").CreateCopy("/vsimem/wms.xml", src_ds)
     src_ds = None
+    assert ds, 'failed to copy'
 
-    if ds is None:
-        return' fail'
-
-    if ds.RasterXSize != 1073741824 \
-       or ds.RasterYSize != 1073741824 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 1073741824 and ds.RasterYSize == 1073741824 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     wkt = ds.GetProjectionRef()
-    if wkt.find('PROJCS["WGS 84 / Pseudo-Mercator"') != 0:
-        gdaltest.post_reason('Got wrong SRS: ' + wkt)
-        return 'fail'
+    assert wkt.startswith('PROJCS["WGS 84 / Pseudo-Mercator"'), ('Got wrong SRS: ' + wkt)
 
-    gt = ds.GetGeoTransform()
-    if abs(gt[0] - -20037508.342787001) > 0.00001 \
-       or abs(gt[3] - 20037508.342787001) > 0.00001 \
-       or abs(gt[1] - 0.037322767717361482) > 0.00001 \
-       or abs(gt[2] - 0) > 0.00001 \
-       or abs(gt[5] - -0.037322767717361482) > 0.00001 \
-       or abs(gt[4] - 0) > 0.00001:
-        gdaltest.post_reason('wrong geotransform')
-        print(gt)
-        return 'fail'
+    corner = 20037508.342787001
+    res = 0.037322767717361482
+    assert ds.GetGeoTransform() == pytest.approx([-corner, res, 0, corner, 0, -res], abs = 0.00001), 'wrong geotransform'
 
-    if ds.GetRasterBand(1).GetOverviewCount() != 22:
-        gdaltest.post_reason('bad overview count')
-        print(ds.GetRasterBand(1).GetOverviewCount())
-        return 'fail'
-
-    (block_xsize, block_ysize) = ds.GetRasterBand(1).GetBlockSize()
-    if block_xsize != 256 or block_ysize != 256:
-        gdaltest.post_reason('bad block size')
-        print("(%d, %d)" % (block_xsize, block_ysize))
-        return 'fail'
+    assert ds.GetRasterBand(1).GetOverviewCount() == 22, 'bad overview count'
+    assert ds.GetRasterBand(1).GetBlockSize() == [256, 256]
 
     ds = None
     gdal.Unlink("/vsimem/wms.xml")
-
-    return 'success'
 
 ###############################################################################
 # Test getting subdatasets from WMS-C Capabilities
 
 
-def wms_16():
+def test_wms_16():
 
-    if gdaltest.wms_drv is None:
-        return 'skip'
+    if not gdaltest.run_slow_tests():
+        # server often returns a 504 after ages; this test can take minutes
+        pytest.skip()
 
     name = "WMS:http://demo.opengeo.org/geoserver/gwc/service/wms?tiled=TRUE"
     ds = gdal.Open(name)
     if ds is None:
         srv = 'http://demo.opengeo.org/geoserver/gwc/service/wms?'
         if gdaltest.gdalurlopen(srv) is None:
-            return 'skip'
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+            pytest.skip()
+        pytest.fail('open of %s failed.' % name)
 
     subdatasets = ds.GetMetadata("SUBDATASETS")
-    if not subdatasets:
-        gdaltest.post_reason('did not get expected subdataset count')
-        print(subdatasets)
-        return 'fail'
+    assert subdatasets, 'did not get expected subdataset count'
 
     ds = None
 
@@ -820,14 +628,11 @@ def wms_16():
         if key[-5:] == '_NAME' and subdatasets[key].find('bugsites') != -1:
             name = subdatasets[key]
             break
-    if name is None:
-        return 'fail'
+    assert name is not None
 
     name = 'http://demo.opengeo.org/geoserver/wms?SERVICE=WMS&request=GetMap&version=1.1.1&layers=og:bugsites&styles=&srs=EPSG:26713&bbox=599351.50000000,4914096.00000000,608471.00000000,4920512.00000000'
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     # Matches feature of "WFS:http://demo.opengeo.org/geoserver/wfs?SRSNAME=EPSG:900913" og:bugsites
     # OGRFeature(og:bugsites):68846
@@ -840,87 +645,63 @@ def wms_16():
     val = ds.GetRasterBand(1).GetMetadataItem(pixel, "LocationInfo")
 
     # Some bug in GeoServer ?
-    if val is not None and val.find('java.lang.NoSuchMethodError: org.geoserver.wms.WMS.pixelToWorld') >= 0:
-        print(val)
-        return 'skip'
+    if val is not None and 'java.lang.NoSuchMethodError: org.geoserver.wms.WMS.pixelToWorld' in val:
+        pytest.skip(val)
 
-    if val is not None and (val.find('Gateway Time-out') >= 0 or
-                            val.find('HTTP error code : 5') >= 0):
-        return 'skip'
+    if val is not None and ('Gateway Time-out' in val or
+                            'HTTP error code : 5' in val):
+        pytest.skip()
 
     if val is None or val.find('<og:cat>86</og:cat>') == -1:
-        if val.find('java.lang.NullPointerException') >= 0 or val.find('504 Gateway Time-out') >= 0 or val.find('java.lang.OutOfMemoryError') >= 0:
-            print(val)
-            return 'skip'
+        if 'java.lang.NullPointerException' in val or '504 Gateway Time-out' in val or 'java.lang.OutOfMemoryError' in val:
+            pytest.skip(val)
 
-        gdaltest.post_reason('expected a value')
         print(val)
-        return 'fail'
+        pytest.fail('expected a value')
 
     # Ask again. Should be cached
     val_again = ds.GetRasterBand(1).GetMetadataItem(pixel, "LocationInfo")
-    if val_again != val:
-        gdaltest.post_reason('expected a value')
-        print(val_again)
-        return 'fail'
+    assert val_again == val, 'expected a value'
 
     # Ask another band. Should be cached
     val2 = ds.GetRasterBand(2).GetMetadataItem(pixel, "LocationInfo")
-    if val2 != val:
-        gdaltest.post_reason('expected a value')
-        print(val2)
-        return 'fail'
+    assert val2 == val, 'expected a value'
 
     # Ask an overview band
     val2 = ds.GetRasterBand(1).GetOverview(0).GetMetadataItem(pixel, "LocationInfo")
     if val2 != val:
-        if val2.find('java.lang.NullPointerException') >= 0 or val2.find('504 Gateway Time-out') >= 0 or val2.find('java.lang.OutOfMemoryError') >= 0:
-            print(val2)
-            return 'skip'
+        if 'java.lang.NullPointerException' in val2 or '504 Gateway Time-out' in val2 or 'java.lang.OutOfMemoryError' in val2:
+            pytest.skip(val2)
 
-        gdaltest.post_reason('expected a value')
         print(val2)
-        return 'fail'
+        pytest.fail('expected a value')
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test a TiledWMS dataset with a color table (#4613)
 
-
+# Permanently down
 def wms_17():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
 
     srv = 'http://onmoon.lmmp.nasa.gov/sites/wms.cgi?'
     if gdaltest.gdalurlopen(srv) is None:
-        return 'skip'
+        pytest.skip()
 
     name = '<GDAL_WMS><Service name="TiledWMS"><ServerUrl>http://onmoon.lmmp.nasa.gov/sites/wms.cgi?</ServerUrl><TiledGroupName>King Crater DEM Color Confidence, LMMP</TiledGroupName></Service></GDAL_WMS>'
     ds = gdal.Open(name)
-    if ds is None:
-        gdaltest.post_reason('open of %s failed.' % name)
-        return 'fail'
+    assert ds is not None, ('open of %s failed.' % name)
 
     band = ds.GetRasterBand(1)
-    if band.GetColorTable() is None:
-        return 'fail'
+    assert band.GetColorTable() is not None
 
     ds = None
 
-    return 'success'
-
 ###############################################################################
-# Test a ArcGIS Server
+# Test an ArcGIS Server
 
 
-def wms_18():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_18():
 
     # We don't need to check if the remote service is online as we
     # don't need a connection for this test.
@@ -929,109 +710,211 @@ def wms_18():
 
     ds = gdal.Open(fn)
 
-    if ds is None:
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+    assert ds is not None, 'open failed.'
 
-    if ds.RasterXSize != 512 \
-       or ds.RasterYSize != 512 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 512 and ds.RasterYSize == 512 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     # todo: add locationinfo test
 
     # add getting image test
-    if gdaltest.gdalurlopen('http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Specialty/ESRI_StateCityHighway_USA/MapServer') is None:
-        return 'skip'
+    if not gdaltest.gdalurlopen('http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Specialty/ESRI_StateCityHighway_USA/MapServer'):
+        ds = None
+        pytest.skip()
 
     expected_cs = 12824
     cs = ds.GetRasterBand(1).Checksum()
-    if cs != expected_cs:
-        gdaltest.post_reason('Did not get expected SRTM checksum.')
-        print(cs)
-        return 'fail'
-
+    assert cs == expected_cs, 'Did not get expected checksum.'
     ds = None
 
-    return 'success'
+    # Alternative url with additional parameters
+    fn = '<GDAL_WMS><Service name="AGS"><ServerUrl>http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Specialty/ESRI_StateCityHighway_USA/MapServer/export?dpi=96&amp;layerdefs=&amp;layerTimeOptions=&amp;dynamicLayers=&amp;</ServerUrl><BBoxOrder>xyXY</BBoxOrder><SRS>EPSG:3857</SRS></Service><DataWindow><UpperLeftX>-20037508.34</UpperLeftX><UpperLeftY>20037508.34</UpperLeftY><LowerRightX>20037508.34</LowerRightX><LowerRightY>-20037508.34</LowerRightY><SizeX>512</SizeX><SizeY>512</SizeY></DataWindow></GDAL_WMS>'
+
+    ds = gdal.Open(fn)
+
+    assert ds is not None, 'open failed.'
+    assert ds.RasterXSize == 512 and ds.RasterYSize == 512 and ds.RasterCount == 3, \
+        'wrong size or bands'
+    cs = ds.GetRasterBand(1).Checksum()
+    assert cs == expected_cs, 'Did not get expected checksum.'
+    ds = None
 
 ###############################################################################
 # Test a IIP server
 
 
-def wms_19():
-
-    if gdaltest.wms_drv is None:
-        return 'skip'
+def test_wms_19():
 
     ds = gdal.Open('IIP:http://merovingio.c2rmf.cnrs.fr/fcgi-bin/iipsrv.fcgi?FIF=globe.256x256.tif')
 
     if ds is None:
         if gdaltest.gdalurlopen('http://merovingio.c2rmf.cnrs.fr/fcgi-bin/iipsrv.fcgi?FIF=globe.256x256.tif&obj=Basic-Info') is None:
-            return 'skip'
-        gdaltest.post_reason('open failed.')
-        return 'fail'
+            pytest.skip()
+        pytest.fail('open failed.')
 
-    if ds.RasterXSize != 86400 \
-       or ds.RasterYSize != 43200 \
-       or ds.RasterCount != 3:
-        gdaltest.post_reason('wrong size or bands')
-        return 'fail'
+    assert ds.RasterXSize == 86400 and ds.RasterYSize == 43200 and ds.RasterCount == 3, \
+        'wrong size or bands'
 
     # Expected checksum seems to change over time. Hum...
     cs = ds.GetRasterBand(1).GetOverview(ds.GetRasterBand(1).GetOverviewCount() - 1).Checksum()
-    if cs == 0:
-        gdaltest.post_reason('Did not get expected checksum.')
-        print(cs)
-        return 'fail'
+    assert cs != 0, 'Did not get expected checksum.'
 
     ds = None
 
-    return 'success'
 ###############################################################################
+# Test reading data via MRF/LERC
+
+def test_wms_data_via_mrf():
+
+    mrfdrv = gdal.GetDriverByName("MRF")
+
+    if mrfdrv is None or 'LERC' not in mrfdrv.GetMetadataItem('DMD_CREATIONOPTIONLIST'):
+        pytest.skip()
+
+    url = "http://astro.arcgis.com/arcgis/rest/services/OnMars/HiRISE_DEM/ImageServer/tile/${z}/${y}/${x}"
+    dstemplate = """<GDAL_WMS>
+<Service name="TMS" ServerUrl="{url}"/>
+<DataWindow SizeX="513" SizeY="513"/>
+<BandsCount>1</BandsCount><BlockSizeX>513</BlockSizeX><BlockSizeY>513</BlockSizeY>
+<DataType>{dt}</DataType><DataValues NoData="{ndv}"/>
+</GDAL_WMS>"""
+
+    # This is a LERC1 format tile service, DEM in floating point, it can be read as any type
+    # The returned no data value can also be set on read, which affects the checksum
+    testlist = [
+        # Second checksum is on graviton2
+        ("Byte", 0, (29585, 9838)), # Same as the default type, NDV not defined
+        ("Float32", 0, (56047,)), # float, default NDV
+        ("Float32", 32768.32, (33595,)), # float, Forced NDV
+    ]
+
+    for dt, ndv, expected_cs in testlist:
+        ds = gdal.Open(dstemplate.format(url = url, dt = dt, ndv=ndv))
+        assert ds.GetRasterBand(1).Checksum() in expected_cs, "datatype {} and ndv {}".format(dt, ndv)
+        ds = None
+
+def test_twms_wmsmetadriver():
+    gdaltest.gts = """<WMS_Tile_Service version="0.1.0">
+  <TiledPatterns>
+    <OnlineResource xlink:href="https://gibs.earthdata.nasa.gov/twms/epsg4326/best/twms.cgi?"/>
+    <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90" />
+    <TiledGroup>
+        <Name>MODIS Terra CorrectedReflectance TrueColor tileset</Name>
+        <Title>Corrected Reflectance (True Color, MODIS, Terra)</Title>
+        <Abstract>MODIS_Terra_CorrectedReflectance_TrueColor abstract</Abstract>
+        <Projection>GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]</Projection>
+        <Pad>0</Pad>
+        <Bands>3</Bands>
+        <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90" />
+        <Key>${time}</Key>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,88.875,-178.875,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,88.875,-178.875,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,87.75,-177.75,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,87.75,-177.75,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,85.5,-175.5,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,85.5,-175.5,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,81,-171,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,81,-171,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,72,-162,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,72,-162,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,54,-144,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,54,-144,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,18,-108,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,18,-108,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,-54,-36,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,-54,-36,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,-198,108,90 request=GetMap&layers=MODIS_Terra_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,-198,108,90]]></TilePattern>
+    </TiledGroup>
+    <TiledGroup>
+        <Name>MODIS Aqua CorrectedReflectance TrueColor tileset</Name>
+        <Title>Corrected Reflectance (True Color, MODIS, Aqua)</Title>
+        <Abstract>MODIS_Aqua_CorrectedReflectance_TrueColor abstract</Abstract>
+        <Projection>GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]</Projection>
+        <Pad>0</Pad>
+        <Bands>3</Bands>
+        <LatLonBoundingBox minx="-180" miny="-90" maxx="180" maxy="90" />
+        <Key>${time}</Key>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,88.875,-178.875,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,88.875,-178.875,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,87.75,-177.75,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,87.75,-177.75,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,85.5,-175.5,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,85.5,-175.5,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,81,-171,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,81,-171,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,72,-162,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,72,-162,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,54,-144,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,54,-144,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,18,-108,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,18,-108,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,-54,-36,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,-54,-36,90]]></TilePattern>
+        <TilePattern><![CDATA[request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&time=${time}&width=512&height=512&bbox=-180,-198,108,90 request=GetMap&layers=MODIS_Aqua_CorrectedReflectance_TrueColor&srs=EPSG:4326&format=image%2Fjpeg&styles=&width=512&height=512&bbox=-180,-198,108,90]]></TilePattern>
+    </TiledGroup>
+  </TiledPatterns>
+</WMS_Tile_Service>"""
+    gdal.FileFromMemBuffer("/vsimem/twms.xml", gdaltest.gts)
+
+    ds = gdal.Open("/vsimem/twms.xml")
+    assert ds is not None, "Open tiledWMS failed"
+    gdaltest.subdatasets = ds.GetMetadata("SUBDATASETS")
+    assert gdaltest.subdatasets, "Expected subdatasets"
+    ds = None
+    gdal.Unlink("/vsimem/twms.xml")
 
 
-def wms_cleanup():
+# This test requires the GIBS server to be available
+def test_twms_GIBS():
+
+    # if not gdaltest.run_slow_tests():
+    #     pytest.skip()
+    baseURL = "https://gibs.earthdata.nasa.gov/twms/epsg4326/best/twms.cgi?"
+
+    try:
+        subdatasets = gdaltest.subdatasets
+    except:
+        pytest.skip()
+
+    # Connects to the server
+    ds = gdal.Open(subdatasets['SUBDATASET_1_NAME'])
+    if ds is None and gdaltest.gdalurlopen(baseURL + "request=GetTileService"):
+        pytest.fail()
+    ds = None
+
+    # Connects to the server
+    options = [ "Change=time:2021-02-10" ]
+    ds = gdal.OpenEx(subdatasets['SUBDATASET_1_NAME'], open_options = options)
+    if ds is None and gdaltest.gdalurlopen(baseURL + "request=GetTileService"):
+        pytest.fail()
+    ds = None
+
+
+def test_twms_inline_configuration():
+
+    baseURL = "https://gibs.earthdata.nasa.gov/twms/epsg4326/best/twms.cgi?"
+    try:
+        gts = gdaltest.gts
+        baseURL = gdaltest.baseURL
+    except:
+        pytest.skip()
+
+    # Try inline base64 configuration
+    wms_base64gts = base64.b64encode(gts.encode())
+    twms_string = '<GDAL_WMS><Service name="TiledWMS" ServerUrl="{}"><Configuration encoding="base64">{}</Configuration></Service></GDAL_WMS>'.format(
+            baseURL, wms_base64gts.decode())
+    gdal.FileFromMemBuffer("/vsimem/twms.xml", twms_string)
+
+    # Open fails without a TiledGroupName
+    ds = gdal.Open("/vsimem/twms.xml")
+    assert ds is None, "Expected failure to open"
+
+    tiled_group_name = "MODIS Aqua CorrectedReflectance TrueColor tileset"
+    date = "2021-02-10"
+    options = [ "TiledGroupName={}".format(tiled_group_name), "Change=time:{}".format(date) ]
+    ds = gdal.OpenEx("/vsimem/twms.xml", open_options = options )
+    assert ds is not None, "Open twms with open options failed"
+    metadata = ds.GetMetadata("")
+    assert metadata["Change"] == "${time}=2021-02-10", "Change parameter not captured"
+    assert metadata["TiledGroupName"] == tiled_group_name, "TIledGroupName not captured"
+    ds = None
+
+
+def test_wms_cleanup():
 
     gdaltest.wms_ds = None
+    gdaltest.gts = None
+    gdaltest.subdatasets = None
     gdaltest.clean_tmp()
 
+    gdal.UnlinkBatch(["/vsimem/twms.xml", "/vsimem/twms.xml.aux.xml"])
     try:
         shutil.rmtree('gdalwmscache')
     except OSError:
         pass
 
-    return 'success'
 
-
-gdaltest_list = [
-    wms_1,
-    # wms_2,
-    # wms_3,
-    # wms_4,
-    wms_5,
-    wms_6,
-    wms_7,
-    wms_8,
-    # wms_9,
-    # wms_10,
-    wms_11,
-    wms_12,
-    wms_13,
-    wms_14,
-    wms_15,
-    wms_16,
-    # wms_17,
-    wms_18,
-    wms_19,
-    wms_cleanup]
-
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('wms')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

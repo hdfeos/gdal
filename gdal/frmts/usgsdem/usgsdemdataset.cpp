@@ -9,7 +9,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2001, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -285,7 +285,7 @@ static double DConvert( VSILFILE *fp, int nCharCount )
 
 class USGSDEMRasterBand;
 
-class USGSDEMDataset : public GDALPamDataset
+class USGSDEMDataset final: public GDALPamDataset
 {
     friend class USGSDEMRasterBand;
 
@@ -310,7 +310,10 @@ class USGSDEMDataset : public GDALPamDataset
     static int  Identify( GDALOpenInfo * );
     static GDALDataset *Open( GDALOpenInfo * );
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 /************************************************************************/
@@ -319,7 +322,7 @@ class USGSDEMDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class USGSDEMRasterBand : public GDALPamRasterBand
+class USGSDEMRasterBand final: public GDALPamRasterBand
 {
     friend class USGSDEMDataset;
 
@@ -601,9 +604,17 @@ int USGSDEMDataset::LoadFromFile(VSILFILE *InDem)
             j = ReadInt(InDem);
             if ( i != 1 || j != 1 )  // File OK?
             {
-                CPLError( CE_Failure, CPLE_AppDefined,
-                          "Does not appear to be a USGS DEM file." );
-                return FALSE;
+                CPL_IGNORE_RET_VAL(VSIFSeekL(InDem, 918, 0));  // Latest iteration of the A record, such as in fema06-140cm_2995441b.dem
+                i = ReadInt(InDem);
+                j = ReadInt(InDem);
+                if ( i != 1 || j != 1 )  // File OK?
+                {
+                    CPLError( CE_Failure, CPLE_AppDefined,
+                            "Does not appear to be a USGS DEM file." );
+                    return FALSE;
+                }
+                else
+                    nDataStartOffset = 918;
             }
             else
                 nDataStartOffset = 893;
@@ -804,7 +815,10 @@ int USGSDEMDataset::LoadFromFile(VSILFILE *InDem)
         adfGeoTransform[5] = (-dydelta) / 3600.0;
     }
 
-    if (!GDALCheckDatasetDimensions(nRasterXSize, nRasterYSize))
+    // IReadBlock() not ready for more than INT_MAX pixels, and that
+    // would behave badly
+    if (!GDALCheckDatasetDimensions(nRasterXSize, nRasterYSize) ||
+        nRasterXSize > INT_MAX / nRasterYSize)
     {
         return FALSE;
     }
@@ -827,7 +841,7 @@ CPLErr USGSDEMDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *USGSDEMDataset::GetProjectionRef()
+const char *USGSDEMDataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -934,7 +948,7 @@ void GDALRegister_USGSDEM()
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "dem" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "USGS Optional ASCII DEM (and CDED)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_usgsdem.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/usgsdem.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES, "Int16" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONOPTIONLIST,
 "<CreationOptionList>"

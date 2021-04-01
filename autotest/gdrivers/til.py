@@ -1,13 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR Test Suite
 # Purpose:  Test TIL driver
-# Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault, <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2010, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -29,9 +29,7 @@
 ###############################################################################
 
 import os
-import sys
 
-sys.path.append('../pymod')
 
 import gdaltest
 from osgeo import gdal
@@ -40,101 +38,51 @@ from osgeo import gdal
 # Test a fake TIL dataset
 
 
-def til_1():
+def test_til_1():
 
-    tst = gdaltest.GDALTest('TIL', 'testtil.til', 1, 4672)
+    tst = gdaltest.GDALTest('TIL', 'til/testtil.til', 1, 4672)
     return tst.testOpen()
 
 ###############################################################################
 # Check GetFileList() result (#4018) & IMD
 
 
-def til_2():
+def test_til_2():
 
-    try:
-        os.remove('data/testtil.til.aux.xml')
-    except OSError:
-        pass
-
-    ds = gdal.Open('data/testtil.til')
+    ds = gdal.Open('data/til/testtil.til')
     filelist = ds.GetFileList()
 
-    if len(filelist) != 3:
-        gdaltest.post_reason('did not get expected file list.')
-        return 'fail'
+    assert len(filelist) == 3, 'did not get expected file list.'
 
     md = ds.GetMetadata('IMAGERY')
-    if 'SATELLITEID' not in md:
-        print('SATELLITEID not present in IMAGERY Domain')
-        return 'fail'
-    if 'CLOUDCOVER' not in md:
-        print('CLOUDCOVER not present in IMAGERY Domain')
-        return 'fail'
-    if 'ACQUISITIONDATETIME' not in md:
-        print('ACQUISITIONDATETIME not present in IMAGERY Domain')
-        return 'fail'
+    assert 'SATELLITEID' in md, 'SATELLITEID not present in IMAGERY Domain'
+    assert 'CLOUDCOVER' in md, 'CLOUDCOVER not present in IMAGERY Domain'
+    assert 'ACQUISITIONDATETIME' in md, \
+        'ACQUISITIONDATETIME not present in IMAGERY Domain'
 
     ds = None
 
-    try:
-        os.stat('data/testtil.til.aux.xml')
-        gdaltest.post_reason('Expected not generation of data/testtil.til.aux.xml')
-        return 'fail'
-    except OSError:
-        pass
-
-    return 'success'
-
+    assert not os.path.exists('data/til/testtil.til.aux.xml')
+    
 ###############################################################################
 # Check GetFileList() & XML
 
 
-def til_3():
+def test_til_3():
 
-    try:
-        os.remove('data/testtil.til.aux.xml')
-    except OSError:
-        pass
-
-    ds = gdal.Open('data/testtil2.til')
+    ds = gdal.Open('data/til/testtil2.til')
     filelist = ds.GetFileList()
 
-    if len(filelist) != 3:
-        gdaltest.post_reason('did not get expected file list.')
-        return 'fail'
+    assert len(filelist) == 3, 'did not get expected file list.'
 
     md = ds.GetMetadata('IMAGERY')
-    if 'SATELLITEID' not in md:
-        print('SATELLITEID not present in IMAGERY Domain')
-        return 'fail'
-    if 'CLOUDCOVER' not in md:
-        print('CLOUDCOVER not present in IMAGERY Domain')
-        return 'fail'
-    if 'ACQUISITIONDATETIME' not in md:
-        print('ACQUISITIONDATETIME not present in IMAGERY Domain')
-        return 'fail'
+    assert 'SATELLITEID' in md, 'SATELLITEID not present in IMAGERY Domain'
+    assert 'CLOUDCOVER' in md, 'CLOUDCOVER not present in IMAGERY Domain'
+    assert 'ACQUISITIONDATETIME' in md, \
+        'ACQUISITIONDATETIME not present in IMAGERY Domain'
 
     ds = None
 
-    try:
-        os.stat('data/testtil.til.aux.xml')
-        gdaltest.post_reason('Expected not generation of data/testtil.til.aux.xml')
-        return 'fail'
-    except OSError:
-        pass
-
-    return 'success'
+    assert not os.path.exists('data/til/testtil.til.aux.xml')
 
 
-gdaltest_list = [
-    til_1,
-    til_2,
-    til_3]
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('til')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

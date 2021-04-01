@@ -3,7 +3,7 @@
  * Name:     cpl_time.cpp
  * Project:  CPL - Common Portability Library
  * Purpose:  Time functions.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  **********************************************************************
  *
@@ -82,8 +82,9 @@ struct tm * CPLUnixTimeToYMDHMS(GIntBig unixTime, struct tm* pRet)
     GIntBig days = unixTime / SECSPERDAY;
     GIntBig rem = unixTime % SECSPERDAY;
 
-    if( unixTime < -static_cast<GIntBig>(10000) * SECSPERDAY * DAYSPERLYEAR ||
-        unixTime > static_cast<GIntBig>(10000) * SECSPERDAY * DAYSPERLYEAR )
+    constexpr GIntBig TEN_THOUSAND_YEARS =
+        static_cast<GIntBig>(10000) * SECSPERDAY * DAYSPERLYEAR;
+    if( unixTime < -TEN_THOUSAND_YEARS || unixTime > TEN_THOUSAND_YEARS )
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Invalid unixTime = " CPL_FRMT_GIB,

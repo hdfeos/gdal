@@ -32,11 +32,10 @@
 #include "cpl_port.h"
 
 #include "hdf5_api.h"
-
 #include "hdf5dataset.h"
+#include "hdf5vfl.h"
 
 #include <algorithm>
-#include <mutex>
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -48,193 +47,9 @@
 #include "gdal_frmts.h"
 #include "gdal_priv.h"
 
-extern "C" int CPL_DLL GDALIsInGlobalDestructor(void);
-
 CPL_CVSID("$Id$")
 
 constexpr size_t MAX_METADATA_LEN = 32768;
-
-#ifdef H5FD_FEAT_SUPPORTS_SWMR_IO
-#define HDF5_1_10_OR_LATER
-#endif
-
-static std::mutex gMutex;
-static hid_t hFileDriver = -1;
-
-static H5FD_t *HDF5_vsil_open(const char *name, unsigned flags, hid_t fapl_id,
-            haddr_t maxaddr);
-static herr_t HDF5_vsil_close(H5FD_t *_file);
-static herr_t HDF5_vsil_query(const H5FD_t *_f1, unsigned long *flags);
-static haddr_t HDF5_vsil_get_eoa(const H5FD_t *_file, H5FD_mem_t type);
-static herr_t HDF5_vsil_set_eoa(H5FD_t *_file, H5FD_mem_t type, haddr_t addr);
-static haddr_t HDF5_vsil_get_eof(const H5FD_t *_file
-#ifdef HDF5_1_10_OR_LATER
-                                 , H5FD_mem_t type
-#endif
-);
-static herr_t HDF5_vsil_read(H5FD_t *_file, H5FD_mem_t type, hid_t fapl_id,
-                             haddr_t addr, size_t size, void *buf);
-static herr_t HDF5_vsil_write(H5FD_t *_file, H5FD_mem_t type, hid_t fapl_id,
-                              haddr_t addr, size_t size, const void *buf);
-static herr_t HDF5_vsil_truncate(H5FD_t *_file, hid_t dxpl_id, hbool_t closing);
-
-#define MAXADDR (((haddr_t)1<<(8*sizeof(haddr_t)-1))-1)
-
-/* See https://support.hdfgroup.org/HDF5/doc/TechNotes/VFL.html */
-static const H5FD_class_t HDF5_vsil_g = {
-    "vsil",                     /* name */
-    MAXADDR,                    /* maxaddr  */
-    H5F_CLOSE_WEAK,             /* fc_degree  */
-#ifdef HDF5_1_10_OR_LATER
-    nullptr,                    /* terminate */
-#endif
-    nullptr,                    /* sb_size  */
-    nullptr,                    /* sb_encode */
-    nullptr,                    /* sb_decode */
-    0,                          /* fapl_size */
-    nullptr,                    /* fapl_get  */
-    nullptr,                    /* fapl_copy */
-    nullptr,                    /* fapl_free */
-    0,                          /* dxpl_size */
-    nullptr,                    /* dxpl_copy */
-    nullptr,                    /* dxpl_free */
-    HDF5_vsil_open,             /* open */
-    HDF5_vsil_close,            /* close */
-    nullptr,                    /* cmp  */
-    HDF5_vsil_query,            /* query */
-    nullptr,                    /* get_type_map */
-    nullptr,                    /* alloc */
-    nullptr,                    /* free */
-    HDF5_vsil_get_eoa,          /* get_eoa */
-    HDF5_vsil_set_eoa,          /* set_eoa */
-    HDF5_vsil_get_eof,          /* get_eof */
-    nullptr,                    /* get_handle */
-    HDF5_vsil_read,             /* read */
-    HDF5_vsil_write,            /* write */
-    nullptr,                    /* flush */
-    HDF5_vsil_truncate,         /* truncate */
-    nullptr,                    /* lock */
-    nullptr,                    /* unlock */
-    H5FD_FLMAP_DICHOTOMY        /* fl_map */
-};
-
-typedef struct  {
-    H5FD_t          pub;            /* must be first */
-    VSILFILE       *fp = nullptr;
-    haddr_t         eoa = 0;
-    haddr_t         eof = 0;
-} HDF5_vsil_t;
-
-static H5FD_t *HDF5_vsil_open(const char *name, unsigned flags,
-                              hid_t /*fapl_id*/, haddr_t /*maxaddr*/)
-{
-    const char* openFlags = "rb";
-    if( (H5F_ACC_RDWR & flags) )
-        openFlags = "rb+";
-    if( (H5F_ACC_TRUNC & flags) || (H5F_ACC_CREAT & flags) )
-        openFlags = "wb+";
-
-    VSILFILE* fp = VSIFOpenL(name, openFlags);
-    if( !fp )
-    {
-        return nullptr;
-    }
-    if( (H5F_ACC_TRUNC & flags) )
-    {
-        VSIFTruncateL(fp, 0);
-    }
-
-    HDF5_vsil_t* fh = new HDF5_vsil_t;
-    memset(&fh->pub, 0, sizeof(fh->pub));
-    if( !fh )
-    {
-        VSIFCloseL(fp);
-        return nullptr;
-    }
-    fh->fp = fp;
-
-    VSIFSeekL(fh->fp, 0, SEEK_END);
-    fh->eof = static_cast<haddr_t>(VSIFTellL(fh->fp));
-
-    return reinterpret_cast<H5FD_t*>(fh);
-}
-
-static herr_t HDF5_vsil_close(H5FD_t *_file)
-{
-    HDF5_vsil_t* fh = reinterpret_cast<HDF5_vsil_t*>(_file);
-    int ret = VSIFCloseL(fh->fp);
-    delete fh;
-    return ret;
-}
-
-static herr_t HDF5_vsil_query(const H5FD_t *, unsigned long *flags /* out */)
-{
-    *flags = H5FD_FEAT_AGGREGATE_METADATA |
-             H5FD_FEAT_ACCUMULATE_METADATA |
-             H5FD_FEAT_DATA_SIEVE |
-             H5FD_FEAT_AGGREGATE_SMALLDATA;
-    return 0;
-}
-
-static haddr_t HDF5_vsil_get_eoa(const H5FD_t *_file, H5FD_mem_t /*type*/)
-{
-    const HDF5_vsil_t* fh = reinterpret_cast<const HDF5_vsil_t*>(_file);
-    return fh->eoa;
-}
-
-static herr_t HDF5_vsil_set_eoa(H5FD_t *_file, H5FD_mem_t /*type*/,
-                                haddr_t addr)
-{
-    HDF5_vsil_t* fh = reinterpret_cast<HDF5_vsil_t*>(_file);
-    fh->eoa = addr;
-    return 0;
-}
-
-static haddr_t HDF5_vsil_get_eof(const H5FD_t *_file
-#ifdef HDF5_1_10_OR_LATER
-                                 , H5FD_mem_t /* type */
-#endif
-                                )
-{
-    const HDF5_vsil_t* fh = reinterpret_cast<const HDF5_vsil_t*>(_file);
-    return fh->eof;
-}
-
-static herr_t HDF5_vsil_read(H5FD_t *_file, H5FD_mem_t /* type */, 
-                             hid_t /* dxpl_id */,
-                             haddr_t addr, size_t size, void *buf /*out*/)
-{
-    HDF5_vsil_t* fh = reinterpret_cast<HDF5_vsil_t*>(_file);
-    VSIFSeekL(fh->fp, static_cast<vsi_l_offset>(addr), SEEK_SET);
-    return VSIFReadL(buf, size, 1, fh->fp) == 1 ? 0 : -1;
-}
-
-static herr_t HDF5_vsil_write(H5FD_t *_file, H5FD_mem_t /* type */,
-                              hid_t /* dxpl_id */,
-                              haddr_t addr, size_t size,
-                              const void *buf /*out*/)
-{
-    HDF5_vsil_t* fh = reinterpret_cast<HDF5_vsil_t*>(_file);
-    VSIFSeekL(fh->fp, static_cast<vsi_l_offset>(addr), SEEK_SET);
-    int ret = VSIFWriteL(buf, size, 1, fh->fp) == 1 ? 0 : -1;
-    fh->eof = std::max(fh->eof, static_cast<haddr_t>(VSIFTellL(fh->fp)));
-    return ret;
-}
-
-static herr_t HDF5_vsil_truncate(H5FD_t *_file, hid_t /* dxpl_id*/,
-                                 hbool_t /*closing*/)
-{
-    HDF5_vsil_t* fh = reinterpret_cast<HDF5_vsil_t*>(_file);
-    if(fh->eoa != fh->eof)
-    {
-        if( VSIFTruncateL(fh->fp, fh->eoa) < 0 )
-        {
-            return -1;
-        }
-        fh->eof = fh->eoa;
-    }
-    return 0;
-}
 
 /************************************************************************/
 /*                          HDF5GetFileDriver()                         */
@@ -242,12 +57,7 @@ static herr_t HDF5_vsil_truncate(H5FD_t *_file, hid_t /* dxpl_id*/,
 
 hid_t HDF5GetFileDriver()
 {
-    std::lock_guard<std::mutex> oLock(gMutex);
-    if( hFileDriver < 0 )
-    {
-        hFileDriver = H5FDregister(&HDF5_vsil_g);
-    }
-    return hFileDriver;
+    return HDF5VFLGetFileDriver();
 }
 
 /************************************************************************/
@@ -256,15 +66,7 @@ hid_t HDF5GetFileDriver()
 
 void HDF5UnloadFileDriver()
 {
-    if( !GDALIsInGlobalDestructor() )
-    {
-        std::lock_guard<std::mutex> oLock(gMutex);
-        if( hFileDriver >= 0 )
-        {
-            H5FDunregister(hFileDriver);
-            hFileDriver = -1;
-        }
-    }
+    HDF5VFLUnloadFileDriver();
 }
 
 /************************************************************************/
@@ -275,7 +77,6 @@ static void HDF5DatasetDriverUnload(GDALDriver*)
 {
     HDF5UnloadFileDriver();
 }
-
 
 /************************************************************************/
 /* ==================================================================== */
@@ -298,10 +99,12 @@ void GDALRegister_HDF5()
     poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME,
                               "Hierarchical Data Format Release 5");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "frmt_hdf5.html");
+    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/hdf5.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSIONS, "h5 hdf5");
     poDriver->SetMetadataItem(GDAL_DMD_SUBDATASETS, "YES");
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
+
+    poDriver->SetMetadataItem( GDAL_DCAP_MULTIDIM_RASTER, "YES" );
 
     poDriver->pfnOpen = HDF5Dataset::Open;
     poDriver->pfnIdentify = HDF5Dataset::Identify;
@@ -401,8 +204,6 @@ GDALDataType HDF5Dataset::GetDataType(hid_t TypeID)
             return GDT_Unknown;
         else if( H5Tequal(H5T_NATIVE_ULLONG, TypeID) )
             return GDT_Unknown;
-        else if( H5Tequal(H5T_NATIVE_DOUBLE, TypeID) )
-            return GDT_Unknown;
     }
     else  //Parse compound type to determine if data is complex
     {
@@ -416,6 +217,20 @@ GDALDataType HDF5Dataset::GetDataType(hid_t TypeID)
         const bool bTypeEqual = H5Tequal( ElemTypeID, Elem2TypeID) > 0;
         H5Tclose(Elem2TypeID);
         if ( !bTypeEqual )
+        {
+            H5Tclose(ElemTypeID);
+            return GDT_Unknown;
+        }
+
+        char* pszName1 = H5Tget_member_name(TypeID, 0);
+        const bool bIsReal = pszName1 && (pszName1[0] == 'r' ||pszName1[0] == 'R');
+        H5free_memory(pszName1);
+
+        char* pszName2 = H5Tget_member_name(TypeID, 1);
+        const bool bIsImaginary = pszName2 && (pszName2[0] == 'i' ||pszName2[0] == 'I');
+        H5free_memory(pszName2);
+
+        if( !bIsReal || !bIsImaginary)
         {
             H5Tclose(ElemTypeID);
             return GDT_Unknown;
@@ -545,16 +360,44 @@ const char *HDF5Dataset::GetDataTypeName(hid_t TypeID)
 int HDF5Dataset::Identify( GDALOpenInfo * poOpenInfo )
 
 {
+    if( (poOpenInfo->nOpenFlags & GDAL_OF_MULTIDIM_RASTER) &&
+        STARTS_WITH(poOpenInfo->pszFilename, "HDF5:") )
+    {
+        return TRUE;
+    }
+
     // Is it an HDF5 file?
     constexpr char achSignature[] = "\211HDF\r\n\032\n";
 
     if( !poOpenInfo->pabyHeader )
         return FALSE;
 
+    const CPLString osExt(CPLGetExtension(poOpenInfo->pszFilename));
+
+    const auto IsRecognizedByNetCDFDriver = [&osExt, poOpenInfo]()
+    {
+        if( (EQUAL(osExt, "NC") ||
+             EQUAL(osExt, "CDF") ||
+             EQUAL(osExt, "NC4")) &&
+            GDALGetDriverByName("netCDF") != nullptr )
+        {
+            const char *const apszAllowedDriver[] = { "netCDF", nullptr };
+            CPLPushErrorHandler(CPLQuietErrorHandler);
+            GDALDatasetH hDS = GDALOpenEx(poOpenInfo->pszFilename,
+                                          GDAL_OF_RASTER | GDAL_OF_VECTOR,
+                                          apszAllowedDriver, nullptr, nullptr);
+            CPLPopErrorHandler();
+            if( hDS )
+            {
+                GDALClose(hDS);
+                return true;
+            }
+        }
+        return false;
+    };
+
     if( memcmp(poOpenInfo->pabyHeader, achSignature, 8) == 0 )
     {
-        CPLString osExt(CPLGetExtension(poOpenInfo->pszFilename));
-
         // The tests to avoid opening KEA and BAG drivers are not
         // necessary when drivers are built in the core lib, as they
         // are registered after HDF5, but in the case of plugins, we
@@ -574,22 +417,9 @@ int HDF5Dataset::Identify( GDALOpenInfo * poOpenInfo )
 
         // Avoid opening NC files if the netCDF driver is available and
         // they are recognized by it.
-        if( (EQUAL(osExt, "NC") ||
-             EQUAL(osExt, "CDF") ||
-             EQUAL(osExt, "NC4")) &&
-            GDALGetDriverByName("netCDF") != nullptr )
+        if( IsRecognizedByNetCDFDriver() )
         {
-            const char *const apszAllowedDriver[] = { "netCDF", nullptr };
-            CPLPushErrorHandler(CPLQuietErrorHandler);
-            GDALDatasetH hDS = GDALOpenEx(poOpenInfo->pszFilename,
-                                          GDAL_OF_RASTER | GDAL_OF_VECTOR,
-                                          apszAllowedDriver, nullptr, nullptr);
-            CPLPopErrorHandler();
-            if( hDS )
-            {
-                GDALClose(hDS);
-                return FALSE;
-            }
+            return FALSE;
         }
 
         return TRUE;
@@ -601,7 +431,79 @@ int HDF5Dataset::Identify( GDALOpenInfo * poOpenInfo )
           return TRUE;
     }
 
+    // The HDF5 signature can be at offsets 512, 1024, 2048, etc.
+    if( poOpenInfo->fpL != nullptr &&
+        (EQUAL(osExt, "h5") || EQUAL(osExt, "hdf5") ||
+         EQUAL(osExt, "nc") || EQUAL(osExt, "cdf") || EQUAL(osExt, "nc4")) )
+    {
+        vsi_l_offset nOffset = 512;
+        for(int i = 0; i < 64; i++)
+        {
+            GByte abyBuf[8];
+            if( VSIFSeekL(poOpenInfo->fpL, nOffset, SEEK_SET) != 0 ||
+                VSIFReadL(abyBuf, 1, 8, poOpenInfo->fpL) != 8 )
+            {
+                break;
+            }
+            if( memcmp(abyBuf, achSignature, 8) == 0 )
+            {
+                // Avoid opening NC files if the netCDF driver is available and
+                // they are recognized by it.
+                if( IsRecognizedByNetCDFDriver() )
+                {
+                    return FALSE;
+                }
+
+                return TRUE;
+            }
+            nOffset *= 2;
+        }
+    }
+
     return FALSE;
+}
+
+/************************************************************************/
+/*                         GDAL_HDF5Open()                              */
+/************************************************************************/
+hid_t GDAL_HDF5Open(const std::string& osFilename )
+{
+    hid_t hHDF5;
+    // Heuristics to able datasets split over several files, using the 'family'
+    // driver. If passed the first file, and it contains a single 0, or
+    // ends up with 0.h5 or 0.hdf5, replace the 0 with %d and try the family driver.
+    if( std::count(osFilename.begin(), osFilename.end(), '0') == 1 ||
+        osFilename.find("0.h5") != std::string::npos ||
+        osFilename.find("0.hdf5") != std::string::npos )
+    {
+        const auto zero_pos = osFilename.rfind('0');
+        const auto osNewName = osFilename.substr(0, zero_pos) + "%d" + osFilename.substr(zero_pos+1);
+        hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
+        H5Pset_fapl_family(fapl, H5F_FAMILY_DEFAULT, H5P_DEFAULT);
+#ifdef HAVE_GCC_WARNING_ZERO_AS_NULL_POINTER_CONSTANT
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wzero-as-null-pointer-constant"
+#endif
+        H5E_BEGIN_TRY {
+            hHDF5 = H5Fopen(osNewName.c_str(), H5F_ACC_RDONLY, fapl);
+        } H5E_END_TRY;
+#ifdef HAVE_GCC_WARNING_ZERO_AS_NULL_POINTER_CONSTANT
+#pragma GCC diagnostic pop
+#endif
+        H5Pclose(fapl);
+        if( hHDF5 >= 0 )
+        {
+            CPLDebug("HDF5", "Actually opening %s with 'family' driver",
+                     osNewName.c_str());
+            return hHDF5;
+        }
+    }
+
+    hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
+    H5Pset_driver(fapl, HDF5GetFileDriver(), nullptr);
+    hHDF5 = H5Fopen(osFilename.c_str(), H5F_ACC_RDONLY, fapl);
+    H5Pclose(fapl);
+    return hHDF5;
 }
 
 /************************************************************************/
@@ -612,17 +514,18 @@ GDALDataset *HDF5Dataset::Open( GDALOpenInfo *poOpenInfo )
     if( !Identify(poOpenInfo) )
         return nullptr;
 
+    if( poOpenInfo->nOpenFlags & GDAL_OF_MULTIDIM_RASTER )
+    {
+        return OpenMultiDim(poOpenInfo);
+    }
+
     // Create datasource.
     HDF5Dataset *const poDS = new HDF5Dataset();
 
     poDS->SetDescription(poOpenInfo->pszFilename);
 
     // Try opening the dataset.
-    hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
-    H5Pset_driver(fapl, HDF5GetFileDriver(), nullptr);
-    poDS->hHDF5 = H5Fopen(poOpenInfo->pszFilename, H5F_ACC_RDONLY, fapl);
-    H5Pclose(fapl);
-
+    poDS->hHDF5 = GDAL_HDF5Open(poOpenInfo->pszFilename);
     if( poDS->hHDF5 < 0 )
     {
         delete poDS;
@@ -642,6 +545,15 @@ GDALDataset *HDF5Dataset::Open( GDALOpenInfo *poOpenInfo )
 
     poDS->SetMetadata(poDS->papszMetadata);
 
+    if( STARTS_WITH(CSLFetchNameValueDef(poDS->papszMetadata, "mission_name", ""), "Sentinel 3") &&
+        EQUAL(CSLFetchNameValueDef(poDS->papszMetadata, "altimeter_sensor_name", ""), "SRAL") &&
+        EQUAL(CSLFetchNameValueDef(poDS->papszMetadata, "radiometer_sensor_name", ""), "MWR") &&
+        GDALGetDriverByName("netCDF") != nullptr )
+    {
+        delete poDS;
+        return nullptr;
+    }
+
     if ( CSLCount(poDS->papszSubDatasets) / 2 >= 1 )
         poDS->SetMetadata(poDS->papszSubDatasets, "SUBDATASETS");
 
@@ -655,7 +567,8 @@ GDALDataset *HDF5Dataset::Open( GDALOpenInfo *poOpenInfo )
         CPLString osDSName =
             CSLFetchNameValue(poDS->papszSubDatasets, "SUBDATASET_1_NAME");
         delete poDS;
-        return (GDALDataset *)GDALOpen(osDSName, poOpenInfo->eAccess);
+        return GDALDataset::Open(osDSName, poOpenInfo->nOpenFlags, nullptr,
+                                 poOpenInfo->papszOpenOptions, nullptr);
     }
     else
     {
@@ -1028,7 +941,6 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
     }
 
     char *szData = nullptr;
-    hsize_t nAttrSize = 0;
     char *szValue = nullptr;
 
     if( H5Tget_class(hAttrNativeType) == H5T_STRING )
@@ -1042,11 +954,11 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
             H5Aread(hAttrID, hAttrNativeType, papszStrings);
 
             // Concatenate all values as one string separated by a space.
-            CPLString osVal = papszStrings[0];
+            CPLString osVal = papszStrings[0] ? papszStrings[0] : "{NULL}";
             for( hsize_t i = 1; i < nAttrElmts; i++ )
             {
                 osVal += " ";
-                osVal += papszStrings[i];
+                osVal += papszStrings[i] ? papszStrings[i] : "{NULL}";
             }
 
             szValue = static_cast<char *>(CPLMalloc(osVal.length() + 1));
@@ -1058,7 +970,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
         }
         else
         {
-            nAttrSize = H5Aget_storage_size(hAttrID);
+            const hsize_t nAttrSize = H5Aget_storage_size(hAttrID);
             szValue = static_cast<char *>(CPLMalloc((size_t)(nAttrSize + 1)));
             H5Aread(hAttrID, hAttrNativeType, szValue);
             szValue[nAttrSize] = '\0';
@@ -1078,30 +990,48 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
             szValue[0] = '\0';
             H5Aread(hAttrID, hAttrNativeType, buf);
         }
-        if( H5Tequal(H5T_NATIVE_CHAR, hAttrNativeType ) ||
-            H5Tequal(H5T_NATIVE_SCHAR, hAttrNativeType) )
+        const bool bIsSCHAR = H5Tequal(H5T_NATIVE_SCHAR, hAttrNativeType) > 0;
+        const bool bIsUCHAR = H5Tequal(H5T_NATIVE_UCHAR, hAttrNativeType) > 0;
+        if( (bIsSCHAR || bIsUCHAR) &&
+            CPLTestBool(CPLGetConfigOption("GDAL_HDF5_CHAR_AS_STRING", "NO")) )
         {
+            // Compatibility mode with ancient GDAL versions where we consider
+            // array of SCHAR/UCHAR as strings. Likely inappropriate mode...
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
-                snprintf(szData, nDataLen, "%c ", static_cast<char *>(buf)[i]);
+                snprintf(szData, nDataLen, "%c",
+                         static_cast<char *>(buf)[i]);
                 if( CPLStrlcat(szValue, szData, MAX_METADATA_LEN) >=
                     MAX_METADATA_LEN )
                     CPLError(CE_Warning, CPLE_OutOfMemory,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_UCHAR, hAttrNativeType) )
+        else if( bIsSCHAR )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
-                snprintf(szData, nDataLen, "%c", static_cast<char *>(buf)[i]);
+                snprintf(szData, nDataLen, "%d ",
+                         static_cast<signed char *>(buf)[i]);
                 if( CPLStrlcat(szValue, szData, MAX_METADATA_LEN) >=
                     MAX_METADATA_LEN )
                     CPLError(CE_Warning, CPLE_OutOfMemory,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_SHORT, hAttrNativeType) )
+        else if( bIsUCHAR )
+        {
+            for( hsize_t i = 0; i < nAttrElmts; i++ )
+            {
+                snprintf(szData, nDataLen, "%u ",
+                         static_cast<unsigned char *>(buf)[i]);
+                if( CPLStrlcat(szValue, szData, MAX_METADATA_LEN) >=
+                    MAX_METADATA_LEN )
+                    CPLError(CE_Warning, CPLE_OutOfMemory,
+                             "Header data too long. Truncated");
+            }
+        }
+        else if( H5Tequal(H5T_NATIVE_SHORT, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
@@ -1112,11 +1042,11 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_USHORT, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_USHORT, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
-              snprintf(szData, nDataLen, "%ud ",
+              snprintf(szData, nDataLen, "%u ",
                        static_cast<unsigned short *>(buf)[i]);
                 if( CPLStrlcat(szValue, szData, MAX_METADATA_LEN) >=
                     MAX_METADATA_LEN )
@@ -1124,7 +1054,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_INT, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_INT, hAttrNativeType) > 0 )
         {
             for( hsize_t i=0; i < nAttrElmts; i++ )
             {
@@ -1135,11 +1065,11 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_UINT, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_UINT, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
-                snprintf(szData, nDataLen, "%ud ",
+                snprintf(szData, nDataLen, "%u ",
                          static_cast<unsigned int *>(buf)[i]);
                 if( CPLStrlcat(szValue, szData, MAX_METADATA_LEN) >=
                     MAX_METADATA_LEN )
@@ -1147,7 +1077,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_LONG, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_LONG, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
@@ -1158,7 +1088,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_ULONG, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_ULONG, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ ) {
                 snprintf(szData, nDataLen, "%lu ",
@@ -1169,7 +1099,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_FLOAT, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_FLOAT, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
@@ -1181,7 +1111,7 @@ static herr_t HDF5AttrIterate( hid_t hH5ObjID,
                              "Header data too long. Truncated");
             }
         }
-        else if( H5Tequal(H5T_NATIVE_DOUBLE, hAttrNativeType) )
+        else if( H5Tequal(H5T_NATIVE_DOUBLE, hAttrNativeType) > 0 )
         {
             for( hsize_t i = 0; i < nAttrElmts; i++ )
             {
@@ -1218,7 +1148,7 @@ CPLErr HDF5Dataset::CreateMetadata( HDF5GroupObjects *poH5Object, int nType)
 
     poH5CurrentObject = poH5Object;
 
-    if( poH5Object->pszPath == nullptr || EQUAL(poH5Object->pszPath, "") )
+    if( EQUAL(poH5Object->pszPath, "") )
         return CE_None;
 
     HDF5Dataset *const poDS = this;
@@ -1461,7 +1391,7 @@ CPLErr HDF5Dataset::ReadGlobalAttributes(int bSUBDATASET)
  *
  * Important: It allocates the memory for the attributes internally,
  * so the caller must free the returned array after using it.
- * @param pszAttrName Name of the attribute to be read.
+ * @param pszAttrFullPath Name of the attribute to be read.
  *        the attribute name must be the form:
  *            root attribute name
  *            SUBDATASET/subdataset attribute name

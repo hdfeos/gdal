@@ -2,10 +2,10 @@
  *
  * Project:  SNODAS driver
  * Purpose:  Implementation of SNODASDataset
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -62,7 +62,10 @@ class SNODASDataset final: public RawDataset
     ~SNODASDataset() override;
 
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     char **GetFileList() override;
 
@@ -189,10 +192,10 @@ SNODASDataset::~SNODASDataset()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *SNODASDataset::GetProjectionRef()
+const char *SNODASDataset::_GetProjectionRef()
 
 {
-    return SRS_WKT_WGS84;
+    return SRS_WKT_WGS84_LAT_LONG;
 }
 
 /************************************************************************/
@@ -519,7 +522,7 @@ void GDALRegister_SNODAS()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Snow Data Assimilation System" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#SNODAS" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/snodas.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "hdr" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

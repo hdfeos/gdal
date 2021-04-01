@@ -2,10 +2,10 @@
  *
  * Project:  SVG Translator
  * Purpose:  Implements OGRSVGDataSource class
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -148,7 +148,7 @@ int OGRSVGDataSource::Open( const char * pszFilename )
 /* -------------------------------------------------------------------- */
 /*      Try to open the file.                                           */
 /* -------------------------------------------------------------------- */
-    CPLString osFilename(pszFilename);
+    CPLString osFilename; // keep in that scope
     if (EQUAL(CPLGetExtension(pszFilename), "svgz") &&
         strstr(pszFilename, "/vsigzip/") == nullptr)
     {

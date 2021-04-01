@@ -54,7 +54,7 @@ const int SERVER_DIMENSION_LIMIT = 10000;
 /*                          GDALEEDAIDataset                            */
 /************************************************************************/
 
-class GDALEEDAIDataset: public GDALEEDABaseDataset
+class GDALEEDAIDataset final: public GDALEEDABaseDataset
 {
             CPL_DISALLOW_COPY_ASSIGN(GDALEEDAIDataset)
 
@@ -62,6 +62,7 @@ class GDALEEDAIDataset: public GDALEEDABaseDataset
 
             int         m_nBlockSize;
             CPLString   m_osAsset{};
+            CPLString   m_osAssetName{};
             GDALEEDAIDataset* m_poParentDS;
 #ifdef DEBUG_VERBOSE
             int         m_iOvrLevel;
@@ -82,8 +83,11 @@ class GDALEEDAIDataset: public GDALEEDABaseDataset
                 GDALEEDAIDataset();
                 virtual ~GDALEEDAIDataset();
 
-                virtual const char* GetProjectionRef() CPL_OVERRIDE;
-                virtual CPLErr GetGeoTransform( double* ) CPL_OVERRIDE;
+                virtual const char* _GetProjectionRef() override;
+                const OGRSpatialReference* GetSpatialRef() const override {
+                    return GetSpatialRefFromOldGetProjectionRef();
+                }
+                virtual CPLErr GetGeoTransform( double* ) override;
 
                 virtual CPLErr IRasterIO( GDALRWFlag eRWFlag,
                                  int nXOff, int nYOff, int nXSize, int nYSize,
@@ -92,7 +96,7 @@ class GDALEEDAIDataset: public GDALEEDABaseDataset
                                  int nBandCount, int *panBandMap,
                                  GSpacing nPixelSpace, GSpacing nLineSpace,
                                  GSpacing nBandSpace,
-                                 GDALRasterIOExtraArg* psExtraArg ) CPL_OVERRIDE;
+                                 GDALRasterIOExtraArg* psExtraArg ) override;
 
                 bool ComputeQueryStrategy();
 
@@ -103,7 +107,7 @@ class GDALEEDAIDataset: public GDALEEDABaseDataset
 /*                        GDALEEDAIRasterBand                           */
 /************************************************************************/
 
-class GDALEEDAIRasterBand: public GDALRasterBand
+class GDALEEDAIRasterBand final: public GDALRasterBand
 {
                 CPL_DISALLOW_COPY_ASSIGN(GDALEEDAIRasterBand)
 
@@ -140,7 +144,7 @@ class GDALEEDAIRasterBand: public GDALRasterBand
                                     GDALDataType eDT,
                                     bool bSignedByte);
                 virtual ~GDALEEDAIRasterBand();
- 
+
                 virtual CPLErr IRasterIO( GDALRWFlag eRWFlag,
                                   int nXOff, int nYOff, int nXSize, int nYSize,
                                   void * pData, int nBufXSize, int nBufYSize,
@@ -185,6 +189,7 @@ GDALEEDAIDataset::GDALEEDAIDataset(GDALEEDAIDataset* poParentDS,
                                    int iOvrLevel ) :
     m_nBlockSize(poParentDS->m_nBlockSize),
     m_osAsset(poParentDS->m_osAsset),
+    m_osAssetName(poParentDS->m_osAssetName),
     m_poParentDS(poParentDS),
 #ifdef DEBUG_VERBOSE
     m_iOvrLevel(iOvrLevel),
@@ -573,8 +578,6 @@ CPLErr GDALEEDAIRasterBand::GetBlocks(int nBlockXOff, int nBlockYOff,
 
     // Build request content
     json_object* poReq = json_object_new_object();
-    json_object_object_add(poReq, "path",
-                           json_object_new_string(poGDS->m_osAsset));
     json_object_object_add(poReq, "fileFormat",
                            json_object_new_string(poGDS->m_osPixelEncoding));
     json_object* poBands = json_object_new_array();
@@ -648,7 +651,7 @@ CPLErr GDALEEDAIRasterBand::GetBlocks(int nBlockXOff, int nBlockYOff,
     papszOptions = CSLSetNameValue(papszOptions, "HEADERS", osHeaders);
     papszOptions = CSLSetNameValue(papszOptions, "POSTFIELDS", osPostContent);
     CPLHTTPResult* psResult = EEDAHTTPFetch(
-        (poGDS->m_osBaseURL + "assets:getPixels").c_str(),
+        (poGDS->m_osBaseURL + poGDS->m_osAssetName + ":getPixels").c_str(),
         papszOptions);
     CSLDestroy(papszOptions);
     if( psResult == nullptr )
@@ -858,7 +861,7 @@ GUInt32 GDALEEDAIRasterBand::PrefetchBlocks(int nXOff, int nYOff,
         {
             if( bQueryAllBands && poGDS->GetRasterCount() > 1 )
             {
-                const GIntBig nUncompressedSizeThisBand = 
+                const GIntBig nUncompressedSizeThisBand =
                     static_cast<GIntBig>(nXBlocks) * nYBlocks *
                             nBlockXSize * nBlockYSize * nThisDTSize;
                 if( nUncompressedSizeThisBand <= SERVER_BYTE_LIMIT &&
@@ -1048,91 +1051,86 @@ GDALEEDAIDataset::IRasterIO( GDALRWFlag eRWFlag,
     }
 
     GDALEEDAIRasterBand* poBand =
-        dynamic_cast<GDALEEDAIRasterBand*>(GetRasterBand(1));
-    if( poBand )
+        cpl::down_cast<GDALEEDAIRasterBand*>(GetRasterBand(1));
+
+    GUInt32 nRetryFlags = poBand->PrefetchBlocks(
+                                nXOff, nYOff, nXSize, nYSize,
+                                nBufXSize, nBufYSize,
+                                m_bQueryMultipleBands);
+    int nBlockXSize, nBlockYSize;
+    poBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
+    if( (nRetryFlags & RETRY_SPATIAL_SPLIT) &&
+        nXSize == nBufXSize && nYSize == nBufYSize && nYSize > nBlockYSize )
     {
-        GUInt32 nRetryFlags = poBand->PrefetchBlocks(
+        GDALRasterIOExtraArg sExtraArg;
+        INIT_RASTERIO_EXTRA_ARG(sExtraArg);
+
+        int nHalf = std::max(nBlockYSize,
+                         ((nYSize / 2 ) / nBlockYSize) * nBlockYSize);
+        CPLErr eErr = IRasterIO(eRWFlag, nXOff, nYOff,
+                                nXSize, nHalf,
+                                pData,
+                                nXSize, nHalf,
+                                eBufType,
+                                nBandCount, panBandMap,
+                                nPixelSpace, nLineSpace, nBandSpace,
+                                &sExtraArg);
+        if( eErr == CE_None )
+        {
+            eErr = IRasterIO(eRWFlag,
+                                nXOff, nYOff + nHalf,
+                                nXSize, nYSize - nHalf,
+                                static_cast<GByte*>(pData) +
+                                    nHalf * nLineSpace,
+                                nXSize, nYSize - nHalf,
+                                eBufType,
+                                nBandCount, panBandMap,
+                                nPixelSpace, nLineSpace, nBandSpace,
+                                &sExtraArg);
+        }
+        return eErr;
+    }
+    else if( (nRetryFlags & RETRY_SPATIAL_SPLIT) &&
+        nXSize == nBufXSize && nYSize == nBufYSize && nXSize > nBlockXSize )
+    {
+        GDALRasterIOExtraArg sExtraArg;
+        INIT_RASTERIO_EXTRA_ARG(sExtraArg);
+
+        int nHalf = std::max(nBlockXSize,
+                         ((nXSize / 2 ) / nBlockXSize) * nBlockXSize);
+        CPLErr eErr = IRasterIO(eRWFlag, nXOff, nYOff,
+                                nHalf, nYSize,
+                                pData,
+                                nHalf, nYSize,
+                                eBufType,
+                                nBandCount, panBandMap,
+                                nPixelSpace, nLineSpace, nBandSpace,
+                                &sExtraArg);
+        if( eErr == CE_None )
+        {
+            eErr = IRasterIO(eRWFlag,
+                                nXOff + nHalf, nYOff,
+                                nXSize - nHalf, nYSize,
+                                static_cast<GByte*>(pData) +
+                                        nHalf * nPixelSpace,
+                                nXSize - nHalf, nYSize,
+                                eBufType,
+                                nBandCount, panBandMap,
+                                nPixelSpace, nLineSpace, nBandSpace,
+                                &sExtraArg);
+        }
+        return eErr;
+    }
+    else if( (nRetryFlags & RETRY_PER_BAND) &&
+             m_bQueryMultipleBands && nBands > 1 )
+    {
+        for( int iBand = 1; iBand <= nBands; iBand++ )
+        {
+            poBand =
+                cpl::down_cast<GDALEEDAIRasterBand*>(GetRasterBand(iBand));
+            CPL_IGNORE_RET_VAL(poBand->PrefetchBlocks(
                                     nXOff, nYOff, nXSize, nYSize,
-                                    nBufXSize, nBufYSize,
-                                    m_bQueryMultipleBands);
-        int nBlockXSize, nBlockYSize;
-        poBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
-        if( (nRetryFlags & RETRY_SPATIAL_SPLIT) &&
-            nXSize == nBufXSize && nYSize == nBufYSize && nYSize > nBlockYSize )
-        {
-            GDALRasterIOExtraArg sExtraArg;
-            INIT_RASTERIO_EXTRA_ARG(sExtraArg);
-
-            int nHalf = std::max(nBlockYSize,
-                             ((nYSize / 2 ) / nBlockYSize) * nBlockYSize);
-            CPLErr eErr = IRasterIO(eRWFlag, nXOff, nYOff,
-                                    nXSize, nHalf,
-                                    pData,
-                                    nXSize, nHalf,
-                                    eBufType,
-                                    nBandCount, panBandMap,
-                                    nPixelSpace, nLineSpace, nBandSpace,
-                                    &sExtraArg);
-            if( eErr == CE_None )
-            {
-                eErr = IRasterIO(eRWFlag,
-                                    nXOff, nYOff + nHalf,
-                                    nXSize, nYSize - nHalf,
-                                    static_cast<GByte*>(pData) +
-                                        nHalf * nLineSpace,
-                                    nXSize, nYSize - nHalf,
-                                    eBufType,
-                                    nBandCount, panBandMap,
-                                    nPixelSpace, nLineSpace, nBandSpace,
-                                    &sExtraArg);
-            }
-            return eErr;
-        }
-        else if( (nRetryFlags & RETRY_SPATIAL_SPLIT) &&
-            nXSize == nBufXSize && nYSize == nBufYSize && nXSize > nBlockXSize )
-        {
-            GDALRasterIOExtraArg sExtraArg;
-            INIT_RASTERIO_EXTRA_ARG(sExtraArg);
-
-            int nHalf = std::max(nBlockXSize,
-                             ((nXSize / 2 ) / nBlockXSize) * nBlockXSize);
-            CPLErr eErr = IRasterIO(eRWFlag, nXOff, nYOff,
-                                    nHalf, nYSize,
-                                    pData,
-                                    nHalf, nYSize,
-                                    eBufType,
-                                    nBandCount, panBandMap,
-                                    nPixelSpace, nLineSpace, nBandSpace,
-                                    &sExtraArg);
-            if( eErr == CE_None )
-            {
-                eErr = IRasterIO(eRWFlag,
-                                    nXOff + nHalf, nYOff,
-                                    nXSize - nHalf, nYSize,
-                                    static_cast<GByte*>(pData) +
-                                            nHalf * nPixelSpace,
-                                    nXSize - nHalf, nYSize,
-                                    eBufType,
-                                    nBandCount, panBandMap,
-                                    nPixelSpace, nLineSpace, nBandSpace,
-                                    &sExtraArg);
-            }
-            return eErr;
-        }
-        else if( (nRetryFlags & RETRY_PER_BAND) &&
-                 m_bQueryMultipleBands && nBands > 1 )
-        {
-            for( int iBand = 1; iBand <= nBands; iBand++ )
-            {
-                poBand =
-                    dynamic_cast<GDALEEDAIRasterBand*>(GetRasterBand(iBand));
-                if( poBand )
-                {
-                    CPL_IGNORE_RET_VAL(poBand->PrefetchBlocks(
-                                            nXOff, nYOff, nXSize, nYSize,
-                                            nBufXSize, nBufYSize, false));
-                }
-            }
+                                    nBufXSize, nBufYSize, false));
         }
     }
 
@@ -1188,7 +1186,7 @@ bool GDALEEDAIDataset::ComputeQueryStrategy()
 
     if( EQUAL(m_osPixelEncoding, "PNG") ||
         EQUAL(m_osPixelEncoding, "JPEG") ||
-        EQUAL(m_osPixelEncoding, "AUTO_PNG_JPEG") )
+        EQUAL(m_osPixelEncoding, "AUTO_JPEG_PNG") )
     {
         if( nBands != 1 && nBands != 3 )
         {
@@ -1228,7 +1226,7 @@ bool GDALEEDAIDataset::ComputeQueryStrategy()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char* GDALEEDAIDataset::GetProjectionRef()
+const char* GDALEEDAIDataset::_GetProjectionRef()
 {
     return m_osWKT.c_str();
 }
@@ -1250,7 +1248,7 @@ CPLErr GDALEEDAIDataset::GetGeoTransform( double* adfGeoTransform )
 bool GDALEEDAIDataset::Open(GDALOpenInfo* poOpenInfo)
 {
     m_osBaseURL = CPLGetConfigOption("EEDA_URL",
-                            "https://earthengine.googleapis.com/v1/");
+                            "https://earthengine.googleapis.com/v1alpha/");
 
     m_osAsset =
             CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "ASSET", "");
@@ -1276,6 +1274,8 @@ bool GDALEEDAIDataset::Open(GDALOpenInfo* poOpenInfo)
         m_osAsset = papszTokens[1];
         CSLDestroy(papszTokens);
     }
+    m_osAssetName = ConvertPathToName(m_osAsset);
+
     m_osPixelEncoding =
         CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
                              "PIXEL_ENCODING", "AUTO");
@@ -1301,7 +1301,7 @@ bool GDALEEDAIDataset::Open(GDALOpenInfo* poOpenInfo)
     if( papszOptions == nullptr )
         return false;
     CPLHTTPResult* psResult = EEDAHTTPFetch(
-                (m_osBaseURL + "assets/" + m_osAsset).c_str(), papszOptions);
+                (m_osBaseURL + m_osAssetName).c_str(), papszOptions);
     CSLDestroy(papszOptions);
     if( psResult == nullptr )
         return false;
@@ -1506,11 +1506,11 @@ bool GDALEEDAIDataset::Open(GDALOpenInfo* poOpenInfo)
                 osSubDSSuffix += aoBandDesc[oIter->second[i]].osName;
             }
             aoSubDSList.AddNameValue(
-                CPLSPrintf("SUBDATASET_%d_NAME", aoSubDSList.size() / 2 + 1), 
+                CPLSPrintf("SUBDATASET_%d_NAME", aoSubDSList.size() / 2 + 1),
                 CPLSPrintf("EEDAI:%s:%s",
                            m_osAsset.c_str(), osSubDSSuffix.c_str()) );
             aoSubDSList.AddNameValue(
-                CPLSPrintf("SUBDATASET_%d_DESC", aoSubDSList.size() / 2 + 1), 
+                CPLSPrintf("SUBDATASET_%d_DESC", aoSubDSList.size() / 2 + 1),
                 CPLSPrintf("Band%s %s of %s",
                            oIter->second.size() > 1 ? "s" : "",
                            osSubDSSuffix.c_str(), m_osAsset.c_str()) );
@@ -1640,11 +1640,11 @@ void GDALRegister_EEDAI()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Earth Engine Data API Image" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_eedai.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/eedai.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "EEDAI:" );
     poDriver->SetMetadataItem( GDAL_DMD_OPENOPTIONLIST,
 "<OpenOptionList>"
-"  <Option name='ASSET' type='string' description='Asset path'/>"
+"  <Option name='ASSET' type='string' description='Asset name'/>"
 "  <Option name='BANDS' type='string' "
                         "description='Comma separated list of band names'/>"
 "  <Option name='PIXEL_ENCODING' type='string-select' "
@@ -1653,7 +1653,7 @@ void GDALRegister_EEDAI()
 "       <Value>PNG</Value>"
 "       <Value>JPEG</Value>"
 "       <Value>GEO_TIFF</Value>"
-"       <Value>AUTO_PNG_JPEG</Value>"
+"       <Value>AUTO_JPEG_PNG</Value>"
 "       <Value>NPY</Value>"
 "   </Option>"
 "  <Option name='BLOCK_SIZE' type='integer' "

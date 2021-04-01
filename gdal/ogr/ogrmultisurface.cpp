@@ -93,6 +93,16 @@ OGRMultiSurface& OGRMultiSurface::operator=( const OGRMultiSurface& other )
 }
 
 /************************************************************************/
+/*                               clone()                                */
+/************************************************************************/
+
+OGRMultiSurface *OGRMultiSurface::clone() const
+
+{
+    return new (std::nothrow) OGRMultiSurface(*this);
+}
+
+/************************************************************************/
 /*                          getGeometryType()                           */
 /************************************************************************/
 
@@ -263,11 +273,11 @@ OGRErr OGRMultiSurface::importFromWkt( const char ** ppszInput )
 /*                            exportToWkt()                             */
 /************************************************************************/
 
-OGRErr OGRMultiSurface::exportToWkt( char ** ppszDstText,
-                                     OGRwkbVariant /* eWkbVariant */ ) const
-
+std::string OGRMultiSurface::exportToWkt(const OGRWktOptions& opts, OGRErr *err) const
 {
-    return exportToWktInternal( ppszDstText, wkbVariantIso, "POLYGON" );
+    OGRWktOptions optsModified(opts);
+    optsModified.variant = wkbVariantIso;
+    return exportToWktInternal(optsModified, err, "POLYGON");
 }
 
 /************************************************************************/

@@ -2,10 +2,10 @@
  *
  * Project:  ECRG TOC read Translator
  * Purpose:  Implementation of ECRGTOCDataset and ECRGTOCSubDataset.
- * Author:   Even Rouault, even.rouault at mines-paris.org
+ * Author:   Even Rouault, even.rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -30,6 +30,7 @@
 
 #include "cpl_port.h"
 
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -75,7 +76,7 @@ typedef struct
 /* ==================================================================== */
 /************************************************************************/
 
-class ECRGTOCDataset : public GDALPamDataset
+class ECRGTOCDataset final: public GDALPamDataset
 {
   char      **papszSubDatasets;
   double      adfGeoTransform[6];
@@ -111,9 +112,12 @@ class ECRGTOCDataset : public GDALPamDataset
         return CE_None;
     }
 
-    virtual const char *GetProjectionRef(void) override
+    virtual const char *_GetProjectionRef(void) override
     {
-        return SRS_WKT_WGS84;
+        return SRS_WKT_WGS84_LAT_LONG;
+    }
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
     }
 
     static GDALDataset* Build(  const char* pszTOCFilename,
@@ -133,7 +137,7 @@ class ECRGTOCDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class ECRGTOCSubDataset : public VRTDataset
+class ECRGTOCSubDataset final: public VRTDataset
 {
   char**       papszFileList;
 
@@ -325,6 +329,9 @@ int GetExtent(const char* pszFrameName, int nScale, int nZone,
               double& dfPixelXSize, double& dfPixelYSize)
 {
     const int nAbsZone = abs(nZone);
+#ifdef DEBUG
+    assert( nAbsZone > 0 && nAbsZone <= 8 );
+#endif
 
 /************************************************************************/
 /*  Compute east-west constant                                          */
@@ -413,11 +420,11 @@ int GetExtent(const char* pszFrameName, int nScale, int nZone,
 /* ==================================================================== */
 /************************************************************************/
 
-class ECRGTOCProxyRasterDataSet : public GDALProxyPoolDataset
+class ECRGTOCProxyRasterDataSet final: public GDALProxyPoolDataset
 {
     /* The following parameters are only for sanity checking */
-    int checkDone;
-    int checkOK;
+    mutable int checkDone;
+    mutable int checkOK;
     double dfMinX;
     double dfMaxY;
     double dfPixelXSize;
@@ -430,7 +437,7 @@ class ECRGTOCProxyRasterDataSet : public GDALProxyPoolDataset
                                    double dfMinX, double dfMaxY,
                                    double dfPixelXSize, double dfPixelYSize );
 
-        GDALDataset* RefUnderlyingDataset() override
+        GDALDataset* RefUnderlyingDataset() const override
         {
             GDALDataset* poSourceDS = GDALProxyPoolDataset::RefUnderlyingDataset();
             if (poSourceDS)
@@ -446,12 +453,12 @@ class ECRGTOCProxyRasterDataSet : public GDALProxyPoolDataset
             return poSourceDS;
         }
 
-        void UnrefUnderlyingDataset(GDALDataset* poUnderlyingDataset) override
+        void UnrefUnderlyingDataset(GDALDataset* poUnderlyingDataset) const override
         {
             GDALProxyPoolDataset::UnrefUnderlyingDataset(poUnderlyingDataset);
         }
 
-        int SanityCheckOK(GDALDataset* poSourceDS);
+        int SanityCheckOK(GDALDataset* poSourceDS) const;
 };
 
 /************************************************************************/
@@ -467,7 +474,7 @@ ECRGTOCProxyRasterDataSet::ECRGTOCProxyRasterDataSet(
     // Mark as shared since the VRT will take several references if we are in
     // RGBA mode (4 bands for this dataset).
     GDALProxyPoolDataset(fileNameIn, nXSizeIn, nYSizeIn, GA_ReadOnly,
-                         TRUE, SRS_WKT_WGS84),
+                         TRUE, SRS_WKT_WGS84_LAT_LONG),
     checkDone(FALSE),
     checkOK(FALSE),
     dfMinX(dfMinXIn),
@@ -492,7 +499,7 @@ ECRGTOCProxyRasterDataSet::ECRGTOCProxyRasterDataSet(
              "For %s, assert '" #x "' failed",                        \
              GetDescription()); checkOK = FALSE; } } while( false )
 
-int ECRGTOCProxyRasterDataSet::SanityCheckOK( GDALDataset* poSourceDS )
+int ECRGTOCProxyRasterDataSet::SanityCheckOK( GDALDataset* poSourceDS ) const
 {
     // int nSrcBlockXSize;
     // int nSrcBlockYSize;
@@ -515,7 +522,7 @@ int ECRGTOCProxyRasterDataSet::SanityCheckOK( GDALDataset* poSourceDS )
     WARN_CHECK_DS(poSourceDS->GetRasterCount() == 3);
     WARN_CHECK_DS(poSourceDS->GetRasterXSize() == nRasterXSize);
     WARN_CHECK_DS(poSourceDS->GetRasterYSize() == nRasterYSize);
-    WARN_CHECK_DS(EQUAL(poSourceDS->GetProjectionRef(), SRS_WKT_WGS84));
+    WARN_CHECK_DS(EQUAL(poSourceDS->GetProjectionRef(), SRS_WKT_WGS84_LAT_LONG));
     // poSourceDS->GetRasterBand(1)->GetBlockSize(&nSrcBlockXSize,
     //                                            &nSrcBlockYSize);
     // GetRasterBand(1)->GetBlockSize(&nBlockXSize, &nBlockYSize);
@@ -597,7 +604,7 @@ GDALDataset* ECRGTOCSubDataset::Build(  const char* pszProductTitle,
     /* ------------------------------------ */
     ECRGTOCSubDataset *poVirtualDS = new ECRGTOCSubDataset( nSizeX, nSizeY );
 
-    poVirtualDS->SetProjection(SRS_WKT_WGS84);
+    poVirtualDS->SetProjection(SRS_WKT_WGS84_LAT_LONG);
 
     double adfGeoTransform[6] = {
       dfGlobalMinX,
@@ -1183,7 +1190,7 @@ void GDALRegister_ECRGTOC()
     poDriver->pfnOpen = ECRGTOCDataset::Open;
 
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#ECRGTOC" );
+                               "drivers/raster/ecrgtoc.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "xml" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_SUBDATASETS, "YES" );

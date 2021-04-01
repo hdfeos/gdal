@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -30,25 +30,23 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
-import numpy
 from osgeo import gdal
 
-sys.path.append('../pymod')
+import pytest
 
-import gdaltest
+# All tests will be skipped if numpy is unavailable.
+np = pytest.importorskip('numpy')
 
-INT_DATA = numpy.array([197, 83, 46, 29, 1, 78, 23, 90, 12, 45])
-DOUBLE_DATA = numpy.array([0.1, 43.2, 78.1, 9.9, 23.0, 0.92, 82.5, 0.0, 1.0, 99.0])
-STRING_DATA = numpy.array(["sddf", "wess", "grbgr", "dewd", "ddww", "qwsqw",
-                           "gbfgbf", "wwqw3", "e", ""])
-STRING_DATA_INTS = numpy.array(["197", "83", "46", "29", "1", "78",
-                                "23", "90", "12", "45"])
-STRING_DATA_DOUBLES = numpy.array(["0.1", "43.2", "78.1", "9.9", "23.0", "0.92",
-                                   "82.5", "0.0", "1.0", "99.0"])
-LONG_STRING_DATA = numpy.array(["sdfsdfsdfs", "sdweddw", "sdewdweee", "3423dedd",
-                                "jkejjjdjd", "edcdcdcdc", "fcdkmk4m534m", "edwededdd",
-                                "dedwedew", "wdedefrfrfrf"])
+
+INT_DATA = np.array([197, 83, 46, 29, 1, 78, 23, 90, 12, 45])
+DOUBLE_DATA = np.array([0.1, 43.2, 78.1, 9.9, 23.0, 0.92, 82.5, 0.0, 1.0, 99.0])
+STRING_DATA = np.array([
+    "sddf", "wess", "grbgr", "dewd", "ddww", "qwsqw", "gbfgbf", "wwqw3", "e", ""])
+STRING_DATA_INTS = np.array(["197", "83", "46", "29", "1", "78", "23", "90", "12", "45"])
+STRING_DATA_DOUBLES = np.array([
+    "0.1", "43.2", "78.1", "9.9", "23.0", "0.92", "82.5", "0.0", "1.0", "99.0"])
+LONG_STRING_DATA = np.array(["sdfsdfsdfs", "sdweddw", "sdewdweee", "3423dedd", "jkejjjdjd",
+                             "edcdcdcdc", "fcdkmk4m534m", "edwededdd", "dedwedew", "wdedefrfrfrf"])
 
 
 class HFATestError(Exception):
@@ -67,7 +65,7 @@ def CreateAndWriteRAT(fname):
 
     # write some image data
     band = ds.GetRasterBand(1)
-    data = numpy.zeros((10, 10), numpy.uint8)
+    data = np.zeros((10, 10), np.uint8)
     data[5, 5] = 20
     band.WriteArray(data)
 
@@ -162,8 +160,6 @@ def CreateAndWriteRAT(fname):
     # ds.FlushCache()
     ds = None
 
-    return 'success'
-
 
 def ReadAndCheckValues(fname, numrows):
     ds = gdal.Open(fname)
@@ -185,7 +181,7 @@ def ReadAndCheckValues(fname, numrows):
         raise HFATestError("double column does not match")
 
     data = rat.ReadAsArray(2, 0, 10)
-    if not (data == STRING_DATA.astype(numpy.character)).all():
+    if not (data == STRING_DATA.astype(bytes)).all():
         raise HFATestError("string column does not match")
 
     data = rat.ReadAsArray(3, 0, 10)
@@ -193,7 +189,7 @@ def ReadAndCheckValues(fname, numrows):
         raise HFATestError("int as double column does not match")
 
     data = rat.ReadAsArray(4, 0, 10)
-    if not (data == STRING_DATA_INTS.astype(numpy.int)).all():
+    if not (data == STRING_DATA_INTS.astype(int)).all():
         raise HFATestError("int as string column does not match")
 
     data = rat.ReadAsArray(5, 0, 10)
@@ -201,21 +197,19 @@ def ReadAndCheckValues(fname, numrows):
         raise HFATestError("double as int column does not match")
 
     data = rat.ReadAsArray(6, 0, 10)
-    if not (data == STRING_DATA_DOUBLES.astype(numpy.double)).all():
+    if not (data == STRING_DATA_DOUBLES.astype(np.double)).all():
         raise HFATestError("double as string column does not match")
 
     data = rat.ReadAsArray(7, 0, 10)
-    if not (data.astype(numpy.int) == INT_DATA).all():
+    if not (data.astype(int) == INT_DATA).all():
         raise HFATestError("string as int column does not match")
 
     data = rat.ReadAsArray(8, 0, 10)
-    if not (data.astype(numpy.double) == DOUBLE_DATA).all():
+    if not (data.astype(np.double) == DOUBLE_DATA).all():
         raise HFATestError("string as int column does not match")
 
     # print('succeeded reading')
     ds = None
-
-    return 'success'
 
 
 def CheckSetGetValues(fname):
@@ -258,8 +252,6 @@ def CheckSetGetValues(fname):
     # ds.FlushCache()
     ds = None
 
-    return 'success'
-
 
 def ExtendAndWrite(fname):
     # write more data to the end of the RAT - will extend it
@@ -285,8 +277,6 @@ def ExtendAndWrite(fname):
     # ds.FlushCache()
     ds = None
 
-    return 'success'
-
 
 def CheckExtension(fname):
     ds = gdal.Open(fname)
@@ -302,13 +292,11 @@ def CheckExtension(fname):
         raise HFATestError("Double column does not match")
 
     data = rat.ReadAsArray(2, 10, 10)
-    if not (data == STRING_DATA.astype(numpy.character)).all():
+    if not (data == STRING_DATA.astype(bytes)).all():
         raise HFATestError("String column does not match")
 
     # print('extension data ok')
     ds = None
-
-    return 'success'
 
 
 def WriteLongStrings(fname):
@@ -325,8 +313,6 @@ def WriteLongStrings(fname):
     # ds.FlushCache()
     ds = None
 
-    return 'success'
-
 
 def CheckLongStrings(fname):
     ds = gdal.Open(fname)
@@ -334,13 +320,11 @@ def CheckLongStrings(fname):
     rat = band.GetDefaultRAT()
 
     data = rat.ReadAsArray(2, 10, 10)
-    if not (data == LONG_STRING_DATA.astype(numpy.character)).all():
+    if not (data == LONG_STRING_DATA.astype(bytes)).all():
         raise HFATestError("String column does not match")
 
     # print("checked long strings ok")
     ds = None
-
-    return 'success'
 
 
 def SetLinearBinning(fname):
@@ -354,8 +338,6 @@ def SetLinearBinning(fname):
     # print("set linear binning ok")
     # ds.FlushCache()
     ds = None
-
-    return 'success'
 
 
 def CheckLinearBinning(fname):
@@ -375,8 +357,6 @@ def CheckLinearBinning(fname):
 
     # print('linear binning ok')
     ds = None
-
-    return 'success'
 
 
 def CheckClone(fname):
@@ -398,114 +378,88 @@ def CheckClone(fname):
     # print("cloned ok")
     ds = None
 
-    return 'success'
-
 # basic tests
 
 
-def hfa_rfc40_1():
+def test_hfa_rfc40_1():
     return CreateAndWriteRAT("tmp/test.img")
 
 
-def hfa_rfc40_2():
+def test_hfa_rfc40_2():
     return ReadAndCheckValues("tmp/test.img", 10)
 
 # the older interface
 
 
-def hfa_rfc40_3():
+def test_hfa_rfc40_3():
     return CheckSetGetValues("tmp/test.img")
 
 # make sure original data not changed
 
 
-def hfa_rfc40_4():
+def test_hfa_rfc40_4():
     return ReadAndCheckValues("tmp/test.img", 10)
 
 # make it longer - data will be re-written
 
 
-def hfa_rfc40_5():
+def test_hfa_rfc40_5():
     return ExtendAndWrite("tmp/test.img")
 
 # make sure old data not changed
 
 
-def hfa_rfc40_6():
+def test_hfa_rfc40_6():
     return ReadAndCheckValues("tmp/test.img", 20)
 
 # new data at the end ok?
 
 
-def hfa_rfc40_7():
+def test_hfa_rfc40_7():
     return CheckExtension("tmp/test.img")
 
 # write some longer strings - string column will
 # have to be re-written
 
 
-def hfa_rfc40_8():
+def test_hfa_rfc40_8():
     return WriteLongStrings("tmp/test.img")
 
 # make sure old data not changed
 
 
-def hfa_rfc40_9():
+def test_hfa_rfc40_9():
     return ReadAndCheckValues("tmp/test.img", 20)
 
 # check new data ok
 
 
-def hfa_rfc40_10():
+def test_hfa_rfc40_10():
     return CheckLongStrings("tmp/test.img")
 
 # linear binning
 
 
-def hfa_rfc40_11():
+def test_hfa_rfc40_11():
     return SetLinearBinning("tmp/test.img")
 
 # linear binning
 
 
-def hfa_rfc40_12():
+def test_hfa_rfc40_12():
     return CheckLinearBinning("tmp/test.img")
 
 # clone
 
 
-def hfa_rfc40_13():
+def test_hfa_rfc40_13():
     return CheckClone("tmp/test.img")
 
 # serialize not available from Python...
 
 
-def hfa_rfc40_cleanup():
+def test_hfa_rfc40_cleanup():
     gdal.GetDriverByName('HFA').Delete("tmp/test.img")
-    return 'success'
 
 
-gdaltest_list = [
-    hfa_rfc40_1,
-    hfa_rfc40_2,
-    hfa_rfc40_3,
-    hfa_rfc40_4,
-    hfa_rfc40_5,
-    hfa_rfc40_6,
-    hfa_rfc40_7,
-    hfa_rfc40_8,
-    hfa_rfc40_9,
-    hfa_rfc40_10,
-    hfa_rfc40_11,
-    hfa_rfc40_12,
-    hfa_rfc40_13,
-    hfa_rfc40_cleanup,
-]
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('hfa_rfc40')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

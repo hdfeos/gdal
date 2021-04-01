@@ -43,7 +43,6 @@
 
 json_object* OGRAMIGOCLOUDGetSingleRow(json_object* poObj);
 CPLString OGRAMIGOCLOUDEscapeIdentifier(const char* pszStr);
-CPLString OGRAMIGOCLOUDEscapeLiteral(const char* pszStr);
 std::string OGRAMIGOCLOUDJsonEncode(const std::string &value);
 
 /************************************************************************/
@@ -61,7 +60,6 @@ class OGRAmigoCloudGeomFieldDefn final: public OGRGeomFieldDefn
         }
 };
 
-// cppcheck-suppress copyCtorAndEqOperator
 class OGRAmigoCloudFID
 {
     public:
@@ -82,12 +80,8 @@ class OGRAmigoCloudFID
             iFID=0;
         }
 
-        OGRAmigoCloudFID(const OGRAmigoCloudFID& fid) :
-            iIndex( fid.iIndex ),
-            iFID( fid.iFID ),
-            osAmigoId( fid.osAmigoId.c_str() )
-        {
-        }
+        OGRAmigoCloudFID(const OGRAmigoCloudFID& fid) = default;
+        OGRAmigoCloudFID& operator=(const OGRAmigoCloudFID& fid) = default;
 };
 
 /************************************************************************/
@@ -95,7 +89,7 @@ class OGRAmigoCloudFID
 /************************************************************************/
 class OGRAmigoCloudDataSource;
 
-class OGRAmigoCloudLayer : public OGRLayer
+class OGRAmigoCloudLayer CPL_NON_FINAL: public OGRLayer
 {
     protected:
         OGRAmigoCloudDataSource* poDS;

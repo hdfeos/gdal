@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2007-2009, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2009, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -43,7 +43,7 @@ CPL_CVSID("$Id$")
 
 class AirSARRasterBand;
 
-class AirSARDataset : public GDALPamDataset
+class AirSARDataset final: public GDALPamDataset
 {
     friend class AirSARRasterBand;
 
@@ -74,7 +74,7 @@ class AirSARDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class AirSARRasterBand : public GDALPamRasterBand
+class AirSARRasterBand final: public GDALPamRasterBand
 {
   public:
     AirSARRasterBand( AirSARDataset *, int );
@@ -641,7 +641,7 @@ void GDALRegister_AirSAR()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "AirSAR Polarimetric Image" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_airsar.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/airsar.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

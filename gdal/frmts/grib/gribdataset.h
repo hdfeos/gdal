@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, ITC
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -46,6 +46,7 @@
 #endif
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #include "cpl_conv.h"
@@ -53,11 +54,8 @@
 #include "cpl_multiproc.h"
 #include "cpl_string.h"
 #include "cpl_vsi.h"
-#include "degrib/degrib/datasource.h"
 #include "degrib/degrib/degrib2.h"
-#include "degrib/degrib/filedatasource.h"
 #include "degrib/degrib/inventory.h"
-#include "degrib/degrib/memorydatasource.h"
 #include "degrib/degrib/meta.h"
 #include "degrib/degrib/myerror.h"
 #include "degrib/degrib/type.h"
@@ -73,10 +71,12 @@
 /* ==================================================================== */
 /************************************************************************/
 
+class GRIBArray;
 class GRIBRasterBand;
 
-class GRIBDataset : public GDALPamDataset
+class GRIBDataset final: public GDALPamDataset
 {
+    friend class GRIBArray;
     friend class GRIBRasterBand;
 
   public:
@@ -92,12 +92,17 @@ class GRIBDataset : public GDALPamDataset
                                     void * pProgressData );
 
     CPLErr      GetGeoTransform( double *padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return m_poSRS.get();
+    }
+
+    std::shared_ptr<GDALGroup> GetRootGroup() const override { return m_poRootGroup; }
 
   private:
     void SetGribMetaData(grib_MetaData *meta);
+    static GDALDataset *OpenMultiDim( GDALOpenInfo * );
+
     VSILFILE *fp;
-    char *pszProjection;
     // Calculate and store once as GetGeoTransform may be called multiple times.
     double adfGeoTransform[6];
 
@@ -105,6 +110,10 @@ class GRIBDataset : public GDALPamDataset
     GIntBig nCachedBytesThreshold;
     int bCacheOnlyOneBand;
     GRIBRasterBand *poLastUsedBand;
+    std::shared_ptr<GDALGroup> m_poRootGroup{};
+    std::shared_ptr<OGRSpatialReference> m_poSRS{};
+    std::unique_ptr<OGRSpatialReference> m_poLL{};
+    std::unique_ptr<OGRCoordinateTransformation> m_poCT{};
 };
 
 /************************************************************************/
@@ -113,8 +122,9 @@ class GRIBDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class GRIBRasterBand : public GDALPamRasterBand
+class GRIBRasterBand final: public GDALPamRasterBand
 {
+    friend class GRIBArray;
     friend class GRIBDataset;
 
 public:
@@ -129,13 +139,13 @@ public:
 
     void    UncacheData();
 
+    static void ReadGribData( VSILFILE *, vsi_l_offset, int, double **,
+                              grib_MetaData ** );
 private:
     CPLErr       LoadData();
     void    FindNoDataGrib2(bool bSeekToStart = true);
 
-    static void ReadGribData( DataSource &, sInt4, int, double **,
-                              grib_MetaData ** );
-    sInt4 start;
+    vsi_l_offset start;
     int subgNum;
     char *longFstLevel;
 
@@ -149,6 +159,19 @@ private:
     bool    m_bHasLookedForNoData;
     double  m_dfNoData;
     bool    m_bHasNoData;
+
+    int     m_nDisciplineCode = -1;
+    std::string m_osDisciplineName{};
+    int     m_nCenter = -1;
+    std::string m_osCenterName{};
+    int     m_nSubCenter = -1;
+    std::string m_osSubCenterName{};
+    std::string m_osSignRefTimeName{};
+    std::string m_osRefTime{};
+    std::string m_osProductionStatus{};
+    std::string m_osType{};
+    int     m_nPDTN = -1;
+    std::vector<GUInt32> m_anPDSTemplateAssembledValues{};
 };
 
 namespace gdal {
@@ -157,15 +180,10 @@ namespace grib {
 // Thin layer to manage allocation and deallocation.
 class InventoryWrapper {
   public:
-    explicit InventoryWrapper(const std::string &filepath)
+
+    explicit InventoryWrapper(VSILFILE * fp)
         : inv_(nullptr), inv_len_(0), num_messages_(0), result_(0) {
-      FileDataSource grib(filepath.c_str());
-      result_ = GRIB2Inventory(grib, &inv_, &inv_len_, 0 /* all messages */,
-                               &num_messages_);
-    }
-    explicit InventoryWrapper(FileDataSource file_data_source)
-        : inv_(nullptr), inv_len_(0), num_messages_(0), result_(0) {
-      result_ = GRIB2Inventory(file_data_source, &inv_, &inv_len_,
+      result_ = GRIB2Inventory(fp, &inv_, &inv_len_,
                                0 /* all messages */, &num_messages_);
     }
 

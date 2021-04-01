@@ -35,6 +35,7 @@
 #include "../vrt/gdal_vrt.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 #include <vector>
@@ -114,6 +115,7 @@ class WMTSTileMatrixSet
             oSRS( OGRSpatialReference() ),
             bBoundingBoxValid(false)
         {
+            oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         }
 };
 
@@ -123,7 +125,7 @@ class WMTSTileMatrixSet
 /* ==================================================================== */
 /************************************************************************/
 
-class WMTSDataset : public GDALPamDataset
+class WMTSDataset final: public GDALPamDataset
 {
   friend class WMTSBand;
 
@@ -162,7 +164,10 @@ class WMTSDataset : public GDALPamDataset
     virtual     ~WMTSDataset();
 
     virtual CPLErr GetGeoTransform(double* padfGT) override;
-    virtual const char* GetProjectionRef() override;
+    const char* _GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual const char* GetMetadataItem(const char* pszName,
                                         const char* pszDomain) override;
 
@@ -194,10 +199,10 @@ class WMTSDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class WMTSBand : public GDALPamRasterBand
+class WMTSBand final: public GDALPamRasterBand
 {
   public:
-                  WMTSBand(WMTSDataset* poDS, int nBand);
+                  WMTSBand(WMTSDataset* poDS, int nBand, GDALDataType eDataType);
 
     virtual GDALRasterBand* GetOverview(int nLevel) override;
     virtual int GetOverviewCount() override;
@@ -217,11 +222,11 @@ class WMTSBand : public GDALPamRasterBand
 /*                            WMTSBand()                                */
 /************************************************************************/
 
-WMTSBand::WMTSBand( WMTSDataset* poDSIn, int nBandIn )
+WMTSBand::WMTSBand( WMTSDataset* poDSIn, int nBandIn, GDALDataType eDataTypeIn )
 {
     poDS = poDSIn;
     nBand = nBandIn;
-    eDataType = GDT_Byte;
+    eDataType = eDataTypeIn;
     poDSIn->apoDatasets[0]->GetRasterBand(1)->
         GetBlockSize(&nBlockXSize, &nBlockYSize);
 }
@@ -514,7 +519,7 @@ CPLErr WMTSDataset::GetGeoTransform(double* padfGT)
 /*                         GetProjectionRef()                           */
 /************************************************************************/
 
-const char* WMTSDataset::GetProjectionRef()
+const char* WMTSDataset::_GetProjectionRef()
 {
     return osProjection.c_str();
 }
@@ -651,7 +656,8 @@ int WMTSDataset::ReadTMS(CPLXMLNode* psContents,
                      pszSupportedCRS);
             return FALSE;
         }
-        int bSwap = oTMS.oSRS.EPSGTreatsAsLatLong() || oTMS.oSRS.EPSGTreatsAsNorthingEasting();
+        int bSwap = !STARTS_WITH_CI(pszSupportedCRS, "EPSG:") &&
+            (oTMS.oSRS.EPSGTreatsAsLatLong() || oTMS.oSRS.EPSGTreatsAsNorthingEasting());
         CPLXMLNode* psBB = CPLGetXMLNode(psIter, "BoundingBox");
         oTMS.bBoundingBoxValid = false;
         if( psBB != nullptr )
@@ -1045,6 +1051,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
     int bHasAOI = FALSE;
     OGREnvelope sAOI;
     int nBands = 4;
+    GDALDataType eDataType = GDT_Byte;
     CPLString osProjection;
 
     if( (psXML != nullptr && CPLGetXMLNode(psXML, "=GDAL_WMTS") != nullptr ) ||
@@ -1103,6 +1110,15 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
         WMTSAddOtherXML(psRoot, "ZeroBlockOnServerException", osOtherXML);
 
         nBands = atoi(CPLGetXMLValue(psRoot, "BandsCount", "4"));
+        const char *pszDataType = CPLGetXMLValue(psRoot, "DataType", "Byte");
+        eDataType = GDALGetDataTypeByName(pszDataType);
+        if ((eDataType == GDT_Unknown) || (eDataType >= GDT_TypeCount))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                "GDALWMTS: Invalid value in DataType. Data type \"%s\" is not supported.", pszDataType);
+            CPLDestroyXMLNode(psGDALWMTS);
+            return nullptr;
+        }
 
         const char* pszULX = CPLGetXMLValue(psRoot, "DataWindow.UpperLeftX", nullptr);
         const char* pszULY = CPLGetXMLValue(psRoot, "DataWindow.UpperLeftY", nullptr);
@@ -1336,11 +1352,13 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
                 CPLString osLowerCorner = CPLGetXMLValue(psSubIter, "LowerCorner", "");
                 CPLString osUpperCorner = CPLGetXMLValue(psSubIter, "UpperCorner", "");
                 OGRSpatialReference oSRS;
+                oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 if( !osCRS.empty() && !osLowerCorner.empty() && !osUpperCorner.empty() &&
                     oSRS.SetFromUserInput(FixCRSName(osCRS)) == OGRERR_NONE )
                 {
-                    int bSwap = oSRS.EPSGTreatsAsLatLong() ||
-                                oSRS.EPSGTreatsAsNorthingEasting();
+                    int bSwap = !STARTS_WITH_CI(osCRS, "EPSG:") &&
+                        (oSRS.EPSGTreatsAsLatLong() ||
+                         oSRS.EPSGTreatsAsNorthingEasting());
                     char** papszLC = CSLTokenizeString(osLowerCorner);
                     char** papszUC = CSLTokenizeString(osUpperCorner);
                     if( CSLCount(papszLC) == 2 && CSLCount(papszUC) == 2 )
@@ -1483,7 +1501,8 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
                 bExtendBeyondDateLine = FALSE;
 
                 OGRSpatialReference oWGS84;
-                    oWGS84.SetFromUserInput(SRS_WKT_WGS84);
+                    oWGS84.SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
+                oWGS84.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 OGRCoordinateTransformation* poCT =
                     OGRCreateCoordinateTransformation(&oTMS.oSRS, &oWGS84);
                 if( poCT != nullptr )
@@ -1528,7 +1547,8 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
                     if( oSRS.SetFromUserInput(FixCRSName(oIter->first)) == OGRERR_NONE )
                     {
                         OGRSpatialReference oWGS84;
-                        oWGS84.SetFromUserInput(SRS_WKT_WGS84);
+                        oWGS84.SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
+                        oWGS84.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                         OGRCoordinateTransformation* poCT =
                             OGRCreateCoordinateTransformation(&oSRS, &oWGS84);
                         double dfX1 = oIter->second.MinX;
@@ -1590,6 +1610,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
             for(; oIter != aoMapBoundingBox.end(); ++oIter )
             {
                 OGRSpatialReference oSRS;
+                oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 if( oSRS.SetFromUserInput(FixCRSName(oIter->first)) == OGRERR_NONE )
                 {
                     // Check if this doesn't match the most precise tile matrix
@@ -1608,17 +1629,17 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
                     for( int j = 0; j < (bIsTMerc ? 2 : 1); j++ )
                     {
                         CPLString osOldVal =
-                            CPLGetThreadLocalConfigOption("OSR_USE_ETMERC", "");
+                            CPLGetThreadLocalConfigOption("OSR_USE_APPROX_TMERC", "");
                         if( bIsTMerc )
                         {
-                            CPLSetThreadLocalConfigOption("OSR_USE_ETMERC",
+                            CPLSetThreadLocalConfigOption("OSR_USE_APPROX_TMERC",
                                                       (j==0) ? "NO" : "YES");
                         }
                         OGRCoordinateTransformation* poRevCT =
                             OGRCreateCoordinateTransformation(&oTMS.oSRS, &oSRS);
                         if( bIsTMerc )
                         {
-                            CPLSetThreadLocalConfigOption("OSR_USE_ETMERC",
+                            CPLSetThreadLocalConfigOption("OSR_USE_APPROX_TMERC",
                                 osOldVal.empty() ? nullptr : osOldVal.c_str());
                         }
                         if( poRevCT != nullptr )
@@ -1824,49 +1845,6 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
             }
         }
 
-        // Establish raster dimension and extent
-        int nMaxZoomLevel = (int)oTMS.aoTM.size()-1;
-        while(nMaxZoomLevel >= 0)
-        {
-            const WMTSTileMatrix& oTM = oTMS.aoTM[nMaxZoomLevel];
-            double dfRasterXSize = (sAOI.MaxX - sAOI.MinX) / oTM.dfPixelSize;
-            double dfRasterYSize = (sAOI.MaxY - sAOI.MinY) / oTM.dfPixelSize;
-            if( dfRasterXSize < INT_MAX && dfRasterYSize < INT_MAX )
-            {
-                if( nMaxZoomLevel != (int)oTMS.aoTM.size()-1 )
-                {
-                    CPLDebug("WMTS", "Using zoom level %s instead of %s to avoid int overflow",
-                             oTMS.aoTM[nMaxZoomLevel].osIdentifier.c_str(),
-                             oTMS.aoTM.back().osIdentifier.c_str());
-                }
-
-                // Align AOI on pixel boundaries with respect to TopLeftCorner of
-                // this tile matrix
-                poDS->adfGT[0] = oTM.dfTLX + floor((sAOI.MinX - oTM.dfTLX) / oTM.dfPixelSize+1e-10) * oTM.dfPixelSize;
-                poDS->adfGT[1] = oTM.dfPixelSize;
-                poDS->adfGT[2] = 0.0;
-                poDS->adfGT[3] = oTM.dfTLY + ceil((sAOI.MaxY - oTM.dfTLY) / oTM.dfPixelSize-1e-10) * oTM.dfPixelSize;
-                poDS->adfGT[4] = 0.0;
-                poDS->adfGT[5] = -oTM.dfPixelSize;
-                poDS->nRasterXSize = int(0.5 + (sAOI.MaxX - poDS->adfGT[0]) / oTM.dfPixelSize);
-                poDS->nRasterYSize = int(0.5 + (poDS->adfGT[3] - sAOI.MinY) / oTM.dfPixelSize);
-                break;
-            }
-            nMaxZoomLevel --;
-        }
-        if( nMaxZoomLevel < 0 )
-        {
-            CPLError(CE_Failure, CPLE_AppDefined,
-                     "No zoom level in tile matrix set found");
-            CPLDestroyXMLNode(psXML);
-            delete poDS;
-            return nullptr;
-        }
-        CPLDebug("WMTS", "Using tilematrix=%s (zoom level %d)",
-                 oTMS.aoTM[nMaxZoomLevel].osIdentifier.c_str(), nMaxZoomLevel);
-        oTMS.aoTM.resize(1 + nMaxZoomLevel);
-        poDS->oTMS = oTMS;
-
         if( !osProjection.empty() )
         {
             OGRSpatialReference oSRS;
@@ -1880,15 +1858,6 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
         }
         if( poDS->osProjection.empty() )
         {
-            // Strip AXIS
-            OGR_SRSNode *poGEOGCS = oTMS.oSRS.GetAttrNode( "GEOGCS" );
-            if( poGEOGCS != nullptr )
-                poGEOGCS->StripNodes( "AXIS" );
-
-            OGR_SRSNode *poPROJCS = oTMS.oSRS.GetAttrNode( "PROJCS" );
-            if (poPROJCS != nullptr && oTMS.oSRS.EPSGTreatsAsNorthingEasting())
-                poPROJCS->StripNodes( "AXIS" );
-
             char* pszWKT = nullptr;
             oTMS.oSRS.exportToWkt(&pszWKT);
             poDS->osProjection = pszWKT;
@@ -1986,9 +1955,30 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
         poDS->osURLFeatureInfoTemplate = osURLFeatureInfoTemplate;
 
         // Build all TMS datasets, wrapped in VRT datasets
-        for(int i=nMaxZoomLevel;i>=0;i--)
+        for(int i=static_cast<int>(oTMS.aoTM.size()-1);i>=0;i--)
         {
             const WMTSTileMatrix& oTM = oTMS.aoTM[i];
+            double dfRasterXSize = (sAOI.MaxX - sAOI.MinX) / oTM.dfPixelSize;
+            double dfRasterYSize = (sAOI.MaxY - sAOI.MinY) / oTM.dfPixelSize;
+            if( dfRasterXSize > INT_MAX || dfRasterYSize > INT_MAX )
+            {
+                continue;
+            }
+
+            if( poDS->apoDatasets.empty() )
+            {
+                // Align AOI on pixel boundaries with respect to TopLeftCorner of
+                // this tile matrix
+                poDS->adfGT[0] = oTM.dfTLX + floor((sAOI.MinX - oTM.dfTLX) / oTM.dfPixelSize+1e-10) * oTM.dfPixelSize;
+                poDS->adfGT[1] = oTM.dfPixelSize;
+                poDS->adfGT[2] = 0.0;
+                poDS->adfGT[3] = oTM.dfTLY + ceil((sAOI.MaxY - oTM.dfTLY) / oTM.dfPixelSize-1e-10) * oTM.dfPixelSize;
+                poDS->adfGT[4] = 0.0;
+                poDS->adfGT[5] = -oTM.dfPixelSize;
+                poDS->nRasterXSize = int(0.5 + (sAOI.MaxX - poDS->adfGT[0]) / oTM.dfPixelSize);
+                poDS->nRasterYSize = int(0.5 + (poDS->adfGT[3] - sAOI.MinY) / oTM.dfPixelSize);
+            }
+
             int nRasterXSize = int(0.5 + poDS->nRasterXSize / oTM.dfPixelSize * poDS->adfGT[1]);
             int nRasterYSize = int(0.5 + poDS->nRasterYSize / oTM.dfPixelSize * poDS->adfGT[1]);
             if( !poDS->apoDatasets.empty() &&
@@ -2014,8 +2004,22 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
             dfLRX = dfULX + ceil((dfLRX - dfULX) / dfTileWidthUnits - 1e-10) * dfTileWidthUnits;
             dfLRY = dfULY + floor((dfLRY - dfULY) / dfTileHeightUnits + 1e-10) * dfTileHeightUnits;
 
-            int nSizeX = int(0.5+(dfLRX - dfULX) / oTM.dfPixelSize);
-            int nSizeY = int(0.5+(dfULY - dfLRY) / oTM.dfPixelSize);
+            double dfSizeX = 0.5+(dfLRX - dfULX) / oTM.dfPixelSize;
+            double dfSizeY = 0.5+(dfULY - dfLRY) / oTM.dfPixelSize;
+            if( dfSizeX > INT_MAX || dfSizeY > INT_MAX )
+            {
+                continue;
+            }
+            if( poDS->apoDatasets.empty() )
+            {
+                CPLDebug("WMTS", "Using tilematrix=%s (zoom level %d)",
+                        oTMS.aoTM[i].osIdentifier.c_str(), i);
+                oTMS.aoTM.resize(1 + i);
+                poDS->oTMS = oTMS;
+            }
+
+            int nSizeX = static_cast<int>(dfSizeX);
+            int nSizeY = static_cast<int>(dfSizeY);
 
             double dfDateLineX = oTM.dfTLX + oTM.nMatrixWidth * dfTileWidthUnits;
             int nSizeX1 = int(0.5+(dfDateLineX - dfULX) / oTM.dfPixelSize);
@@ -2046,6 +2050,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
     "<BlockSizeX>%d</BlockSizeX>" \
     "<BlockSizeY>%d</BlockSizeY>" \
     "<BandsCount>%d</BandsCount>" \
+    "<DataType>%s</DataType>" \
     "%s" \
 "</GDAL_WMS>"
 
@@ -2053,7 +2058,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
                 WMTSEscapeXML(osURL).c_str(),
                 dfULX, dfULY, (bExtendBeyondDateLine) ? dfDateLineX : dfLRX, dfLRY,
                 nTileX, nTileY, (bExtendBeyondDateLine) ? nSizeX1 : nSizeX, nSizeY,
-                oTM.nTileWidth, oTM.nTileHeight, nBands,
+                oTM.nTileWidth, oTM.nTileHeight, nBands, GDALGetDataTypeName(eDataType),
                 osOtherXML.c_str()));
             GDALDataset* poWMSDS = (GDALDataset*)GDALOpenEx(
                 osStr, GDAL_OF_RASTER | GDAL_OF_SHARED | GDAL_OF_VERBOSE_ERROR, nullptr, nullptr, nullptr);
@@ -2067,29 +2072,29 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
             VRTDatasetH hVRTDS = VRTCreate( nRasterXSize, nRasterYSize );
             for(int iBand=1;iBand<=nBands;iBand++)
             {
-                VRTAddBand( hVRTDS, GDT_Byte, nullptr );
+                VRTAddBand( hVRTDS, eDataType, nullptr );
             }
 
             int nSrcXOff, nSrcYOff, nDstXOff, nDstYOff;
 
             nSrcXOff = 0;
-            nDstXOff = (int)(0.5 + (dfULX - poDS->adfGT[0]) / oTM.dfPixelSize);
+            nDstXOff = static_cast<int>(std::round((dfULX - poDS->adfGT[0]) / oTM.dfPixelSize));
 
             nSrcYOff = 0;
-            nDstYOff = (int)(0.5 + (poDS->adfGT[3] - dfULY) / oTM.dfPixelSize);
+            nDstYOff = static_cast<int>(std::round((poDS->adfGT[3] - dfULY) / oTM.dfPixelSize));
 
             if( bExtendBeyondDateLine )
             {
                 int nSrcXOff2, nDstXOff2;
 
                 nSrcXOff2 = 0;
-                nDstXOff2 = (int)(0.5 + (dfDateLineX - poDS->adfGT[0]) / oTM.dfPixelSize);
+                nDstXOff2 = static_cast<int>(std::round((dfDateLineX - poDS->adfGT[0]) / oTM.dfPixelSize));
 
                 osStr = CPLSPrintf( WMS_TMS_TEMPLATE,
                     WMTSEscapeXML(osURL).c_str(),
                     -dfDateLineX, dfULY, dfLRX - 2 * dfDateLineX, dfLRY,
                     0, nTileY, nSizeX2, nSizeY,
-                    oTM.nTileWidth, oTM.nTileHeight, nBands,
+                    oTM.nTileWidth, oTM.nTileHeight, nBands, GDALGetDataTypeName(eDataType),
                     osOtherXML.c_str());
 
                 GDALDataset* poWMSDS2 = (GDALDataset*)GDALOpenEx(
@@ -2140,7 +2145,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
 
         poDS->SetMetadataItem("INTERLEAVE", "PIXEL", "IMAGE_STRUCTURE");
         for(int i=0;i<nBands;i++)
-            poDS->SetBand(i+1, new WMTSBand(poDS,i+1));
+            poDS->SetBand(i+1, new WMTSBand(poDS,i+1,eDataType));
 
         poDS->osXML = "<GDAL_WMTS>\n";
         poDS->osXML += "  <GetCapabilitiesUrl>" +
@@ -2173,6 +2178,7 @@ GDALDataset* WMTSDataset::Open(GDALOpenInfo* poOpenInfo)
         if( bExtendBeyondDateLine )
             poDS->osXML += "  <ExtendBeyondDateLine>true</ExtendBeyondDateLine>\n";
         poDS->osXML += CPLSPrintf("  <BandsCount>%d</BandsCount>\n", nBands);
+        poDS->osXML += CPLSPrintf("  <DataType>%s</DataType>\n", GDALGetDataTypeName(eDataType));
         poDS->osXML += "  <Cache />\n";
         poDS->osXML += "  <UnsafeSSL>true</UnsafeSSL>\n";
         poDS->osXML += "  <ZeroBlockHttpCodes>204,404</ZeroBlockHttpCodes>\n";
@@ -2241,7 +2247,7 @@ void GDALRegister_WMTS()
     poDriver->SetDescription( "WMTS" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "OGC Web Map Tile Service" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_wmts.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/wmts.html" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "WMTS:" );
 

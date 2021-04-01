@@ -2,10 +2,10 @@
  * Purpose:  ASRP/USRP Reader
  * Author:   Frank Warmerdam (warmerdam@pobox.com)
  *
- * Derived from ADRG driver by Even Rouault, even.rouault at mines-paris.org.
+ * Derived from ADRG driver by Even Rouault, even.rouault at spatialys.com.
  *
  ******************************************************************************
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2009, Frank Warmerdam
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -41,7 +41,7 @@
 
 CPL_CVSID("$Id$")
 
-class SRPDataset : public GDALPamDataset
+class SRPDataset final: public GDALPamDataset
 {
     friend class SRPRasterBand;
 
@@ -81,7 +81,10 @@ class SRPDataset : public GDALPamDataset
     SRPDataset();
     ~SRPDataset() override;
 
-    const char *GetProjectionRef(void) override;
+    const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * padfGeoTransform ) override;
 
     char **GetMetadata( const char * pszDomain = "" ) override;
@@ -102,7 +105,7 @@ class SRPDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class SRPRasterBand : public GDALPamRasterBand
+class SRPRasterBand final: public GDALPamRasterBand
 {
     friend class SRPDataset;
 
@@ -196,7 +199,7 @@ CPLErr SRPRasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
 /* -------------------------------------------------------------------- */
 /*      Is this a null block?                                           */
 /* -------------------------------------------------------------------- */
-    if (l_poDS->TILEINDEX && l_poDS->TILEINDEX[nBlock] == 0)
+    if (l_poDS->TILEINDEX && l_poDS->TILEINDEX[nBlock] <= 0)
     {
         memset(pImage, 0, 128 * 128);
         return CE_None;
@@ -387,7 +390,7 @@ CPLString SRPDataset::ResetTo01( const char* str )
 /*                        GetProjectionRef()                            */
 /************************************************************************/
 
-const char* SRPDataset::GetProjectionRef()
+const char* SRPDataset::_GetProjectionRef()
 {
     return osSRS;
 }
@@ -577,7 +580,7 @@ bool SRPDataset::GetFromRecord( const char* pszFileName, DDFRecord * record )
         {
             TILEINDEX = new int [NFL * NFC];
         }
-        catch( const std::bad_alloc& )
+        catch( const std::exception& )
         {
             return false;
         }
@@ -726,7 +729,7 @@ bool SRPDataset::GetFromRecord( const char* pszFileName, DDFRecord * record )
                 // TODO: Translate to English or state why this should not be in
                 // English.
                 // Date de production du produit : QAL.QUV.DAT1
-                // Num�ro d'�dition  du produit : QAL.QUV.EDN
+                // Numero d'edition  du produit : QAL.QUV.EDN
 
                 const int EDN =
                     record->GetIntSubfield( "QUV", 0, "EDN", 0, &bSuccess );
@@ -794,7 +797,7 @@ bool SRPDataset::GetFromRecord( const char* pszFileName, DDFRecord * record )
 /* -------------------------------------------------------------------- */
     if( EQUAL(osProduct,"ASRP") )
     {
-        osSRS = SRS_WKT_WGS84;
+        osSRS = SRS_WKT_WGS84_LAT_LONG;
 
         if( ZNA == 9 )
         {
@@ -806,7 +809,8 @@ bool SRPDataset::GetFromRecord( const char* pszFileName, DDFRecord * record )
                 "PARAMETER[\"latitude_of_center\",90],"
                 "PARAMETER[\"longitude_of_center\",0],"
                 "PARAMETER[\"false_easting\",0],"
-                "PARAMETER[\"false_northing\",0]]";
+                "PARAMETER[\"false_northing\",0],"
+                "UNIT[\"metre\",1]]";
         }
 
         if (ZNA == 18)
@@ -819,7 +823,8 @@ bool SRPDataset::GetFromRecord( const char* pszFileName, DDFRecord * record )
                 "PARAMETER[\"latitude_of_center\",-90],"
                 "PARAMETER[\"longitude_of_center\",0],"
                 "PARAMETER[\"false_easting\",0],"
-                "PARAMETER[\"false_northing\",0]]";
+                "PARAMETER[\"false_northing\",0],"
+                "UNIT[\"metre\",1]]";
         }
     }
     else
@@ -1215,8 +1220,6 @@ void SRPDataset::AddMetadatafromFromTHF(const char* pszFileName)
     if (!module.Open(pszFileName, TRUE))
         return ;
 
-    CPLString osDirName(CPLGetDirname(pszFileName));
-
     while( true )
     {
         CPLPushErrorHandler( CPLQuietErrorHandler );
@@ -1368,6 +1371,14 @@ char** SRPDataset::GetIMGListFromGEN(const char* pszFileName,
 
             if ( strcmp(RTY, "GIN") != 0 )
                 continue;
+
+            /* make sure that the GEN file is part of a SRP dataset, not an ADRG dataset, by checking that the GEN field does not contain a NOW subfield */
+            const char* NWO = record->GetStringSubfield("GEN", 0, "NWO", 0);
+            if( NWO )
+            {
+                CSLDestroy(papszFileNames);
+                return nullptr;
+            }
 
             field = record->GetField(3);
             if( field == nullptr )
@@ -1658,7 +1669,7 @@ void GDALRegister_SRP()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Standard Raster Product (ASRP/USRP)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#SRP" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/srp.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "img" );
     poDriver->SetMetadataItem( GDAL_DMD_SUBDATASETS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );

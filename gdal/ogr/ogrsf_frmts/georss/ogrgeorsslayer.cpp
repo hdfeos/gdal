@@ -2,10 +2,10 @@
  *
  * Project:  GeoRSS Translator
  * Purpose:  Implements OGRGeoRSSLayer class.
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2008-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -180,7 +180,7 @@ OGRGeoRSSLayer::OGRGeoRSSLayer( const char* pszFilename,
         }
     }
 
-    ResetReading();
+    OGRGeoRSSLayer::ResetReading();
 }
 
 /************************************************************************/
@@ -1879,7 +1879,8 @@ void OGRGeoRSSLayer::LoadSchema()
         if( pszGMLSRSName == nullptr )
         {
             poSRS = new OGRSpatialReference();
-            poSRS->SetWellKnownGeogCS( "WGS84" ); /* no AXIS definition ! */
+            poSRS->SetWellKnownGeogCS( "WGS84" );
+            poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         }
         else
         {

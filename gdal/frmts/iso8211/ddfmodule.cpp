@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -465,7 +465,7 @@ int DDFModule::Create( const char *pszFilename )
         papoFieldDefns[iField]->GenerateDDREntry( this, nullptr, &nLength );
 
         CPLAssert( (int)strlen(papoFieldDefns[iField]->GetName()) == _sizeFieldTag );
-        strcpy( achDirEntry, papoFieldDefns[iField]->GetName() );
+        snprintf( achDirEntry, sizeof(achDirEntry), "%s", papoFieldDefns[iField]->GetName() );
         snprintf(szFormat, sizeof(szFormat), "%%0%dd", (int)_sizeFieldLength);
         snprintf( achDirEntry + _sizeFieldTag, sizeof(achDirEntry) - _sizeFieldTag,
                   szFormat, nLength );

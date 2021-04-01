@@ -1,16 +1,16 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # *****************************************************************************
 # $Id$
 #
 # Project:  OpenGIS Simple Features Reference Implementation
 # Purpose:  Python port of a simple client for translating between formats.
-# Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault, <even dot rouault at spatialys.com>
 #
 # Port from ogr2ogr.cpp whose author is Frank Warmerdam
 #
 # *****************************************************************************
-# Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
 # Copyright (c) 1999, Frank Warmerdam
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -68,7 +68,7 @@ def EQUAL(a, b):
     return a.lower() == b.lower()
 
 ###############################################################################
-# Redefinition of GDALTermProgress, so that autotest/pyscripts/test_ogr2ogr_py.py
+# Redefinition of GDALTermProgress, so that test_ogr2ogr_py.py
 # can check that the progress bar is displayed
 
 
@@ -150,6 +150,11 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
     global bPreserveFID
     global nFIDToFetch
 
+    version_num = int(gdal.VersionInfo('VERSION_NUM'))
+    if version_num < 1800:  # because of ogr.GetFieldTypeName
+        print('ERROR: Python bindings of GDAL 1.8.0 or later required')
+        return 1
+
     pszFormat = "ESRI Shapefile"
     pszDataSource = None
     pszDestDataSource = None
@@ -207,7 +212,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
 #      Processing command line arguments.
 # --------------------------------------------------------------------
     if args is None:
-        return False
+        return 1
 
     nArgc = len(args)
 
@@ -295,7 +300,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                 eGType = ogr.wkbMultiPolygon25D
             else:
                 print("-nlt %s: type not recognised." % args[iArg + 1])
-                return False
+                return 1
 
             iArg = iArg + 1
 
@@ -304,7 +309,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
             nCoordDim = int(args[iArg + 1])
             if nCoordDim != 2 and nCoordDim != 3:
                 print("-dim %s: value not handled." % args[iArg + 1])
-                return False
+                return 1
             iArg = iArg + 1
 
         elif (EQUAL(args[iArg], "-tg") or
@@ -552,7 +557,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
         for iDriver in range(ogr.GetDriverCount()):
             print("  ->  " + ogr.GetDriver(iDriver).GetName())
 
-        return False
+        return 1
 
 # --------------------------------------------------------------------
 #      Try opening the output datasource as an existing, writable
@@ -576,7 +581,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
             if bUpdate:
                 print("FAILURE:\n" +
                       "Unable to open existing output datasource `%s'." % pszDestDataSource)
-                return False
+                return 1
 
         elif papszDSCO:
             print("WARNING: Datasource creation options ignored since an existing datasource\n" +
@@ -597,11 +602,11 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
             for iDriver in range(ogr.GetDriverCount()):
                 print("  ->  %s" % ogr.GetDriver(iDriver).GetName())
 
-            return False
+            return 1
 
         if not poDriver.TestCapability(ogr.ODrCCreateDataSource):
             print("%s driver does not support data source creation." % pszFormat)
-            return False
+            return 1
 
 # --------------------------------------------------------------------
 #      Special case to improve user experience when translating
@@ -628,7 +633,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                 except OSError:
                     print("Failed to create directory %s\n"
                           "for shapefile datastore.\n" % pszDestDataSource)
-                    return False
+                    return 1
 
 # --------------------------------------------------------------------
 #      Create the output data source.
@@ -636,25 +641,27 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
         poODS = poDriver.CreateDataSource(pszDestDataSource, options=papszDSCO)
         if poODS is None:
             print("%s driver failed to create %s" % (pszFormat, pszDestDataSource))
-            return False
+            return 1
 
 # --------------------------------------------------------------------
 #      Parse the output SRS definition if possible.
 # --------------------------------------------------------------------
     if pszOutputSRSDef is not None:
         poOutputSRS = osr.SpatialReference()
+        poOutputSRS.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         if poOutputSRS.SetFromUserInput(pszOutputSRSDef) != 0:
             print("Failed to process SRS definition: %s" % pszOutputSRSDef)
-            return False
+            return 1
 
 # --------------------------------------------------------------------
 #      Parse the source SRS definition if possible.
 # --------------------------------------------------------------------
     if pszSourceSRSDef is not None:
         poSourceSRS = osr.SpatialReference()
+        poSourceSRS.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         if poSourceSRS.SetFromUserInput(pszSourceSRSDef) != 0:
             print("Failed to process SRS definition: %s" % pszSourceSRSDef)
-            return False
+            return 1
 
 # --------------------------------------------------------------------
 #      For OSM file.
@@ -741,7 +748,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                     "Terminating translation prematurely after failed\n" +
                     "translation from sql statement.")
 
-                return False
+                return 1
 
             poDS.ReleaseResultSet(poResultSet)
 
@@ -790,7 +797,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                 poLayer = poDS.GetLayer(iLayer)
                 if poLayer is None:
                     print("FAILURE: Couldn't fetch advertised layer %d!" % iLayer)
-                    return False
+                    return 1
 
                 papszLayers[iLayer] = poLayer.GetName()
         else:
@@ -810,7 +817,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
             poLayer = poDS.GetLayer(iLayer)
             if poLayer is None:
                 print("FAILURE: Couldn't fetch advertised layer %d!" % iLayer)
-                return False
+                return 1
 
             pasAssocLayers[iLayer].poSrcLayer = poLayer
 
@@ -819,7 +826,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                     if poLayer.SetAttributeFilter(pszWHERE) != 0:
                         print("FAILURE: SetAttributeFilter(%s) on layer '%s' failed.\n" % (pszWHERE, poLayer.GetName()))
                         if not bSkipFailures:
-                            return False
+                            return 1
 
                 if poSpatialFilter is not None:
                     poLayer.SetSpatialFilter(poSpatialFilter)
@@ -842,7 +849,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                                           pszWHERE)
 
                 if psInfo is None and not bSkipFailures:
-                    return False
+                    return 1
 
                 pasAssocLayers[iLayer].psInfo = psInfo
             else:
@@ -876,7 +883,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                             "Terminating translation prematurely after failed\n" +
                             "translation of layer " + poLayer.GetName() + " (use -skipfailures to skip errors)")
 
-                        return False
+                        return 1
                 else:
                     # No matching target layer : just consumes the features
 
@@ -906,7 +913,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
 
                 if poLayer is None:
                     print("FAILURE: Couldn't fetch advertised layer %d!" % iLayer)
-                    return False
+                    return 1
 
                 papoLayers[iLayer] = poLayer
                 iLayer = iLayer + 1
@@ -924,7 +931,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
 
                 if poLayer is None:
                     print("FAILURE: Couldn't fetch advertised layer %s!" % layername)
-                    return False
+                    return 1
 
                 papoLayers[iLayer] = poLayer
                 iLayer = iLayer + 1
@@ -941,7 +948,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                 if poLayer.SetAttributeFilter(pszWHERE) != 0:
                     print("FAILURE: SetAttributeFilter(%s) failed." % pszWHERE)
                     if not bSkipFailures:
-                        return False
+                        return 1
 
             if poSpatialFilter is not None:
                 poLayer.SetSpatialFilter(poSpatialFilter)
@@ -1019,7 +1026,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
                     "Terminating translation prematurely after failed\n" +
                     "translation of layer " + poLayer.GetLayerDefn().GetName() + " (use -skipfailures to skip errors)")
 
-                return False
+                return 1
 
 # --------------------------------------------------------------------
 #      Close down.
@@ -1029,7 +1036,7 @@ def main(args=None, progress_func=TermProgress, progress_data=None):
     poODS.Destroy()
     poDS.Destroy()
 
-    return True
+    return 0
 
 # **********************************************************************
 #                               Usage()
@@ -1093,7 +1100,7 @@ def Usage():
           " or a well known definition (i.e. EPSG:4326) or a file with a WKT\n"
           " definition.")
 
-    return False
+    return 1
 
 
 def CSLFindString(v, mystr):
@@ -1225,16 +1232,12 @@ def SetupTargetLayer(poSrcDS, poSrcLayer, poDstDS, papszLCO, pszNewLayerName,
             return None
 
         poCT = osr.CoordinateTransformation(poSourceSRS, poOutputSRS)
-        if gdal.GetLastErrorMsg().find('Unable to load PROJ.4 library') != -1:
-            poCT = None
-
         if poCT is None:
             pszWKT = None
 
             print("Failed to create coordinate transformation between the\n" +
                   "following coordinate systems.  This may be because they\n" +
-                  "are not transformable, or because projection services\n" +
-                  "(PROJ.4 DLL/.so) could not be loaded.")
+                  "are not transformable.")
 
             pszWKT = poSourceSRS.ExportToPrettyWkt(0)
             print("Source:\n" + pszWKT)
@@ -1702,12 +1705,4 @@ def TranslateLayer(psInfo, poSrcDS, poSrcLayer, poDstDS,
 
 
 if __name__ == '__main__':
-    version_num = int(gdal.VersionInfo('VERSION_NUM'))
-    if version_num < 1800:  # because of ogr.GetFieldTypeName
-        print('ERROR: Python bindings of GDAL 1.8.0 or later required')
-        sys.exit(1)
-
-    if not main(sys.argv):
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    sys.exit(main(sys.argv))

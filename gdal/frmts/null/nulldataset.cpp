@@ -35,7 +35,7 @@ extern "C" void GDALRegister_NULL();
 /*                          GDALNullDataset                             */
 /************************************************************************/
 
-class GDALNullDataset: public GDALDataset
+class GDALNullDataset final: public GDALDataset
 {
             int                 m_nLayers;
             OGRLayer**          m_papoLayers;
@@ -54,7 +54,11 @@ class GDALNullDataset: public GDALDataset
 
             virtual int         TestCapability( const char * ) override;
 
-            virtual CPLErr      SetProjection(const char*) override;
+            virtual CPLErr      _SetProjection(const char*) override;
+            CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+                return OldSetProjectionFromSetSpatialRef(poSRS);
+            }
+
             virtual CPLErr      SetGeoTransform(double*) override;
 
             static GDALDataset* Open(GDALOpenInfo* poOpenInfo);
@@ -68,7 +72,7 @@ class GDALNullDataset: public GDALDataset
 /*                           GDALNullLayer                              */
 /************************************************************************/
 
-class GDALNullRasterBand: public GDALRasterBand
+class GDALNullRasterBand final: public GDALRasterBand
 {
     public:
             explicit GDALNullRasterBand(GDALDataType eDT);
@@ -88,7 +92,7 @@ class GDALNullRasterBand: public GDALRasterBand
 /*                           GDALNullLayer                              */
 /************************************************************************/
 
-class GDALNullLayer : public OGRLayer
+class GDALNullLayer final: public OGRLayer
 {
     OGRFeatureDefn      *poFeatureDefn;
     OGRSpatialReference *poSRS;
@@ -255,7 +259,7 @@ OGRLayer *GDALNullDataset::GetLayer( int iLayer )
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr GDALNullDataset::SetProjection(const char*)
+CPLErr GDALNullDataset::_SetProjection(const char*)
 
 {
     return CE_None;

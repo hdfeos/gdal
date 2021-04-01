@@ -159,7 +159,7 @@ static bool TABAdjustCaseSensitiveFilename(char *pszFname)
 
     CPLAssert(iTmpPtr >= 0);
 
-    // Assume that CWD is valid.  Therefor an empty path is a valid.
+    // Assume that CWD is valid.  Therefore an empty path is a valid.
     if (iTmpPtr == 0)
         bValidPath = true;
 
@@ -315,7 +315,7 @@ char *TABGetBasename(const char *pszFname)
  **********************************************************************/
 char **TAB_CSLLoad(const char *pszFname)
 {
-    char **papszStrList = nullptr;
+    CPLStringList oList;
 
     VSILFILE *fp = VSIFOpenL(pszFname, "rt");
 
@@ -326,14 +326,14 @@ char **TAB_CSLLoad(const char *pszFname)
             const char *pszLine = nullptr;
             if ( (pszLine = CPLReadLineL(fp)) != nullptr )
             {
-                papszStrList = CSLAddString(papszStrList, pszLine);
+                oList.AddString(pszLine);
             }
         }
 
         VSIFCloseL(fp);
     }
 
-    return papszStrList;
+    return oList.StealList();
 }
 
 /**********************************************************************

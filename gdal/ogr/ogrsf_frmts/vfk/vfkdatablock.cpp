@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2009-2013, Martin Landa <landa.martin gmail.com>
- * Copyright (c) 2012-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -502,6 +502,19 @@ int IVFKDataBlock::LoadGeometry()
     return nInvalid;
 }
 
+void IVFKDataBlock::FillPointList(PointList* poList, const OGRLineString *poLine)
+{
+    poList->reserve(poLine->getNumPoints());
+
+    /* OGRLineString -> PointList */
+    for( int i = 0; i < poLine->getNumPoints(); i++ )
+    {
+        OGRPoint pt;
+        poLine->getPoint(i, &pt);
+        poList->emplace_back(std::move(pt));
+    }
+}
+
 /*!
   \brief Add linestring to a ring (private)
 
@@ -515,56 +528,61 @@ int IVFKDataBlock::LoadGeometry()
 bool IVFKDataBlock::AppendLineToRing(PointListArray *papoRing, const OGRLineString *poLine,
                                      bool bNewRing, bool bBackward)
 {
-    PointList poList;
-
-    /* OGRLineString -> PointList */
-    for( int i = 0; i < poLine->getNumPoints(); i++ )
-    {
-        OGRPoint pt;
-        poLine->getPoint(i, &pt);
-        poList.push_back(pt);
-    }
-
     /* create new ring */
     if (bNewRing) {
-        papoRing->push_back(new PointList(poList));
+        PointList* poList = new PointList();
+        FillPointList(poList, poLine);
+        papoRing->emplace_back(poList);
         return true;
     }
 
-    OGRPoint *poFirstNew = &(poList.front());
-    OGRPoint *poLastNew  = &(poList.back());
+    if( poLine->getNumPoints() < 2)
+        return false;
+    OGRPoint oFirstNew;
+    OGRPoint oLastNew;
+    poLine->StartPoint(&oFirstNew);
+    poLine->EndPoint(&oLastNew);
 
-    OGRPoint *poFirst, *poLast;
+    for( PointList *ring: *papoRing )
+    {
+        const OGRPoint& oFirst = ring->front();
+        const OGRPoint& oLast  = ring->back();
 
-    for (PointListArray::const_iterator i = papoRing->begin(), e = papoRing->end();
-         i != e; ++i) {
-        PointList *ring = (*i);
-        poFirst = &(ring->front());
-        poLast  = &(ring->back());
-        if (!poFirst || !poLast || poLine->getNumPoints() < 2)
-            return false;
-
-        if (poFirstNew->Equals(poLast)) {
+        if (oFirstNew.getX() == oLast.getX() &&
+            oFirstNew.getY() == oLast.getY()) {
+            PointList oList;
+            FillPointList(&oList, poLine);
             /* forward, skip first point */
-            ring->insert(ring->end(), poList.begin()+1, poList.end());
+            ring->insert(ring->end(), oList.begin()+1, oList.end());
             return true;
         }
 
-        if (bBackward && poFirstNew->Equals(poFirst)) {
+        if (bBackward &&
+            oFirstNew.getX() == oFirst.getX() &&
+            oFirstNew.getY() == oFirst.getY()) {
+            PointList oList;
+            FillPointList(&oList, poLine);
             /* backward, skip last point */
-            ring->insert(ring->begin(), poList.rbegin(), poList.rend()-1);
+            ring->insert(ring->begin(), oList.rbegin(), oList.rend()-1);
             return true;
         }
 
-        if (poLastNew->Equals(poLast)) {
+        if (oLastNew.getX() == oLast.getX() &&
+            oLastNew.getY() == oLast.getY()) {
+            PointList oList;
+            FillPointList(&oList, poLine);
             /* backward, skip first point */
-            ring->insert(ring->end(), poList.rbegin()+1, poList.rend());
+            ring->insert(ring->end(), oList.rbegin()+1, oList.rend());
             return true;
         }
 
-        if (bBackward && poLastNew->Equals(poFirst)) {
+        if (bBackward &&
+            oLastNew.getX() == oFirst.getX() &&
+            oLastNew.getY() == oFirst.getY()) {
+            PointList oList;
+            FillPointList(&oList, poLine);
             /* forward, skip last point */
-            ring->insert(ring->begin(), poList.begin(), poList.end()-1);
+            ring->insert(ring->begin(), oList.begin(), oList.end()-1);
             return true;
         }
     }

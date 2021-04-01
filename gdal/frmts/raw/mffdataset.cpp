@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -80,16 +80,22 @@ class MFFDataset final : public RawDataset
     char** GetFileList() override;
 
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
 
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * ) override;
 
     static GDALDataset *Open( GDALOpenInfo * );
     static GDALDataset *Create( const char * pszFilename,
                                 int nXSize, int nYSize, int nBands,
-                                GDALDataType eType, char ** papszParmList );
+                                GDALDataType eType, char ** papszParamList );
     static GDALDataset *CreateCopy( const char * pszFilename,
                                     GDALDataset *poSrcDS,
                                     int bStrict, char ** papszOptions,
@@ -317,7 +323,7 @@ int MFFDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *MFFDataset::GetGCPProjection()
+const char *MFFDataset::_GetGCPProjection()
 
 {
     if( nGCPCount > 0 )
@@ -330,7 +336,7 @@ const char *MFFDataset::GetGCPProjection()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *MFFDataset::GetProjectionRef()
+const char *MFFDataset::_GetProjectionRef()
 
 {
    return pszProjection;
@@ -538,6 +544,7 @@ void MFFDataset::ScanForProjectionInfo()
     }
 
     OGRSpatialReference oLL;
+    oLL.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     if (pszOriginLong != nullptr)
         oLL.SetProjParm(SRS_PP_LONGITUDE_OF_ORIGIN,CPLAtof(pszOriginLong));
 
@@ -1100,7 +1107,7 @@ int GetMFFProjectionType(const char *pszNewProjection)
 GDALDataset *MFFDataset::Create( const char * pszFilenameIn,
                                  int nXSize, int nYSize, int nBands,
                                  GDALDataType eType,
-                                 char ** papszParmList )
+                                 char ** papszParamList )
 
 {
 /* -------------------------------------------------------------------- */
@@ -1167,7 +1174,7 @@ GDALDataset *MFFDataset::Create( const char * pszFilenameIn,
     bOK &= VSIFPrintfL( fp, "BYTE_ORDER = LSB\n" ) >= 0;
 #endif
 
-    if (CSLFetchNameValue(papszParmList,"NO_END") == nullptr)
+    if (CSLFetchNameValue(papszParamList,"NO_END") == nullptr)
         bOK &= VSIFPrintfL( fp, "END\n" ) >= 0;
 
     if( VSIFCloseL( fp ) != 0 )
@@ -1443,16 +1450,12 @@ MFFDataset::CreateCopy( const char * pszFilename,
               tempGeoTransform[5]*(poSrcDS->GetRasterYSize())/2.0;
 
           OGRSpatialReference oUTMorLL(poSrcDS->GetProjectionRef());
-          char *newGCPProjection = nullptr;
-          (oUTMorLL.GetAttrNode("GEOGCS"))->exportToWkt(&newGCPProjection);
-          OGRSpatialReference oLL(newGCPProjection);
-          CPLFree(newGCPProjection);
-          newGCPProjection = nullptr;
-
-          if( STARTS_WITH_CI(poSrcDS->GetProjectionRef(), "PROJCS") )
+          auto poLLSRS = oUTMorLL.CloneGeogCS();
+          if( poLLSRS && oUTMorLL.IsProjected() )
           {
+            poLLSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             OGRCoordinateTransformation *poTransform
-                = OGRCreateCoordinateTransformation( &oUTMorLL, &oLL );
+                = OGRCreateCoordinateTransformation( &oUTMorLL, poLLSRS );
 
             // projected coordinate system- need to translate gcps */
             bool bSuccess = poTransform != nullptr;
@@ -1474,6 +1477,7 @@ MFFDataset::CreateCopy( const char * pszFilename,
           {
             georef_created = true;
           }
+          delete poLLSRS;
       }
       CPLFree(tempGeoTransform);
     }
@@ -1644,7 +1648,7 @@ void GDALRegister_MFF()
     poDriver->SetDescription( "MFF" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Vexcel MFF Raster" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#MFF" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/mff.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "hdr" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte UInt16 Float32 CInt16 CFloat32" );

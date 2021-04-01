@@ -76,7 +76,7 @@ OGRDWGLayer::OGRDWGLayer( OGRDWGDataSource *poDSIn )
             m_poBlock = nullptr;
     }
 
-    ResetReading();
+    OGRDWGLayer::ResetReading();
 }
 
 /************************************************************************/
@@ -692,7 +692,7 @@ OGRFeature *OGRDWGLayer::TranslateLWPOLYLINE( OdDbEntityPtr poEntity )
         oSmoothPolyline.Close();
 
     poFeature->SetGeometryDirectly(
-        oSmoothPolyline.Tesselate() );
+        oSmoothPolyline.Tessellate() );
 
     PrepareLineStyle( poFeature );
 
@@ -1080,12 +1080,14 @@ public:
 
     OGRSpatialReference *GetSourceCS() override { return nullptr; }
     OGRSpatialReference *GetTargetCS() override { return nullptr; }
-    int Transform( int nCount,
-                   double *x, double *y, double *z ) override
-        { return TransformEx( nCount, x, y, z, nullptr ); }
 
-    int TransformEx( int nCount,
+    OGRCoordinateTransformation* Clone() const override { return new GeometryInsertTransformer(*this); }
+
+    virtual OGRCoordinateTransformation* GetInverse() const override { return nullptr; }
+
+    int Transform( int nCount,
                      double *x, double *y, double *z = nullptr,
+                     double * /*t*/ = nullptr,
                      int *pabSuccess = nullptr ) override
         {
             int i;

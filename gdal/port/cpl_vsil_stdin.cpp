@@ -2,10 +2,10 @@
  *
  * Project:  CPL - Common Portability Library
  * Purpose:  Implement VSI large file api for stdin
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  **********************************************************************
- * Copyright (c) 2010-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -95,7 +95,8 @@ class VSIStdinFilesystemHandler final : public VSIFilesystemHandler
 
     VSIVirtualHandle *Open( const char *pszFilename,
                             const char *pszAccess,
-                            bool bSetError ) override;
+                            bool bSetError,
+                            CSLConstList /* papszOptions */ ) override;
     int Stat( const char *pszFilename, VSIStatBufL *pStatBuf,
               int nFlags ) override;
 };
@@ -340,7 +341,8 @@ VSIStdinFilesystemHandler::~VSIStdinFilesystemHandler()
 VSIVirtualHandle *
 VSIStdinFilesystemHandler::Open( const char *pszFilename,
                                  const char *pszAccess,
-                                 bool /* bSetError */ )
+                                 bool /* bSetError */,
+                                 CSLConstList /* papszOptions */ )
 
 {
     if( strcmp(pszFilename, "/vsistdin/") != 0 )

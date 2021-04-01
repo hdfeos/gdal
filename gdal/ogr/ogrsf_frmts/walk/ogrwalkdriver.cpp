@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2013,  ZJU Walkinfo Technology Corp., Ltd.
- * Copyright (c) 2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -97,8 +97,14 @@ OGRDataSource *OGRWalkDriver::Open( const char * pszFilename, int bUpdate )
         delete poDS;
         return nullptr;
     }
-    else
-        return poDS;
+
+    if( !GDALIsDriverDeprecatedForGDAL35StillEnabled("WALK") )
+    {
+        delete poDS;
+        return nullptr;
+    }
+
+    return poDS;
 }
 
 /************************************************************************/

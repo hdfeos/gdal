@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +48,7 @@ CPL_CVSID("$Id$")
 
 class SDTSRasterBand;
 
-class SDTSDataset : public GDALPamDataset
+class SDTSDataset final: public GDALPamDataset
 {
     friend class SDTSRasterBand;
 
@@ -63,11 +63,14 @@ class SDTSDataset : public GDALPamDataset
 
     static GDALDataset *Open( GDALOpenInfo * );
 
-    virtual const char *GetProjectionRef(void) override;
+    virtual const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual CPLErr GetGeoTransform( double * ) override;
 };
 
-class SDTSRasterBand : public GDALPamRasterBand
+class SDTSRasterBand final: public GDALPamRasterBand
 {
     friend class SDTSDataset;
 
@@ -240,8 +243,6 @@ GDALDataset *SDTSDataset::Open( GDALOpenInfo * poOpenInfo )
     else /* if( EQUAL(poXREF->pszDatum, "WGE") ) or default */
         oSRS.SetWellKnownGeogCS( "WGS84" );
 
-    oSRS.Fixup();
-
     poDS->pszProjection = nullptr;
     if( oSRS.exportToWkt( &poDS->pszProjection ) != OGRERR_NONE )
         poDS->pszProjection = CPLStrdup("");
@@ -316,7 +317,7 @@ CPLErr SDTSDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *SDTSDataset::GetProjectionRef()
+const char *SDTSDataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -405,7 +406,7 @@ void GDALRegister_SDTS()
     poDriver->SetDescription( "SDTS" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "SDTS Raster" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#SDTS" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/sdts.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "ddf" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

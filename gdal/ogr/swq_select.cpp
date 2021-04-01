@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (C) 2010 Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2010-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -28,7 +28,7 @@
  ****************************************************************************/
 
 #include "cpl_port.h"
-#include "swq.h"
+#include "ogr_swq.h"
 
 #include <cstdio>
 #include <cstring>
@@ -473,7 +473,7 @@ int swq_select::PushField( swq_expr_node *poExpr, const char *pszAlias,
 /* -------------------------------------------------------------------- */
     if( pszAlias != nullptr )
         col_def->field_alias = CPLStrdup( pszAlias );
-    else if( pszAlias == nullptr && poExpr->eNodeType == SNT_OPERATION
+    else if( poExpr->eNodeType == SNT_OPERATION
              && poExpr->nSubExprCount >= 1
              && ( static_cast<swq_op>(poExpr->nOperation) == SWQ_CONCAT ||
                   static_cast<swq_op>(poExpr->nOperation) == SWQ_SUBSTR )

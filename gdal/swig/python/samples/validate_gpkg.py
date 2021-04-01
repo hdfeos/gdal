@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -56,7 +56,7 @@ def _is_valid_data_type(typ):
     return typ in ('BOOLEAN', 'TINYINT', 'SMALLINT', 'MEDIUMINT',
                    'INT', 'INTEGER', 'FLOAT', 'DOUBLE', 'REAL',
                    'TEXT', 'BLOB', 'DATE', 'DATETIME') or \
-        type.startswith('TEXT(') or type.startswith('BLOB(')
+        typ.startswith('TEXT(') or typ.startswith('BLOB(')
 
 
 class GPKGCheckException(Exception):
@@ -101,16 +101,16 @@ class GPKGChecker(object):
                 if name != expected_name:
                     continue
 
-                if expected_type == 'INTEGER' and expected_pk:
+                if 'INTEGER' in expected_type and expected_pk:
                     expected_notnull = 1
                 if typ == 'INTEGER' and pk:
                     notnull = 1
                 if not self.extended_pragma_info and expected_pk > 1:
                     expected_pk = 1
 
-                self._assert(typ == expected_type, req,
+                self._assert(typ in expected_type, req,
                              'Wrong type for %s of %s. Expected %s, got %s' %
-                             (name, table_name, expected_type, typ))
+                             (name, table_name, str(expected_type), typ))
                 self._assert(notnull == expected_notnull, req,
                              ('Wrong notnull for %s of %s. ' +
                               'Expected %s, got %s') %
@@ -535,11 +535,11 @@ class GPKGChecker(object):
             c.execute('PRAGMA table_info(%s)' % _esc_id(rtree_name))
             columns = c.fetchall()
             expected_columns = [
-                (0, 'id', '', 0, None, 0),
-                (1, 'minx', '', 0, None, 0),
-                (2, 'maxx', '', 0, None, 0),
-                (3, 'miny', '', 0, None, 0),
-                (4, 'maxy', '', 0, None, 0)
+                (0, 'id', ['', 'INT'], 0, None, 0),
+                (1, 'minx', ['', 'NUM', 'REAL'], 0, None, 0),
+                (2, 'maxx', ['', 'NUM', 'REAL'], 0, None, 0),
+                (3, 'miny', ['', 'NUM', 'REAL'], 0, None, 0),
+                (4, 'maxy', ['', 'NUM', 'REAL'], 0, None, 0)
             ]
             self._check_structure(columns, expected_columns, 77, rtree_name)
 
@@ -1116,11 +1116,7 @@ class GPKGChecker(object):
                                  'Tile for %s should be PNG' % table_name)
                     if has_gdal:
                         tmp_file = '/vsimem/temp_validate_gpkg.tif'
-                        try:
-                            blob = bytes(blob)
-                        except:
-                            blob = str(blob)
-                        gdal.FileFromMemBuffer(tmp_file, blob)
+                        gdal.FileFromMemBuffer(tmp_file, bytes(blob))
                         ds = gdal.Open(tmp_file)
                         try:
                             self._assert(ds is not None, 'gpkg_2d_gridded_coverage#13',
@@ -1145,11 +1141,7 @@ class GPKGChecker(object):
                                  'Tile for %s should be TIFF' % table_name)
                     if has_gdal:
                         tmp_file = '/vsimem/temp_validate_gpkg.tif'
-                        try:
-                            blob = bytes(blob)
-                        except:
-                            blob = str(blob)
-                        gdal.FileFromMemBuffer(tmp_file, blob)
+                        gdal.FileFromMemBuffer(tmp_file, bytes(blob))
                         ds = gdal.Open(tmp_file)
                         try:
                             self._assert(ds is not None, 'gpkg_2d_gridded_coverage#15',
@@ -1493,6 +1485,67 @@ class GPKGChecker(object):
                          "Row with md_file_id = md_parent_id = %s " %
                          str(md_file_id))
 
+    def _check_schema(self, c):
+
+        # Partial: doesn't check gpkg_data_column_constraints
+
+        self._log('Checking gpkg_schema (partial)')
+
+        must_have_gpkg_schema = False
+        c.execute("SELECT 1 FROM sqlite_master WHERE name = 'gpkg_extensions'")
+        if c.fetchone() is not None:
+            c.execute("SELECT scope FROM gpkg_extensions WHERE "
+                      "extension_name = 'gpkg_schema'")
+            row = c.fetchone()
+            if row is not None:
+                must_have_gpkg_schema = True
+                (scope, ) = row
+                self._assert(scope == 'read-write', 141,
+                             "Wrong scope for gpkg_schema in "
+                             "gpkg_extensions")
+
+        c.execute("SELECT 1 FROM sqlite_master WHERE name = 'gpkg_data_columns'")
+        if c.fetchone() is None:
+            if must_have_gpkg_schema:
+                self._log("gpkg_data_columns table missing. Not forbidden by requirements, but odd")
+            else:
+                self._log('... No schema')
+            return
+
+        c.execute("PRAGMA table_info(gpkg_data_columns)")
+        columns = c.fetchall()
+        expected_columns = [
+            (0, 'table_name', 'TEXT', 1, None, 1),
+            (1, 'column_name', 'TEXT', 1, None, 2),
+            (2, 'name', 'TEXT', 0, None, 0),
+            (3, 'title', 'TEXT', 0, None, 0),
+            (4, 'description', 'TEXT', 0, None, 0),
+            (5, 'mime_type', 'TEXT', 0, None, 0),
+            (6, 'constraint_name', 'TEXT', 0, None, 0)
+        ]
+        self._check_structure(columns, expected_columns, 107,
+                              'gpkg_data_columns')
+
+        c.execute("SELECT table_name, column_name FROM gpkg_data_columns")
+        rows = c.fetchall()
+        for (table_name, column_name) in rows:
+            c.execute("SELECT 1 FROM gpkg_contents WHERE table_name = ?",
+                      (table_name,))
+            self._assert(c.fetchone(), 104,
+                         ("table_name = %s " % table_name +
+                          "in gpkg_data_columns refer to non-existing " +
+                          "table/view in gpkg_contents"))
+
+            try:
+                c.execute("SELECT %s FROM %s" % (_esc_id(column_name),
+                                                 _esc_id(table_name)))
+            except sqlite3.OperationalError:
+                self._assert(False, 105,
+                             ("table_name = %s, " % table_name +
+                              "column_name = %s " % column_name +
+                              "in gpkg_data_columns refer to non-existing " +
+                              "column"))
+
     def check(self):
         self._assert(os.path.exists(self.filename), None,
                      "%s does not exist" % self.filename)
@@ -1564,7 +1617,8 @@ class GPKGChecker(object):
 
             self._check_metadata(c)
 
-            # TODO: check gpkg_schema
+            self._check_schema(c)
+
         finally:
             c.close()
             conn.close()
@@ -1584,17 +1638,16 @@ def Usage():
     print('')
     print('-q: quiet mode')
     print('-k: (try to) keep going when error is encountered')
-    sys.exit(1)
+    return 1
 
 
-if __name__ == '__main__':
-
+def main(argv):
     filename = None
     verbose = False
     abort_at_first_error = True
-    if len(sys.argv) == 1:
-        Usage()
-    for arg in sys.argv[1:]:
+    if len(argv) == 1:
+        return Usage()
+    for arg in argv[1:]:
         if arg == '-k':
             abort_at_first_error = False
         elif arg == '-q':
@@ -1602,20 +1655,26 @@ if __name__ == '__main__':
         elif arg == '-v':
             verbose = True
         elif arg[0] == '-':
-            Usage()
+            return Usage()
         else:
             filename = arg
     if filename is None:
-        Usage()
+        return Usage()
     ret = check(filename, abort_at_first_error=abort_at_first_error,
                 verbose=verbose)
     if not abort_at_first_error:
         if not ret:
-            sys.exit(0)
+            return 0
         else:
             for (req, msg) in ret:
                 if req:
                     print('Req %d: %s' % (req, msg))
                 else:
                     print(msg)
-            sys.exit(1)
+            return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
+

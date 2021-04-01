@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Tamas Szekeres
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -52,7 +52,13 @@ OGRMSSQLSpatialDataSource::OGRMSSQLSpatialDataSource() :
     nGeometryFormat = MSSQLGEOMETRY_NATIVE;
     pszConnection = nullptr;
 
+    sMSSQLVersion.nMajor = 0;
+    sMSSQLVersion.nMinor = 0;
+    sMSSQLVersion.nBuild = 0;
+    sMSSQLVersion.nRevision = 0;
+
     bUseGeometryColumns = CPLTestBool(CPLGetConfigOption("MSSQLSPATIAL_USE_GEOMETRY_COLUMNS", "YES"));
+    bAlwaysOutputFid = CPLTestBool(CPLGetConfigOption("MSSQLSPATIAL_ALWAYS_OUTPUT_FID", "NO"));
     bListAllTables = CPLTestBool(CPLGetConfigOption("MSSQLSPATIAL_LIST_ALL_TABLES", "NO"));
 
     const char* nBCPSizeParam = CPLGetConfigOption("MSSQLSPATIAL_BCP_SIZE", nullptr);
@@ -92,6 +98,70 @@ OGRMSSQLSpatialDataSource::~OGRMSSQLSpatialDataSource()
     CPLFree( papoSRS );
     CPLFree( pszConnection );
 }
+/************************************************************************/
+/*                      OGRMSSQLDecodeVersionString()                   */
+/************************************************************************/
+
+void OGRMSSQLSpatialDataSource::OGRMSSQLDecodeVersionString(MSSQLVer* psVersion, const char* pszVer)
+{
+    while (*pszVer == ' ') pszVer++;
+
+    const char* ptr = pszVer;
+    // get Version string
+    while (*ptr && *ptr != ' ') ptr++;
+    GUInt32 iLen = static_cast<int>(ptr - pszVer);
+    char szVer[20] = {};
+    if (iLen > sizeof(szVer) - 1) iLen = sizeof(szVer) - 1;
+    strncpy(szVer, pszVer, iLen);
+    szVer[iLen] = '\0';
+
+    ptr = pszVer = szVer;
+
+    // get Major number
+    while (*ptr && *ptr != '.') ptr++;
+    iLen = static_cast<int>(ptr - pszVer);
+    char szNum[20] = {};
+    if (iLen > sizeof(szNum) - 1) iLen = sizeof(szNum) - 1;
+    strncpy(szNum, pszVer, iLen);
+    szNum[iLen] = '\0';
+    psVersion->nMajor = atoi(szNum);
+
+    if (*ptr == 0)
+        return;
+    pszVer = ++ptr;
+
+    // get Minor number
+    while (*ptr && *ptr != '.') ptr++;
+    iLen = static_cast<int>(ptr - pszVer);
+    if (iLen > sizeof(szNum) - 1) iLen = sizeof(szNum) - 1;
+    strncpy(szNum, pszVer, iLen);
+    szNum[iLen] = '\0';
+    psVersion->nMinor = atoi(szNum);
+
+    if (*ptr == 0)
+        return;
+    pszVer = ++ptr;
+
+    // get Build number
+    while (*ptr && *ptr != '.') ptr++;
+    iLen = static_cast<int>(ptr - pszVer);
+    if (iLen > sizeof(szNum) - 1) iLen = sizeof(szNum) - 1;
+    strncpy(szNum, pszVer, iLen);
+    szNum[iLen] = '\0';
+    psVersion->nBuild = atoi(szNum);
+
+    if (*ptr == 0)
+        return;
+    pszVer = ++ptr;
+
+    // get Revision number
+    while (*ptr && *ptr != '.') ptr++;
+    iLen = static_cast<int>(ptr - pszVer);
+    if (iLen > sizeof(szNum) - 1) iLen = sizeof(szNum) - 1;
+    strncpy(szNum, pszVer, iLen);
+    szNum[iLen] = '\0';
+    psVersion->nRevision = atoi(szNum);
+}
 
 /************************************************************************/
 /*                           TestCapability()                           */
@@ -107,6 +177,12 @@ int OGRMSSQLSpatialDataSource::TestCapability( const char * pszCap )
     if( EQUAL(pszCap,ODsCCreateLayer) || EQUAL(pszCap,ODsCDeleteLayer) )
         return TRUE;
     if( EQUAL(pszCap,ODsCRandomLayerWrite) )
+        return TRUE;
+    if (EQUAL(pszCap, OLCFastGetExtent))
+        return TRUE;
+    else if (EQUAL(pszCap, ODsCCurveGeometries))
+        return TRUE;
+    else if (EQUAL(pszCap, ODsCMeasuredGeometries))
         return TRUE;
     else
         return FALSE;
@@ -754,6 +830,10 @@ int OGRMSSQLSpatialDataSource::Open( const char * pszNewName, bool bUpdate,
         pszDriver = CPLStrdup("{SQL Server Native Client 11.0}");
 #elif SQLNCLI_VERSION == 10
         pszDriver = CPLStrdup("{SQL Server Native Client 10.0}");
+#elif MSODBCSQL_VERSION == 13
+        pszDriver = CPLStrdup("{ODBC Driver 13 for SQL Server}");
+#elif MSODBCSQL_VERSION == 17
+        pszDriver = CPLStrdup("{ODBC Driver 17 for SQL Server}");
 #else
         pszDriver = CPLStrdup("{SQL Server}");
 #endif
@@ -810,13 +890,36 @@ int OGRMSSQLSpatialDataSource::Open( const char * pszNewName, bool bUpdate,
         return FALSE;
     }
 
+    /* -------------------------------------------------------------------- */
+    /*      Find out SQLServer version                                      */
+    /* -------------------------------------------------------------------- */
+    if (true) {
+        sMSSQLVersion.nMajor = -1;
+        sMSSQLVersion.nMinor = -1;
+        sMSSQLVersion.nBuild = -1;
+        sMSSQLVersion.nRevision = -1;
+
+        CPLODBCStatement oStmt(&oSession);
+
+        /* Use join to make sure the existence of the referred column/table */
+        oStmt.Append("SELECT SERVERPROPERTY('ProductVersion') AS ProductVersion;");
+
+        if (oStmt.ExecuteSQL())
+        {
+            while (oStmt.Fetch())
+            {
+                OGRMSSQLDecodeVersionString(&sMSSQLVersion, oStmt.GetColData(0));
+            }
+        }
+    }
+
     char** papszTypes = nullptr;
 
     /* read metadata for the specified tables */
     if (papszTableNames != nullptr && bUseGeometryColumns)
     {
         for( int iTable = 0;
-            papszTableNames != nullptr && papszTableNames[iTable] != nullptr;
+            papszTableNames[iTable] != nullptr;
             iTable++ )
         {
             CPLODBCStatement oStmt( &oSession );
@@ -1215,11 +1318,24 @@ OGRSpatialReference *OGRMSSQLSpatialDataSource::FetchSRS( int nId )
             if ( oStmt.GetColData( 0 ) )
             {
                 poSRS = new OGRSpatialReference();
+                poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 const char* pszWKT = oStmt.GetColData( 0 );
                 if( poSRS->importFromWkt( pszWKT ) != OGRERR_NONE )
                 {
                     delete poSRS;
                     poSRS = nullptr;
+                }
+                else
+                {
+                    const char* pszAuthorityName = poSRS->GetAuthorityName(nullptr);
+                    const char* pszAuthorityCode = poSRS->GetAuthorityCode(nullptr);
+                    if( pszAuthorityName && pszAuthorityCode &&
+                        EQUAL(pszAuthorityName, "EPSG") )
+                    {
+                        const int nCode = atoi(pszAuthorityCode);
+                        poSRS->Clear();
+                        poSRS->importFromEPSG(nCode);
+                    }
                 }
             }
         }
@@ -1231,6 +1347,7 @@ OGRSpatialReference *OGRMSSQLSpatialDataSource::FetchSRS( int nId )
     if (!poSRS)
     {
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromEPSG( nId ) != OGRERR_NONE )
         {
             delete poSRS;

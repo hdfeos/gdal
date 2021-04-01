@@ -9,7 +9,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2007-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -50,7 +50,7 @@ CPL_CVSID("$Id$")
 
 class SRTMHGTRasterBand;
 
-class SRTMHGTDataset : public GDALPamDataset
+class SRTMHGTDataset final: public GDALPamDataset
 {
     friend class SRTMHGTRasterBand;
 
@@ -62,7 +62,10 @@ class SRTMHGTDataset : public GDALPamDataset
     SRTMHGTDataset();
     virtual ~SRTMHGTDataset();
 
-    virtual const char *GetProjectionRef(void) override;
+    virtual const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual CPLErr GetGeoTransform(double*) override;
 
     static int Identify( GDALOpenInfo * poOpenInfo );
@@ -78,7 +81,7 @@ class SRTMHGTDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class SRTMHGTRasterBand : public GDALPamRasterBand
+class SRTMHGTRasterBand final: public GDALPamRasterBand
 {
     friend class SRTMHGTDataset;
 
@@ -238,7 +241,7 @@ CPLErr SRTMHGTDataset::GetGeoTransform(double * padfTransform)
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *SRTMHGTDataset::GetProjectionRef()
+const char *SRTMHGTDataset::_GetProjectionRef()
 
 {
         if (CPLTestBool( CPLGetConfigOption("REPORT_COMPD_CS", "NO") ) )
@@ -248,7 +251,7 @@ const char *SRTMHGTDataset::GetProjectionRef()
         }
         else
         {
-            return SRS_WKT_WGS84;
+            return SRS_WKT_WGS84_LAT_LONG;
         }
 }
 
@@ -668,7 +671,7 @@ void GDALRegister_SRTMHGT()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "SRTMHGT File Format");
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "hgt");
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#SRTMHGT" );
+                               "drivers/raster/srtmhgt.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 UInt16" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );

@@ -39,15 +39,17 @@ OBJ	= \
 	tif_zip.obj \
 	tif_lzma.obj \
 	tif_zstd.obj \
-	tif_webp.obj
+	tif_webp.obj \
+	tif_lerc.obj
 
 GDAL_ROOT	=	..\..\..
 
 # /wd4324 silents warning C4324: '<unnamed-tag>' : structure was padded due to __declspec(align())
 # in tif_jpeg.c:147 and tif_ojpeg.c:248
 
-EXTRAFLAGS = 	$(ZLIB_FLAGS) -DZIP_SUPPORT -DPIXARLOG_SUPPORT \
-		$(JPEG_FLAGS) $(JPEG12_FLAGS) $(LZMA_FLAGS) $(ZSTD_FLAGS) $(WEBP_FLAGS) /wd4324
+# Note: HOST_FILLORDER value is set arbitrarily. This isn't used by GDAL
+EXTRAFLAGS = 	$(ZLIB_FLAGS) -DZIP_SUPPORT -DPIXARLOG_SUPPORT  -DHOST_FILLORDER=FILLORDER_LSB2MSB \
+		$(JPEG_FLAGS) $(JPEG12_FLAGS) $(LZMA_FLAGS) $(ZSTD_FLAGS) $(WEBP_FLAGS) $(LIBDEFLATE_FLAGS) $(LERC_FLAGS) /wd4324
 
 !INCLUDE $(GDAL_ROOT)\nmake.opt
 
@@ -82,8 +84,17 @@ ZSTD_FLAGS =	$(ZSTD_CFLAGS) -DZSTD_SUPPORT
 WEBP_FLAGS =	$(WEBP_CFLAGS) -DWEBP_SUPPORT
 !ENDIF
 
+!IFDEF LIBDEFLATE_CFLAGS
+LIBDEFLATE_FLAGS =	$(LIBDEFLATE_CFLAGS) -DLIBDEFLATE_SUPPORT
+!ENDIF
 
+!IF "$(HAVE_LERC)" == "internal"
+LERC_FLAGS = -DLERC_SUPPORT -I../../../third_party/LercLib
+!ENDIF
 
+!IF "$(HAVE_LERC)" == "external"
+LERC_FLAGS = -DLERC_SUPPORT $(LERC_INCLUDE)
+!ENDIF
 
 default:	$(EXTRA_DEP) $(OBJ)
 	xcopy /D  /Y *.obj ..\..\o

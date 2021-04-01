@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2003, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -114,55 +114,19 @@ int OGRODBCDataSource::OpenMDB( const char * pszNewName, int bUpdate )
         if( pszDSNStringTemplate == nullptr )
         {
             pszOptionName = "";
-            pszDSNStringTemplate = "DRIVER=Microsoft Access Driver (*.mdb);DBQ=%s";
         }
     }
-    if (!CheckDSNStringTemplate(pszDSNStringTemplate))
+    if (pszDSNStringTemplate && !CheckDSNStringTemplate(pszDSNStringTemplate))
     {
         CPLError( CE_Failure, CPLE_AppDefined,
                     "Illegal value for %s option", pszOptionName );
         return FALSE;
     }
-    char* pszDSN = (char *) CPLMalloc(strlen(pszNewName)+strlen(pszDSNStringTemplate)+100);
-    /* coverity[tainted_string] */
-    snprintf( pszDSN,
-              strlen(pszNewName)+strlen(pszDSNStringTemplate)+100,
-              pszDSNStringTemplate,  pszNewName );
 
-/* -------------------------------------------------------------------- */
-/*      Initialize based on the DSN.                                    */
-/* -------------------------------------------------------------------- */
-    CPLDebug( "ODBC", "EstablishSession(%s)", pszDSN );
-
-    if( !oSession.EstablishSession( pszDSN, nullptr, nullptr ) )
+    if ( !oSession.ConnectToMsAccess( pszNewName, pszDSNStringTemplate ) )
     {
-        int bError = TRUE;
-        if( EQUAL(pszDSN, "") )
-        {
-            // Trying with another template (#5594)
-            pszDSNStringTemplate = "DRIVER=Microsoft Access Driver (*.mdb, *.accdb);DBQ=%s";
-            CPLFree( pszDSN );
-            pszDSN = (char *) CPLMalloc(strlen(pszNewName)+strlen(pszDSNStringTemplate)+100);
-            snprintf( pszDSN,
-                      strlen(pszNewName)+strlen(pszDSNStringTemplate)+100,
-                      pszDSNStringTemplate,  pszNewName );
-            CPLDebug( "ODBC", "EstablishSession(%s)", pszDSN );
-            if( oSession.EstablishSession( pszDSN, nullptr, nullptr ) )
-            {
-                bError = FALSE;
-            }
-        }
-        if( bError )
-        {
-            CPLError( CE_Failure, CPLE_AppDefined,
-                    "Unable to initialize ODBC connection to DSN for %s,\n"
-                    "%s", pszDSN, oSession.GetLastError() );
-            CPLFree( pszDSN );
-            return FALSE;
-        }
+        return FALSE;
     }
-
-    CPLFree( pszDSN );
 
     pszName = CPLStrdup( pszNewName );
 
@@ -252,7 +216,7 @@ int OGRODBCDataSource::Open( const char * pszNewName, int bUpdate,
 {
     CPLAssert( nLayers == 0 );
 
-    if( !STARTS_WITH_CI(pszNewName, "ODBC:") && EQUAL(CPLGetExtension(pszNewName), "MDB") )
+    if( !STARTS_WITH_CI(pszNewName, "ODBC:") && IsSupportedMsAccessFileExtension(CPLGetExtension(pszNewName)))
         return OpenMDB(pszNewName, bUpdate);
 
 /* -------------------------------------------------------------------- */
@@ -525,6 +489,7 @@ int OGRODBCDataSource::Open( const char * pszNewName, int bUpdate,
                     }
                     panSRID[nKnownSRID] = atoi( pszSRID );
                     papoSRS[nKnownSRID] = new OGRSpatialReference();
+                    papoSRS[nKnownSRID]->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     if ( papoSRS[nKnownSRID]->importFromWkt( pszSRText )
                          != OGRERR_NONE )
                     {
@@ -660,4 +625,16 @@ void OGRODBCDataSource::ReleaseResultSet( OGRLayer * poLayer )
 
 {
     delete poLayer;
+}
+
+/************************************************************************/
+/*                  IsSupportedMsAccessFileExtension()                  */
+/************************************************************************/
+
+bool OGRODBCDataSource::IsSupportedMsAccessFileExtension(const char *pszExtension)
+{
+    // these are all possible extensions for MS Access databases
+    return EQUAL(pszExtension, "MDB") ||
+        EQUAL(pszExtension, "ACCDB") ||
+        EQUAL(pszExtension, "STYLE");
 }

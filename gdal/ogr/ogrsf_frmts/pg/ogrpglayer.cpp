@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -1326,7 +1326,10 @@ OGRFeature *OGRPGLayer::RecordToFeature( PGresult* hResult,
                     else if (STARTS_WITH_CI(pabyData, "F"))
                         poFeature->SetField( iOGRField, 0);
                     else
+                    {
+                        // coverity[tainted_data]
                         poFeature->SetField( iOGRField, pabyData);
+                    }
                 }
                 else if ( eOGRType == OFTReal )
                 {
@@ -1918,7 +1921,7 @@ OGRErr OGRPGLayer::RunGetExtentRequest( OGREnvelope *psExtent,
         return OGRERR_FAILURE;
 
     PGconn      *hPGConn = poDS->GetPGConn();
-    PGresult    *hResult = 
+    PGresult    *hResult =
         OGRPG_PQexec( hPGConn, osCommand, FALSE, bErrorAsDebug );
     if( ! hResult || PQresultStatus(hResult) != PGRES_TUPLES_OK || PQgetisnull(hResult,0,0) )
     {
@@ -2186,6 +2189,16 @@ int OGRPGLayer::ReadResultDefinition(PGresult *hInitialResultIn)
 #endif
 
             oField.SetType( OFTDateTime );
+        }
+        else if ( nTypeOID == JSONOID || nTypeOID == JSONBOID )
+        {
+            oField.SetType( OFTString );
+            oField.SetSubType( OFSTJSON );
+        }
+        else if ( nTypeOID == UUIDOID)
+        {
+            oField.SetType( OFTString );
+            oField.SetSubType( OFSTUUID );
         }
         else /* unknown type */
         {

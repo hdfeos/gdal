@@ -6,7 +6,7 @@
  *
  **********************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -479,6 +479,7 @@ const char *CPLResetExtension( const char *pszPath, const char *pszExt )
 /*                       RequiresUnixPathSeparator()                    */
 /************************************************************************/
 
+#if defined(WIN32)
 static bool RequiresUnixPathSeparator(const char* pszPath)
 {
     return strcmp(pszPath, "/vsimem") == 0 ||
@@ -493,12 +494,14 @@ static bool RequiresUnixPathSeparator(const char* pszPath)
             STARTS_WITH(pszPath, "/vsigs_streaming/") ||
             STARTS_WITH(pszPath, "/vsiaz/") ||
             STARTS_WITH(pszPath, "/vsiaz_streaming/") ||
+            STARTS_WITH(pszPath, "/vsiadls/") ||
             STARTS_WITH(pszPath, "/vsioss/") ||
             STARTS_WITH(pszPath, "/vsioss_streaming/") ||
             STARTS_WITH(pszPath, "/vsiswift/") ||
             STARTS_WITH(pszPath, "/vsiswift_streaming/") ||
             STARTS_WITH(pszPath, "/vsizip/");
 }
+#endif
 
 /************************************************************************/
 /*                          CPLFormFilename()                           */
@@ -588,12 +591,16 @@ const char *CPLFormFilename( const char * pszPath,
              && pszPath[nLenPath-1] != '/'
              && pszPath[nLenPath-1] != '\\' )
     {
+#if defined(WIN32)
         // FIXME? Would be better to ask the filesystems what it
         // prefers as directory separator?
         if( RequiresUnixPathSeparator(pszPath) )
             pszAddedPathSep = "/";
         else
+#endif
+        {
             pszAddedPathSep = SEP_STRING;
+        }
     }
 
     if( pszExtension == nullptr )
@@ -771,10 +778,14 @@ const char *CPLProjectRelativeFilename( const char *pszProjectDir,
         // FIXME: Better to ask the filesystems what it
         // prefers as directory separator?
         const char* pszAddedPathSep = nullptr;
+#if defined(WIN32)
         if( RequiresUnixPathSeparator(pszStaticResult) )
             pszAddedPathSep = "/";
         else
+#endif
+        {
             pszAddedPathSep = SEP_STRING;
+        }
         if( CPLStrlcat( pszStaticResult, pszAddedPathSep, CPL_PATH_BUF_SIZE )
             >= static_cast<size_t>( CPL_PATH_BUF_SIZE ) )
             return CPLStaticBufferTooSmall(pszStaticResult);
@@ -808,7 +819,9 @@ int CPLIsFilenameRelative( const char *pszFilename )
 {
     if( (pszFilename[0] != '\0'
          && (STARTS_WITH(pszFilename+1, ":\\")
-             || STARTS_WITH(pszFilename+1, ":/")))
+             || STARTS_WITH(pszFilename+1, ":/")
+             || strstr(pszFilename+1,"://") // http://, ftp:// etc....
+            ))
         || STARTS_WITH(pszFilename, "\\\\?\\")  // Windows extended Length Path.
         || pszFilename[0] == '\\'
         || pszFilename[0] == '/' )
@@ -1171,4 +1184,37 @@ const char *CPLGetHomeDir()
 #else
     return CPLGetConfigOption("HOME", nullptr);
 #endif
+}
+
+
+
+/************************************************************************/
+/*                        CPLLaunderForFilename()                       */
+/************************************************************************/
+
+/**
+ * Launder a string to be compatible of a filename.
+ *
+ * @param pszName The input string to launder.
+ * @param pszOutputPath The directory where the file would be created.
+ *                      Unused for now. May be NULL.
+ * @return the laundered name.
+ *
+ * @since GDAL 3.1
+ */
+
+const char* CPLLaunderForFilename(const char* pszName,
+                                  CPL_UNUSED const char* pszOutputPath )
+{
+    std::string osRet(pszName);
+    for( char& ch: osRet )
+    {
+        // https://docs.microsoft.com/en-us/windows/desktop/fileio/naming-a-file
+        if( ch == '<' || ch == '>' || ch == ':' || ch == '"' ||
+            ch == '/' || ch == '\\' || ch== '?' || ch == '*' )
+        {
+            ch = '_';
+        }
+    }
+    return CPLSPrintf("%s", osRet.c_str());
 }

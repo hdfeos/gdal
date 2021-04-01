@@ -51,7 +51,7 @@ static void Usage(const char* pszErrorMsg = nullptr)
             "     gdaldem hillshade input_dem output_hillshade \n"
             "                 [-z ZFactor (default=1)] [-s scale* (default=1)] \n"
             "                 [-az Azimuth (default=315)] [-alt Altitude (default=45)]\n"
-            "                 [-alg ZevenbergenThorne] [-combined | -multidirectional]\n"
+            "                 [-alg ZevenbergenThorne] [-combined | -multidirectional | -igor]\n"
             "                 [-compute_edges] [-b Band (default=1)] [-of format] [-co \"NAME=VALUE\"]* [-q]\n"
             "\n"
             " - To generates a slope map from any GDAL-supported elevation raster :\n\n"
@@ -75,6 +75,7 @@ static void Usage(const char* pszErrorMsg = nullptr)
             "\n"
             " - To generate a Terrain Ruggedness Index (TRI) map from any GDAL-supported elevation raster\n"
             "     gdaldem TRI input_dem output_TRI_map\n"
+            "                 [-alg Wilson|Riley]\n"
             "                 [-compute_edges] [-b Band (default=1)] [-of format] [-co \"NAME=VALUE\"]* [-q]\n"
             "\n"
             " - To generate a Topographic Position Index (TPI) map from any GDAL-supported elevation raster\n"
@@ -158,6 +159,7 @@ MAIN_START(argc, argv)
 
     GDALDEMProcessingOptionsForBinary* psOptionsForBinary =
         GDALDEMProcessingOptionsForBinaryNew();
+    // coverity[tainted_data]
     GDALDEMProcessingOptions *psOptions =
         GDALDEMProcessingOptionsNew(argv + 1, psOptionsForBinary);
     CSLDestroy( argv );

@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -168,6 +168,7 @@ CPLErr OGRPGeoLayer::BuildFeatureDefn( const char *pszLayerName,
             break;
 
           case SQL_C_TIMESTAMP:
+          case SQL_C_TYPE_TIMESTAMP:
             oField.SetType( OFTDateTime );
             break;
 
@@ -364,7 +365,7 @@ void OGRPGeoLayer::LookupSRID( int nSRID )
 
     if( pszSRText[0] == '{' )
     {
-        CPLDebug( "PGEO", "Ignoreing GUID SRTEXT: %s", pszSRText );
+        CPLDebug( "PGEO", "Ignoring GUID SRTEXT: %s", pszSRText );
         return;
     }
 
@@ -372,19 +373,13 @@ void OGRPGeoLayer::LookupSRID( int nSRID )
 /*      Turn it into an OGRSpatialReference.                            */
 /* -------------------------------------------------------------------- */
     poSRS = new OGRSpatialReference();
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     if( poSRS->importFromWkt( pszSRText ) != OGRERR_NONE )
     {
         CPLError( CE_Failure, CPLE_AppDefined,
                   "importFromWKT() failed on SRS '%s'.",
                   pszSRText);
-        delete poSRS;
-        poSRS = nullptr;
-    }
-    else if( poSRS->morphFromESRI() != OGRERR_NONE )
-    {
-        CPLError( CE_Failure, CPLE_AppDefined,
-                  "morphFromESRI() failed on SRS." );
         delete poSRS;
         poSRS = nullptr;
     }

@@ -1,3 +1,4 @@
+
 /**********************************************************************
  *
  * Name:     cpl_error.cpp
@@ -7,7 +8,7 @@
  *
  **********************************************************************
  * Copyright (c) 1998, Daniel Morissette
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -42,6 +43,7 @@
 #include "cpl_multiproc.h"
 #include "cpl_string.h"
 #include "cpl_vsi.h"
+#include "cpl_error_internal.h"
 
 #if !defined(va_copy) && defined(__va_copy)
 #define va_copy __va_copy
@@ -185,12 +187,88 @@ static CPLErrorContext *CPLGetErrorContext()
 
 void* CPL_STDCALL CPLGetErrorHandlerUserData(void)
 {
+    int bError = FALSE;
+
+    // check if there is an active error being propagated through the handlers
+    void **pActiveUserData = reinterpret_cast<void **>(
+            CPLGetTLSEx( CTLS_ERRORHANDLERACTIVEDATA, &bError ) );
+    if( bError )
+        return nullptr;
+
+    if ( pActiveUserData != nullptr)
+    {
+        return *pActiveUserData;
+    }
+
+    // get the current threadlocal or global error context user data
     CPLErrorContext *psCtx = CPLGetErrorContext();
     if( psCtx == nullptr || IS_PREFEFINED_ERROR_CTX(psCtx) )
         abort();
     return reinterpret_cast<void*>(
         psCtx->psHandlerStack ?
         psCtx->psHandlerStack->pUserData : pErrorHandlerUserData );
+}
+
+static void ApplyErrorHandler( CPLErrorContext *psCtx, CPLErr eErrClass,
+                        CPLErrorNum err_no, const char *pszMessage)
+{
+    void **pActiveUserData;
+    bool bProcessed = false;
+
+    // CTLS_ERRORHANDLERACTIVEDATA holds the active error handler userData
+
+    if( psCtx->psHandlerStack != nullptr )
+    {
+        // iterate through the threadlocal handler stack
+        if( (eErrClass != CE_Debug) || psCtx->psHandlerStack->bCatchDebug )
+        {
+            // call the error handler
+            pActiveUserData = &(psCtx->psHandlerStack->pUserData);
+            CPLSetTLS( CTLS_ERRORHANDLERACTIVEDATA, pActiveUserData, false );
+            psCtx->psHandlerStack->pfnHandler(eErrClass, err_no, pszMessage);
+            bProcessed = true;
+        }
+        else
+        {
+            // need to iterate to a parent handler for debug messages
+            CPLErrorHandlerNode *psNode = psCtx->psHandlerStack->psNext;
+            while( psNode != nullptr )
+            {
+                if( psNode->bCatchDebug )
+                {
+                    pActiveUserData = &(psNode->pUserData);
+                    CPLSetTLS( CTLS_ERRORHANDLERACTIVEDATA, pActiveUserData, false );
+                    psNode->pfnHandler( eErrClass, err_no, pszMessage );
+                    bProcessed = true;
+                    break;
+                }
+                psNode = psNode->psNext;
+            }
+        }
+    }
+
+    if( !bProcessed )
+    {
+        // hit the global error handler
+        CPLMutexHolderD( &hErrorMutex );
+        if( (eErrClass != CE_Debug) || gbCatchDebug )
+        {
+            if( pfnErrorHandler != nullptr )
+            {
+                pActiveUserData = &pErrorHandlerUserData;
+                CPLSetTLS( CTLS_ERRORHANDLERACTIVEDATA, pActiveUserData, false );
+                pfnErrorHandler(eErrClass, err_no, pszMessage);
+            }
+        }
+        else /* if( eErrClass == CE_Debug ) */
+        {
+            // for CPLDebug messages we propagate to the default error handler
+            pActiveUserData = nullptr;
+            CPLSetTLS( CTLS_ERRORHANDLERACTIVEDATA, pActiveUserData, false );
+            CPLDefaultErrorHandler(eErrClass, err_no, pszMessage);
+        }
+    }
+    CPLSetTLS( CTLS_ERRORHANDLERACTIVEDATA, nullptr, false );
 }
 
 /**********************************************************************
@@ -212,7 +290,7 @@ void* CPL_STDCALL CPLGetErrorHandlerUserData(void)
  * CE_Fatal meaning that a fatal error has occurred, and that CPLError()
  * should not return.
  *
- * The default behaviour of CPLError() is to report errors to stderr,
+ * The default behavior of CPLError() is to report errors to stderr,
  * and to abort() after reporting a CE_Fatal error.  It is expected that
  * some applications will want to suppress error reporting, and will want to
  * install a C++ exception, or longjmp() approach to no local fatal error
@@ -384,17 +462,7 @@ void CPLErrorV( CPLErr eErrClass, CPLErrorNum err_no, const char *fmt,
 /* -------------------------------------------------------------------- */
 /*      Invoke the current error handler.                               */
 /* -------------------------------------------------------------------- */
-    if( psCtx->psHandlerStack != nullptr )
-    {
-        psCtx->psHandlerStack->pfnHandler(eErrClass, err_no,
-                                          psCtx->szLastErrMsg);
-    }
-    else
-    {
-        CPLMutexHolderD( &hErrorMutex );
-        if( pfnErrorHandler != nullptr )
-            pfnErrorHandler(eErrClass, err_no, psCtx->szLastErrMsg);
-    }
+    ApplyErrorHandler(psCtx, eErrClass, err_no, psCtx->szLastErrMsg);
 
     if( eErrClass == CE_Fatal )
         abort();
@@ -432,15 +500,7 @@ void CPLEmergencyError( const char *pszMessage )
         CPLErrorContext *psCtx =
             static_cast<CPLErrorContext *>(CPLGetTLS( CTLS_ERRORCONTEXT ));
 
-        if( psCtx != nullptr && psCtx->psHandlerStack != nullptr )
-        {
-            psCtx->psHandlerStack->pfnHandler( CE_Fatal, CPLE_AppDefined,
-                                               pszMessage );
-        }
-        else if( pfnErrorHandler != nullptr )
-        {
-            pfnErrorHandler( CE_Fatal, CPLE_AppDefined, pszMessage );
-        }
+        ApplyErrorHandler(psCtx, CE_Fatal, CPLE_AppDefined, pszMessage);
     }
 
     // Ultimate fallback.
@@ -492,19 +552,22 @@ static int CPLGetProcessMemorySize()
 #if defined(_WIN32) && !defined(__CYGWIN__)
 #  include <sys/timeb.h>
 
+namespace {
 struct CPLTimeVal
 {
   time_t  tv_sec;         /* seconds */
   long    tv_usec;        /* and microseconds */
 };
+}
 
-static void CPLGettimeofday(struct CPLTimeVal* tp, void* /* timezonep*/ )
+static int CPLGettimeofday(struct CPLTimeVal* tp, void* /* timezonep*/ )
 {
   struct _timeb theTime;
 
   _ftime(&theTime);
   tp->tv_sec = static_cast<time_t>(theTime.time);
   tp->tv_usec = theTime.millitm * 1000;
+  return 0;
 }
 #else
 #  include <sys/time.h>     /* for gettimeofday() */
@@ -588,13 +651,16 @@ void CPLDebug( const char * pszCategory,
 #ifdef TIMESTAMP_DEBUG
     if( CPLGetConfigOption( "CPL_TIMESTAMP", nullptr ) != nullptr )
     {
+        static struct CPLTimeVal tvStart;
+        static const auto unused = CPLGettimeofday(&tvStart, nullptr);
+        CPL_IGNORE_RET_VAL(unused);
         struct CPLTimeVal tv;
         CPLGettimeofday(&tv, nullptr);
         strcpy( pszMessage, "[" );
         strcat( pszMessage, VSICTime( static_cast<unsigned long>(tv.tv_sec) ) );
 
         // On windows anyway, ctime puts a \n at the end, but I'm not
-        // convinced this is standard behaviour, so we'll get rid of it
+        // convinced this is standard behavior, so we'll get rid of it
         // carefully
 
         if( pszMessage[strlen(pszMessage) -1 ] == '\n' )
@@ -603,7 +669,10 @@ void CPLDebug( const char * pszCategory,
         }
         CPLsnprintf(pszMessage+strlen(pszMessage),
                     ERROR_MAX - strlen(pszMessage),
-                    "].%06d: ", static_cast<int>(tv.tv_usec));
+                    "].%04d, %03.04f: ",
+                    static_cast<int>(tv.tv_usec / 100),
+                    tv.tv_sec + tv.tv_usec * 1e-6 -
+                        (tvStart.tv_sec + tvStart.tv_usec * 1e-6));
     }
 #endif
 
@@ -651,46 +720,7 @@ void CPLDebug( const char * pszCategory,
 /* -------------------------------------------------------------------- */
 /*      Invoke the current error handler.                               */
 /* -------------------------------------------------------------------- */
-    bool bDebugProcessed = false;
-    if( psCtx->psHandlerStack != nullptr )
-    {
-        if( psCtx->psHandlerStack->bCatchDebug )
-        {
-            bDebugProcessed = true;
-            psCtx->psHandlerStack->pfnHandler( CE_Debug, CPLE_None,
-                                               pszMessage );
-        }
-        else
-        {
-            CPLErrorHandlerNode *psNode = psCtx->psHandlerStack->psNext;
-            while( psNode != nullptr )
-            {
-                if( psNode->bCatchDebug )
-                {
-                    bDebugProcessed = true;
-                    psNode->pfnHandler( CE_Debug, CPLE_None, pszMessage );
-                    break;
-                }
-                psNode = psNode->psNext;
-            }
-        }
-    }
-
-    if( !bDebugProcessed )
-    {
-        CPLMutexHolderD( &hErrorMutex );
-        if( gbCatchDebug )
-        {
-            if( pfnErrorHandler != nullptr )
-            {
-                pfnErrorHandler( CE_Debug, CPLE_None, pszMessage );
-            }
-        }
-        else
-        {
-            CPLDefaultErrorHandler( CE_Debug, CPLE_None, pszMessage );
-        }
-    }
+    ApplyErrorHandler(psCtx, CE_Debug, CPLE_None, pszMessage);
 
     VSIFree( pszMessage );
 }
@@ -1113,7 +1143,7 @@ CPLSetErrorHandlerEx( CPLErrorHandler pfnErrorHandlerNew, void* pUserData )
  *     void MyErrorHandler(CPLErr eErrClass, int err_no, const char *msg)
  * </pre>
  *
- * Pass NULL to come back to the default behavior.  The default behaviour
+ * Pass NULL to come back to the default behavior.  The default behavior
  * (CPLDefaultErrorHandler()) is to write the message to stderr.
  *
  * The msg will be a partially formatted error message not containing the
@@ -1121,7 +1151,7 @@ CPLSetErrorHandlerEx( CPLErrorHandler pfnErrorHandlerNew, void* pUserData )
  * is handled by CPLError() before calling the handler.  If the error
  * handler function is passed a CE_Fatal class error and returns, then
  * CPLError() will call abort(). Applications wanting to interrupt this
- * fatal behaviour will have to use longjmp(), or a C++ exception to
+ * fatal behavior will have to use longjmp(), or a C++ exception to
  * indirectly exit the function.
  *
  * Another standard error handler is CPLQuietErrorHandler() which doesn't
@@ -1317,4 +1347,37 @@ void CPLCleanupErrorMutex()
         CPLDestroyMutex(hErrorMutex);
         hErrorMutex = nullptr;
     }
+}
+
+bool CPLIsDefaultErrorHandlerAndCatchDebug()
+{
+    CPLErrorContext *psCtx = CPLGetErrorContext();
+    return (psCtx == nullptr || psCtx->psHandlerStack == nullptr) &&
+            gbCatchDebug &&
+           pfnErrorHandler == CPLDefaultErrorHandler;
+}
+
+/************************************************************************/
+/*                       CPLErrorHandlerAccumulator()                   */
+/************************************************************************/
+
+static
+void CPL_STDCALL CPLErrorHandlerAccumulator( CPLErr eErr, CPLErrorNum no,
+                                              const char* msg )
+{
+    std::vector<CPLErrorHandlerAccumulatorStruct>* paoErrors =
+        static_cast<std::vector<CPLErrorHandlerAccumulatorStruct> *>(
+            CPLGetErrorHandlerUserData());
+    paoErrors->push_back(CPLErrorHandlerAccumulatorStruct(eErr, no, msg));
+}
+
+
+void CPLInstallErrorHandlerAccumulator(std::vector<CPLErrorHandlerAccumulatorStruct>& aoErrors)
+{
+    CPLPushErrorHandlerEx( CPLErrorHandlerAccumulator, &aoErrors );
+}
+
+void CPLUninstallErrorHandlerAccumulator()
+{
+    CPLPopErrorHandler();
 }

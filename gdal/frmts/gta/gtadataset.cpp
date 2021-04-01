@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, 2011, Martin Lambers <marlam@marlam.de>
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -129,7 +129,7 @@ static CPLString PrintDoubles( const double *padfDoubles, int nCount )
 /* ==================================================================== */
 /************************************************************************/
 
-class GTAIO : public gta::custom_io
+class GTAIO final: public gta::custom_io
 {
   private:
     VSILFILE *fp;
@@ -214,7 +214,7 @@ class GTAIO : public gta::custom_io
 
 class GTARasterBand;
 
-class GTADataset : public GDALPamDataset
+class GTADataset final: public GDALPamDataset
 {
     friend class GTARasterBand;
 
@@ -223,16 +223,17 @@ class GTADataset : public GDALPamDataset
     GTAIO       oGTAIO;
     // GTA information
     gta::header oHeader;
-    vsi_l_offset DataOffset;
+    vsi_l_offset DataOffset = 0;
     // Metadata
-    bool        bHaveGeoTransform;
+    bool        bHaveGeoTransform = false;
     double      adfGeoTransform[6];
-    int         nGCPs;
-    char        *pszGCPProjection;
-    GDAL_GCP    *pasGCPs;
+    int         nGCPs = 0;
+    char        *pszGCPProjection = nullptr;
+    GDAL_GCP    *pasGCPs = nullptr;
     // Cached data block for block-based input/output
-    int         nLastBlockXOff, nLastBlockYOff;
-    void        *pBlock;
+    int         nLastBlockXOff = -1;
+    int         nLastBlockYOff = -1;
+    void        *pBlock = nullptr;
 
     // Block-based input/output of all bands at once. This is used
     // by the GTARasterBand input/output functions.
@@ -248,13 +249,28 @@ class GTADataset : public GDALPamDataset
     CPLErr      GetGeoTransform( double * padfTransform ) override;
     CPLErr      SetGeoTransform( double * padfTransform ) override;
 
-    const char *GetProjectionRef( ) override;
-    CPLErr      SetProjection( const char *pszProjection ) override;
+    const char *_GetProjectionRef( ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr      _SetProjection( const char *pszProjection ) override;
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
     int         GetGCPCount( ) override;
-    const char *GetGCPProjection( ) override;
+    const char *_GetGCPProjection( ) override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs( ) override;
-    CPLErr      SetGCPs( int, const GDAL_GCP *, const char * ) override;
+    CPLErr      _SetGCPs( int, const GDAL_GCP *, const char * ) override;
+    using GDALPamDataset::SetGCPs;
+    CPLErr SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
+                    const OGRSpatialReference* poSRS ) override {
+        return OldSetGCPsFromNew(nGCPCount, pasGCPList, poSRS);
+    }
+
 };
 
 /************************************************************************/
@@ -263,7 +279,7 @@ class GTADataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class GTARasterBand : public GDALPamRasterBand
+class GTARasterBand final: public GDALPamRasterBand
 {
     friend class GTADataset;
   private:
@@ -764,16 +780,6 @@ CPLErr GTARasterBand::IWriteBlock( int nBlockXOff, int nBlockYOff,
 GTADataset::GTADataset()
 
 {
-    // Initialize Metadata
-    bHaveGeoTransform = false;
-    nGCPs = 0;
-    pszGCPProjection = nullptr;
-    pasGCPs = nullptr;
-    // Initialize block-based input/output
-    nLastBlockXOff = -1;
-    nLastBlockYOff = -1;
-    pBlock = nullptr;
-    DataOffset = 0;
     memset( adfGeoTransform, 0, sizeof(adfGeoTransform) );
 }
 
@@ -927,7 +933,7 @@ CPLErr GTADataset::SetGeoTransform( double * )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *GTADataset::GetProjectionRef()
+const char *GTADataset::_GetProjectionRef()
 
 {
     const char *p = oHeader.global_taglist().get("GDAL/PROJECTION");
@@ -938,7 +944,7 @@ const char *GTADataset::GetProjectionRef()
 /*                          SetProjection()                             */
 /************************************************************************/
 
-CPLErr GTADataset::SetProjection( const char * )
+CPLErr GTADataset::_SetProjection( const char * )
 
 {
     CPLError( CE_Warning, CPLE_NotSupported,
@@ -960,7 +966,7 @@ int GTADataset::GetGCPCount( )
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char * GTADataset::GetGCPProjection( )
+const char * GTADataset::_GetGCPProjection( )
 
 {
     return pszGCPProjection ? pszGCPProjection : "";
@@ -980,7 +986,7 @@ const GDAL_GCP * GTADataset::GetGCPs( )
 /*                          SetGCPs()                                   */
 /************************************************************************/
 
-CPLErr GTADataset::SetGCPs( int, const GDAL_GCP *, const char * )
+CPLErr GTADataset::_SetGCPs( int, const GDAL_GCP *, const char * )
 
 {
     CPLError( CE_Warning, CPLE_NotSupported,
@@ -1689,7 +1695,7 @@ void GDALRegister_GTA()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Generic Tagged Arrays (.gta)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_gta.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/gta.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "gta" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte UInt16 Int16 UInt32 Int32 Float32 Float64 "

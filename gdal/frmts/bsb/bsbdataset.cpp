@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2001, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -49,7 +49,7 @@ CPL_CVSID("$Id$")
 
 class BSBRasterBand;
 
-class BSBDataset : public GDALPamDataset
+class BSBDataset final: public GDALPamDataset
 {
     int         nGCPCount;
     GDAL_GCP    *pasGCPList;
@@ -61,6 +61,8 @@ class BSBDataset : public GDALPamDataset
     void        ScanForGCPs( bool isNos, const char *pszFilename );
     void        ScanForGCPsNos( const char *pszFilename );
     void        ScanForGCPsBSB();
+
+    void        ScanForCutline();
 
     static int IdentifyInternal( GDALOpenInfo *, bool & isNosOut );
 
@@ -74,11 +76,17 @@ class BSBDataset : public GDALPamDataset
     static int Identify( GDALOpenInfo * );
 
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     const GDAL_GCP *GetGCPs() override;
 
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
 };
 
 /************************************************************************/
@@ -87,7 +95,7 @@ class BSBDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class BSBRasterBand : public GDALPamRasterBand
+class BSBRasterBand final: public GDALPamRasterBand
 {
     GDALColorTable      oCT;
 
@@ -190,13 +198,7 @@ GDALColorInterp BSBRasterBand::GetColorInterpretation()
 BSBDataset::BSBDataset() :
     nGCPCount(0),
     pasGCPList(nullptr),
-    osGCPProjection(
-        "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\","
-        "SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",7030]],"
-        "TOWGS84[0,0,0,0,0,0,0],AUTHORITY[\"EPSG\",6326]],"
-        "PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",8901]],"
-        "UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",9108]],"
-        "AUTHORITY[\"EPSG\",4326]]"),
+    osGCPProjection(SRS_WKT_WGS84_LAT_LONG),
     bGeoTransformSet(FALSE),
     psInfo(nullptr)
 {
@@ -243,7 +245,7 @@ CPLErr BSBDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *BSBDataset::GetProjectionRef()
+const char *BSBDataset::_GetProjectionRef()
 
 {
     if( bGeoTransformSet )
@@ -420,7 +422,7 @@ void BSBDataset::ScanForGCPs( bool isNos, const char *pszFilename )
     {
         const char *pszPR = strstr(pszKNP,"PR=");
         const char *pszGD = strstr(pszKNP,"GD=");
-        const char *pszGEOGCS = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],TOWGS84[0,0,0,0,0,0,0],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9108\"]],AUTHORITY[\"EPSG\",\"4326\"]]";
+        const char *pszGEOGCS = SRS_WKT_WGS84_LAT_LONG;
         CPLString osPP;
 
         // Capture the PP string.
@@ -459,7 +461,7 @@ void BSBDataset::ScanForGCPs( bool isNos, const char *pszFilename )
         {
 
             osUnderlyingSRS.Printf(
-                "PROJCS[\"unnamed\",%s,PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0]]",
+                "PROJCS[\"unnamed\",%s,PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]",
                 pszGEOGCS, osPP.c_str() );
         }
 
@@ -469,14 +471,14 @@ void BSBDataset::ScanForGCPs( bool isNos, const char *pszFilename )
             // This is not *really* UTM unless the central meridian
             // matches a zone which it does not in some (most?) maps.
             osUnderlyingSRS.Printf(
-                "PROJCS[\"unnamed\",%s,PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0]]",
+                "PROJCS[\"unnamed\",%s,PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]",
                 pszGEOGCS, osPP.c_str() );
         }
 
         else if( STARTS_WITH_CI(pszPR, "PR=POLYCONIC") && !osPP.empty() )
         {
             osUnderlyingSRS.Printf(
-                "PROJCS[\"unnamed\",%s,PROJECTION[\"Polyconic\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0]]",
+                "PROJCS[\"unnamed\",%s,PROJECTION[\"Polyconic\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]",
                 pszGEOGCS, osPP.c_str() );
         }
 
@@ -506,7 +508,7 @@ void BSBDataset::ScanForGCPs( bool isNos, const char *pszFilename )
 
             if( !osP2.empty() && !osP3.empty() )
                 osUnderlyingSRS.Printf(
-                    "PROJCS[\"unnamed\",%s,PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"standard_parallel_1\",%s],PARAMETER[\"standard_parallel_2\",%s],PARAMETER[\"latitude_of_origin\",0.0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"false_easting\",0.0],PARAMETER[\"false_northing\",0.0]]",
+                    "PROJCS[\"unnamed\",%s,PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"standard_parallel_1\",%s],PARAMETER[\"standard_parallel_2\",%s],PARAMETER[\"latitude_of_origin\",0.0],PARAMETER[\"central_meridian\",%s],PARAMETER[\"false_easting\",0.0],PARAMETER[\"false_northing\",0.0],UNIT[\"Meter\",1]]",
                     pszGEOGCS, osP2.c_str(), osP3.c_str(), osPP.c_str() );
         }
     }
@@ -519,8 +521,10 @@ void BSBDataset::ScanForGCPs( bool isNos, const char *pszFilename )
     {
         OGRSpatialReference oGeog_SRS, oProjected_SRS;
 
+        oProjected_SRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         oProjected_SRS.SetFromUserInput( osUnderlyingSRS );
         oGeog_SRS.CopyGeogCSFrom( &oProjected_SRS );
+        oGeog_SRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
         OGRCoordinateTransformation *poCT
             = OGRCreateCoordinateTransformation( &oGeog_SRS,
@@ -689,6 +693,49 @@ void BSBDataset::ScanForGCPsBSB()
 }
 
 /************************************************************************/
+/*                            ScanForCutline()                          */
+/************************************************************************/
+
+void BSBDataset::ScanForCutline()
+{
+    /* PLY: Border Polygon Record - coordinates of the panel within the 
+    * raster image, given in chart datum lat/long. Any shape polygon.
+    * They look like:
+    *      PLY/1,32.346666666667,-60.881666666667 
+    *      PLY/n,lat,long 
+    *
+    * If found then we return it via a BSB_CUTLINE metadata item as a WKT POLYGON.
+    */
+
+    std::string wkt;
+    for( int i = 0; psInfo->papszHeader[i] != nullptr; i++ )
+    {
+        if( !STARTS_WITH_CI(psInfo->papszHeader[i], "PLY/") )
+            continue;
+
+        const CPLStringList aosTokens(
+            CSLTokenizeString2( psInfo->papszHeader[i]+4, ",", 0 ));
+
+        if( aosTokens.size() >= 3 )
+        {
+            if (wkt.empty())
+                wkt = "POLYGON ((";
+            else
+                wkt += ',';
+            wkt += aosTokens[2];
+            wkt += ' ';
+            wkt += aosTokens[1];
+        }
+    }
+
+    if (!wkt.empty())
+    {
+        wkt += "))";
+        SetMetadataItem("BSB_CUTLINE", wkt.c_str());
+    }
+}
+
+/************************************************************************/
 /*                          IdentifyInternal()                          */
 /************************************************************************/
 
@@ -793,6 +840,11 @@ GDALDataset *BSBDataset::Open( GDALOpenInfo * poOpenInfo )
     poDS->SetBand( 1, new BSBRasterBand( poDS ));
 
     poDS->ScanForGCPs( isNos, poOpenInfo->pszFilename );
+    
+/* -------------------------------------------------------------------- */
+/*      Set CUTLINE metadata if a bounding polygon is available         */
+/* -------------------------------------------------------------------- */
+    poDS->ScanForCutline();
 
 /* -------------------------------------------------------------------- */
 /*      Initialize any PAM information.                                 */
@@ -819,7 +871,7 @@ int BSBDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *BSBDataset::GetGCPProjection()
+const char *BSBDataset::_GetGCPProjection()
 
 {
     return osGCPProjection;
@@ -1165,7 +1217,7 @@ void GDALRegister_BSB()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Maptech BSB Nautical Charts" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#BSB" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/bsb.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 #ifdef BSB_CREATE
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES, "Byte" );

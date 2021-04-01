@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2015, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2015, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -72,7 +72,7 @@ static void Usage( const char* pszAdditionalMsg = nullptr, bool bShort = true )
         "               [-progress] [-sql <sql statement>|@filename] [-dialect dialect]\n"
         "               [-preserve_fid] [-fid FID] [-limit nb_features]\n"
         "               [-spat xmin ymin xmax ymax] [-spat_srs srs_def] [-geomfield field]\n"
-        "               [-a_srs srs_def] [-t_srs srs_def] [-s_srs srs_def]\n"
+        "               [-a_srs srs_def] [-t_srs srs_def] [-s_srs srs_def] [-ct string]\n"
         "               [-f format_name] [-overwrite] [[-dsco NAME=VALUE] ...]\n"
         "               dst_datasource_name src_datasource_name\n"
         "               [-lco NAME=VALUE] [-nln name] \n"
@@ -90,7 +90,8 @@ static void Usage( const char* pszAdditionalMsg = nullptr, bool bShort = true )
         "               [-clipdstwhere expression]\n"
         "               [-wrapdateline][-datelineoffset val]\n"
         "               [[-simplify tolerance] | [-segmentize max_dist]]\n"
-        "               [-addfields] [-unsetFid]\n"
+        "               [-makevalid]\n"
+        "               [-addfields] [-unsetFid] [-emptyStrAsNull]\n"
         "               [-relaxedFieldNameMatch] [-forceNullable] [-unsetDefault]\n"
         "               [-fieldTypeToString All|(type1[,type2]*)] [-unsetFieldWidth]\n"
         "               [-mapFieldType srctype|All=dsttype[,srctype2=dsttype2]*]\n"
@@ -170,7 +171,7 @@ static void Usage( const char* pszAdditionalMsg = nullptr, bool bShort = true )
         "      starts at zero. There must be exactly as many values in the list as\n"
         "      the count of the fields in the source layer. We can use the 'identity'\n"
         "      setting to specify that the fields should be transferred by using the\n"
-        "      same order. This setting should be used along with the append setting.");
+        "      same order. This setting should be used along with the append setting.\n");
 
     printf(" -a_srs srs_def: Assign an output SRS\n"
            " -t_srs srs_def: Reproject/transform to this SRS on output\n"
@@ -426,7 +427,7 @@ MAIN_START( nArgc, papszArgv )
 
 exit:
     CSLDestroy(papszArgv);
-    OGRCleanupAll();
+    GDALDestroy();
 
     return nRetCode;
 }

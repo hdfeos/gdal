@@ -39,7 +39,10 @@ void OGRDB2AppendEscaped( OGRDB2Statement* poStatement,
                           const char* pszStrValue)
 {
     if (!pszStrValue)
+    {
         poStatement->Append("null");
+        return;
+    }
 
     size_t  iIn, iOut , nTextLen = strlen(pszStrValue);
     char    *pszEscapedText = (char *) VSIMalloc(nTextLen*2 + 3);
@@ -347,6 +350,7 @@ CPLErr OGRDB2TableLayer::Initialize( const char *pszSchema,
     {
         /* Process srtext directly if specified */
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromWkt( (char**)&pszSRText ) != OGRERR_NONE )
         {
             delete poSRS;
@@ -489,7 +493,6 @@ void OGRDB2TableLayer::DropSpatialIndex()
 CPLString OGRDB2TableLayer::BuildFields()
 
 {
-    int i = 0;
     int nColumn = 0;
     CPLString osFieldList;
 
@@ -526,7 +529,7 @@ CPLString OGRDB2TableLayer::BuildFields()
         panFieldOrdinals = (int *) CPLMalloc( sizeof(int)
                                     * poFeatureDefn->GetFieldCount() );
 
-        for( i = 0; i < poFeatureDefn->GetFieldCount(); i++ )
+        for( int i = 0; i < poFeatureDefn->GetFieldCount(); i++ )
         {
             if ( poFeatureDefn->GetFieldDefn(i)->IsIgnored() )
                 continue;

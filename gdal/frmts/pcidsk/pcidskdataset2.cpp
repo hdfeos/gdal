@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2009, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -99,7 +99,7 @@ PCIDSK2Band::PCIDSK2Band( PCIDSKChannel *poChannelIn )
 
     if( poChannel->GetType() == CHN_BIT )
     {
-        SetMetadataItem( "NBITS", "1", "IMAGE_STRUCTURE" );
+        PCIDSK2Band::SetMetadataItem( "NBITS", "1", "IMAGE_STRUCTURE" );
 
         if( !STARTS_WITH_CI(poChannel->GetDescription().c_str(),
                     "Contents Not Specified") )
@@ -517,8 +517,9 @@ void PCIDSK2Band::RefreshOverviewList()
 /* -------------------------------------------------------------------- */
     for( int iOver = 0; iOver < poChannel->GetOverviewCount(); iOver++ )
     {
-        apoOverviews.push_back(
-            new PCIDSK2Band( poChannel->GetOverview(iOver) ) );
+        auto poOvrBand = new PCIDSK2Band( poChannel->GetOverview(iOver) );
+        poOvrBand->eAccess = eAccess;
+        apoOverviews.push_back( poOvrBand );
     }
 }
 
@@ -625,6 +626,7 @@ CPLErr PCIDSK2Band::SetMetadata( char **papszMD,
 /* -------------------------------------------------------------------- */
     CSLDestroy( papszLastMDListValue );
     papszLastMDListValue = nullptr;
+    m_oCacheMetadataItem.clear();
 
     if( GetAccess() == GA_ReadOnly )
     {
@@ -678,6 +680,7 @@ CPLErr PCIDSK2Band::SetMetadataItem( const char *pszName,
 /* -------------------------------------------------------------------- */
     CSLDestroy( papszLastMDListValue );
     papszLastMDListValue = nullptr;
+    m_oCacheMetadataItem.clear();
 
     if( GetAccess() == GA_ReadOnly )
     {
@@ -710,7 +713,7 @@ char **PCIDSK2Band::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamRasterBand::GetMetadataDomainList(),
                                    TRUE,
-                                   "", NULL);
+                                   "", nullptr);
 }
 
 /************************************************************************/
@@ -728,23 +731,29 @@ const char *PCIDSK2Band::GetMetadataItem( const char *pszName,
         return GDALPamRasterBand::GetMetadataItem( pszName, pszDomain );
 
 /* -------------------------------------------------------------------- */
-/*      Try and fetch.                                                  */
+/*      Try and fetch (use cached value if available)                   */
 /* -------------------------------------------------------------------- */
+    auto oIter = m_oCacheMetadataItem.find(pszName);
+    if( oIter != m_oCacheMetadataItem.end() )
+    {
+        return oIter->second.empty() ? nullptr : oIter->second.c_str();
+    }
+
+    CPLString osValue;
     try
     {
-        osLastMDValue = poChannel->GetMetadataValue( pszName );
+        osValue = poChannel->GetMetadataValue( pszName );
     }
     catch( const PCIDSKException& ex )
     {
         CPLError( CE_Failure, CPLE_AppDefined,
-                  "%s", ex.what() );
+                "%s", ex.what() );
         return nullptr;
     }
 
-    if( osLastMDValue == "" )
-        return nullptr;
-
-    return osLastMDValue.c_str();
+    oIter = m_oCacheMetadataItem.insert(
+        std::pair<std::string, std::string>(pszName, osValue)).first;
+    return oIter->second.empty() ? nullptr : oIter->second.c_str();
 }
 
 /************************************************************************/
@@ -827,6 +836,9 @@ PCIDSK2Dataset::~PCIDSK2Dataset()
         delete apoLayers.back();
         apoLayers.pop_back();
     }
+
+    if( m_poSRS )
+        m_poSRS->Release();
 
     try {
         if( poFile != nullptr)
@@ -1062,6 +1074,7 @@ CPLErr PCIDSK2Dataset::SetMetadata( char **papszMD,
 /* -------------------------------------------------------------------- */
     CSLDestroy( papszLastMDListValue );
     papszLastMDListValue = nullptr;
+    m_oCacheMetadataItem.clear();
 
     if( GetAccess() == GA_ReadOnly )
     {
@@ -1114,6 +1127,7 @@ CPLErr PCIDSK2Dataset::SetMetadataItem( const char *pszName,
 /* -------------------------------------------------------------------- */
     CSLDestroy( papszLastMDListValue );
     papszLastMDListValue = nullptr;
+    m_oCacheMetadataItem.clear();
 
     if( GetAccess() == GA_ReadOnly )
     {
@@ -1144,7 +1158,7 @@ char **PCIDSK2Dataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "", NULL);
+                                   "", nullptr);
 }
 
 /************************************************************************/
@@ -1162,23 +1176,29 @@ const char *PCIDSK2Dataset::GetMetadataItem( const char *pszName,
         return GDALPamDataset::GetMetadataItem( pszName, pszDomain );
 
 /* -------------------------------------------------------------------- */
-/*      Try and fetch.                                                  */
+/*      Try and fetch (use cached value if available)                   */
 /* -------------------------------------------------------------------- */
+    auto oIter = m_oCacheMetadataItem.find(pszName);
+    if( oIter != m_oCacheMetadataItem.end() )
+    {
+        return oIter->second.empty() ? nullptr : oIter->second.c_str();
+    }
+
+    CPLString osValue;
     try
     {
-        osLastMDValue = poFile->GetMetadataValue( pszName );
+        osValue = poFile->GetMetadataValue( pszName );
     }
     catch( const PCIDSKException& ex )
     {
         CPLError( CE_Failure, CPLE_AppDefined,
-                  "%s", ex.what() );
+                "%s", ex.what() );
         return nullptr;
     }
 
-    if( osLastMDValue == "" )
-        return nullptr;
-
-    return osLastMDValue.c_str();
+    oIter = m_oCacheMetadataItem.insert(
+        std::pair<std::string, std::string>(pszName, osValue)).first;
+    return oIter->second.empty() ? nullptr : oIter->second.c_str();
 }
 
 /************************************************************************/
@@ -1331,14 +1351,12 @@ CPLErr PCIDSK2Dataset::GetGeoTransform( double * padfTransform )
 }
 
 /************************************************************************/
-/*                           SetProjection()                            */
+/*                           SetSpatialRef()                            */
 /************************************************************************/
 
-CPLErr PCIDSK2Dataset::SetProjection( const char *pszWKT )
+CPLErr PCIDSK2Dataset::SetSpatialRef( const OGRSpatialReference* poSRS )
 
 {
-    osSRS = "";
-
     PCIDSKGeoref *poGeoref = nullptr;
 
     try
@@ -1353,20 +1371,18 @@ CPLErr PCIDSK2Dataset::SetProjection( const char *pszWKT )
 
     if( poGeoref == nullptr )
     {
-        return GDALPamDataset::SetProjection( pszWKT );
+        return GDALPamDataset::SetSpatialRef( poSRS );
     }
 
     char *pszGeosys = nullptr;
     char *pszUnits = nullptr;
     double *padfPrjParams = nullptr;
 
-    OGRSpatialReference oSRS;
-
-    if( ! (oSRS.importFromWkt(pszWKT ) == OGRERR_NONE
-        && oSRS.exportToPCI( &pszGeosys, &pszUnits,
-                             &padfPrjParams ) == OGRERR_NONE ) )
+    if( poSRS == nullptr ||
+        poSRS->exportToPCI( &pszGeosys, &pszUnits,
+                             &padfPrjParams ) != OGRERR_NONE )
     {
-        return GDALPamDataset::SetProjection( pszWKT );
+        return GDALPamDataset::SetSpatialRef( poSRS );
     }
 
     if( GetAccess() == GA_ReadOnly )
@@ -1427,13 +1443,13 @@ CPLErr PCIDSK2Dataset::SetProjection( const char *pszWKT )
 }
 
 /************************************************************************/
-/*                          GetProjectionRef()                          */
+/*                          GetSpatialRef()                             */
 /************************************************************************/
 
-const char *PCIDSK2Dataset::GetProjectionRef()
+const OGRSpatialReference *PCIDSK2Dataset::GetSpatialRef() const
 {
-    if( osSRS != "" )
-        return osSRS.c_str();
+    if( m_poSRS )
+        return m_poSRS;
 
     PCIDSKGeoref *poGeoref = nullptr;
 
@@ -1449,8 +1465,7 @@ const char *PCIDSK2Dataset::GetProjectionRef()
 
     if( poGeoref == nullptr )
     {
-        osSRS = GDALPamDataset::GetProjectionRef();
-        return osSRS.c_str();
+        return GDALPamDataset::GetSpatialRef();
     }
 
     CPLString osGeosys;
@@ -1482,20 +1497,17 @@ const char *PCIDSK2Dataset::GetProjectionRef()
     }
 
     OGRSpatialReference oSRS;
+    oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     if( oSRS.importFromPCI( osGeosys, pszUnits,
                             &(adfParameters[0]) ) == OGRERR_NONE )
     {
-        char *pszWKT = nullptr;
-        oSRS.exportToWkt( &pszWKT );
-        osSRS = pszWKT;
-        CPLFree( pszWKT );
+        m_poSRS = oSRS.Clone();
+        return m_poSRS;
     }
     else
     {
-        osSRS = GDALPamDataset::GetProjectionRef();
+        return GDALPamDataset::GetSpatialRef();
     }
-
-    return osSRS.c_str();
 }
 
 /************************************************************************/
@@ -1984,7 +1996,7 @@ GDALDataset *PCIDSK2Dataset::LLOpen( const char *pszFilename,
 GDALDataset *PCIDSK2Dataset::Create( const char * pszFilename,
                                      int nXSize, int nYSize, int nBands,
                                      GDALDataType eType,
-                                     char **papszParmList )
+                                     char **papszParamList )
 
 {
 /* -------------------------------------------------------------------- */
@@ -2010,7 +2022,7 @@ GDALDataset *PCIDSK2Dataset::Create( const char * pszFilename,
 /*      quality.                                                        */
 /* -------------------------------------------------------------------- */
     CPLString osOptions;
-    const char *pszValue = CSLFetchNameValue( papszParmList, "INTERLEAVING" );
+    const char *pszValue = CSLFetchNameValue( papszParamList, "INTERLEAVING" );
     if( pszValue == nullptr )
         pszValue = "BAND";
 
@@ -2018,14 +2030,21 @@ GDALDataset *PCIDSK2Dataset::Create( const char * pszFilename,
 
     if( osOptions == "TILED" )
     {
-        pszValue = CSLFetchNameValue( papszParmList, "TILESIZE" );
+        pszValue = CSLFetchNameValue( papszParamList, "TILESIZE" );
         if( pszValue != nullptr )
             osOptions += pszValue;
 
-        pszValue = CSLFetchNameValue( papszParmList, "COMPRESSION" );
+        pszValue = CSLFetchNameValue( papszParamList, "COMPRESSION" );
         if( pszValue != nullptr )
         {
             osOptions += " ";
+            osOptions += pszValue;
+        }
+
+        pszValue = CSLFetchNameValue( papszParamList, "TILEVERSION" );
+        if( pszValue != nullptr )
+        {
+            osOptions += " TILEV";
             osOptions += pszValue;
         }
     }
@@ -2048,13 +2067,13 @@ GDALDataset *PCIDSK2Dataset::Create( const char * pszFilename,
 /*      Apply band descriptions, if provided as creation options.       */
 /* -------------------------------------------------------------------- */
         for( size_t i = 0;
-             papszParmList != nullptr && papszParmList[i] != nullptr;
+             papszParamList != nullptr && papszParamList[i] != nullptr;
              i++ )
         {
-            if( STARTS_WITH_CI(papszParmList[i], "BANDDESC") )
+            if( STARTS_WITH_CI(papszParamList[i], "BANDDESC") )
             {
-                int nBand = atoi(papszParmList[i] + 8 );
-                const char *pszDescription = strstr(papszParmList[i],"=");
+                int nBand = atoi(papszParamList[i] + 8 );
+                const char *pszDescription = strstr(papszParamList[i],"=");
                 if( pszDescription && nBand > 0 && nBand <= nBands )
                 {
                     poFile->GetChannel(nBand)->SetDescription( pszDescription+1 );
@@ -2255,7 +2274,7 @@ void GDALRegister_PCIDSK()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "PCIDSK Database File" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_pcidsk.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/pcidsk.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "pix" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
@@ -2274,6 +2293,7 @@ void GDALRegister_PCIDSK()
 "       <Value>JPEG</Value>"
 "   </Option>"
 "   <Option name='TILESIZE' type='int' default='127' description='Tile Size (INTERLEAVING=TILED only)'/>"
+"   <Option name='TILEVERSION' type='int' default='2' description='Tile Version (INTERLEAVING=TILED only)'/>"
 "</CreationOptionList>" );
     poDriver->SetMetadataItem( GDAL_DS_LAYER_CREATIONOPTIONLIST,
                                "<LayerCreationOptionList/>" );

@@ -130,6 +130,9 @@ struct GDALInfoOptions
         */
     char **papszExtraMDDomains;
 
+    /*! WKT format used for SRS */
+    char* pszWKTFormat;
+
     bool bStdoutOutput;
 };
 
@@ -185,13 +188,29 @@ static void Concat( CPLString& osRet, bool bStdoutOutput,
 }
 
 /************************************************************************/
+/*           gdal_json_object_new_double_or_str_for_non_finite()        */
+/************************************************************************/
+
+static
+json_object *gdal_json_object_new_double_or_str_for_non_finite(
+                                        double dfVal, int nCoordPrecision)
+{
+    if( std::isinf(dfVal) )
+        return json_object_new_string(dfVal < 0 ? "-Infinity" : "Infinity");
+    else if( std::isnan(dfVal) )
+        return json_object_new_string("NaN");
+    else
+        return json_object_new_double_with_precision(dfVal, nCoordPrecision);
+}
+
+/************************************************************************/
 /*                             GDALInfo()                               */
 /************************************************************************/
 
 /**
  * Lists various information about a GDAL supported raster dataset.
  *
- * This is the equivalent of the <a href="gdalinfo.html">gdalinfo</a> utility.
+ * This is the equivalent of the <a href="/programs/gdalinfo.html">gdalinfo</a> utility.
  *
  * GDALInfoOptions* must be allocated and freed with GDALInfoOptionsNew()
  * and GDALInfoOptionsFree() respectively.
@@ -319,55 +338,62 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
                GDALGetRasterYSize( hDataset ) );
     }
 
+    CPLString osWKTFormat("FORMAT=");
+    osWKTFormat += psOptions->pszWKTFormat;
+    const char* const apszWKTOptions[] =
+        { osWKTFormat.c_str(), "MULTILINE=YES", nullptr };
+
 /* -------------------------------------------------------------------- */
 /*      Report projection.                                              */
 /* -------------------------------------------------------------------- */
-    if( GDALGetProjectionRef( hDataset ) != nullptr )
+    auto hSRS = GDALGetSpatialRef( hDataset );
+    if( hSRS != nullptr )
     {
         json_object *poCoordinateSystem = nullptr;
 
         if( bJson )
             poCoordinateSystem = json_object_new_object();
 
-        char *pszProjection =
-            const_cast<char *>( GDALGetProjectionRef( hDataset ) );
+        char *pszPrettyWkt = nullptr;
 
-        OGRSpatialReferenceH hSRS =
-            OSRNewSpatialReference(nullptr);
-        if( OSRImportFromWkt( hSRS, &pszProjection ) == CE_None )
+        OSRExportToWktEx( hSRS, &pszPrettyWkt, apszWKTOptions );
+
+        int nAxesCount = 0;
+        const int* panAxes = OSRGetDataAxisToSRSAxisMapping( hSRS, &nAxesCount );
+
+        if( bJson )
         {
-            char *pszPrettyWkt = nullptr;
+            json_object *poWkt = json_object_new_string(pszPrettyWkt);
+            json_object_object_add(poCoordinateSystem, "wkt", poWkt);
 
-            OSRExportToPrettyWkt( hSRS, &pszPrettyWkt, FALSE );
-
-            if( bJson )
+            json_object* poAxisMapping = json_object_new_array();
+            for( int i = 0; i < nAxesCount; i++ )
             {
-                json_object *poWkt = json_object_new_string(pszPrettyWkt);
-                json_object_object_add(poCoordinateSystem, "wkt", poWkt);
+                json_object_array_add(poAxisMapping,
+                                      json_object_new_int(panAxes[i]));
             }
-            else
-            {
-                Concat( osStr, psOptions->bStdoutOutput,
-                        "Coordinate System is:\n%s\n",
-                        pszPrettyWkt );
-            }
-            CPLFree( pszPrettyWkt );
+            json_object_object_add(
+                poCoordinateSystem, "dataAxisToSRSAxisMapping", poAxisMapping);
         }
         else
         {
-            if( bJson )
+            Concat( osStr, psOptions->bStdoutOutput,
+                    "Coordinate System is:\n%s\n",
+                    pszPrettyWkt );
+
+            Concat( osStr, psOptions->bStdoutOutput,
+                    "Data axis to CRS axis mapping: ");
+            for( int i = 0; i < nAxesCount; i++ )
             {
-                json_object *poWkt =
-                    json_object_new_string(GDALGetProjectionRef(hDataset));
-                json_object_object_add(poCoordinateSystem, "wkt", poWkt);
+                if( i > 0 )
+                {
+                    Concat( osStr, psOptions->bStdoutOutput, ",");
+                }
+                Concat( osStr, psOptions->bStdoutOutput, "%d", panAxes[i]);
             }
-            else
-            {
-                Concat( osStr, psOptions->bStdoutOutput,
-                        "Coordinate System is `%s'\n",
-                        GDALGetProjectionRef( hDataset ) );
-            }
+            Concat( osStr, psOptions->bStdoutOutput, "\n");
         }
+        CPLFree( pszPrettyWkt );
 
         if ( psOptions->bReportProj4 )
         {
@@ -388,8 +414,6 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
         if( bJson )
             json_object_object_add(poJsonObject, "coordinateSystem",
                                    poCoordinateSystem);
-
-        OSRDestroySpatialReference( hSRS );
     }
 
 /* -------------------------------------------------------------------- */
@@ -448,56 +472,56 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
     {
         json_object * const poGCPs = bJson ? json_object_new_object() : nullptr;
 
-        if (GDALGetGCPProjection(hDataset) != nullptr)
+        hSRS = GDALGetGCPSpatialRef(hDataset);
+        if (hSRS)
         {
             json_object *poGCPCoordinateSystem = nullptr;
 
-            char *pszProjection =
-                const_cast<char *>( GDALGetGCPProjection( hDataset ) );
+            char *pszPrettyWkt = nullptr;
 
-            OGRSpatialReferenceH hSRS =
-                OSRNewSpatialReference(nullptr);
-            if( OSRImportFromWkt( hSRS, &pszProjection ) == CE_None )
+            int nAxesCount = 0;
+            const int* panAxes = OSRGetDataAxisToSRSAxisMapping( hSRS, &nAxesCount );
+
+            OSRExportToWktEx( hSRS, &pszPrettyWkt, apszWKTOptions );
+
+            if( bJson )
             {
-                char *pszPrettyWkt = nullptr;
+                json_object *poWkt = json_object_new_string(pszPrettyWkt);
+                poGCPCoordinateSystem = json_object_new_object();
 
-                OSRExportToPrettyWkt( hSRS, &pszPrettyWkt, FALSE );
-                if( bJson )
-                {
-                    json_object *poWkt = json_object_new_string(pszPrettyWkt);
-                    poGCPCoordinateSystem = json_object_new_object();
+                json_object_object_add(poGCPCoordinateSystem, "wkt", poWkt);
 
-                    json_object_object_add(poGCPCoordinateSystem, "wkt", poWkt);
-                }
-                else
+                json_object* poAxisMapping = json_object_new_array();
+                for( int i = 0; i < nAxesCount; i++ )
                 {
-                    Concat(osStr, psOptions->bStdoutOutput,
-                           "GCP Projection = \n%s\n", pszPrettyWkt );
+                    json_object_array_add(poAxisMapping,
+                                        json_object_new_int(panAxes[i]));
                 }
-                CPLFree( pszPrettyWkt );
+                json_object_object_add(
+                    poGCPCoordinateSystem, "dataAxisToSRSAxisMapping", poAxisMapping);
             }
             else
             {
-                if(bJson)
-                {
-                    json_object *poWkt =
-                        json_object_new_string(GDALGetGCPProjection(hDataset));
-                    poGCPCoordinateSystem = json_object_new_object();
+                Concat(osStr, psOptions->bStdoutOutput,
+                        "GCP Projection = \n%s\n", pszPrettyWkt );
 
-                    json_object_object_add(poGCPCoordinateSystem, "wkt", poWkt);
-                }
-                else
+                Concat( osStr, psOptions->bStdoutOutput,
+                        "Data axis to CRS axis mapping: ");
+                for( int i = 0; i < nAxesCount; i++ )
                 {
-                    Concat(osStr, psOptions->bStdoutOutput,
-                           "GCP Projection = %s\n",
-                           GDALGetGCPProjection( hDataset ) );
+                    if( i > 0 )
+                    {
+                        Concat( osStr, psOptions->bStdoutOutput, ",");
+                    }
+                    Concat( osStr, psOptions->bStdoutOutput, "%d", panAxes[i]);
                 }
+                Concat( osStr, psOptions->bStdoutOutput, "\n");
             }
+            CPLFree( pszPrettyWkt );
 
             if(bJson)
                 json_object_object_add(poGCPs, "coordinateSystem",
                                        poGCPCoordinateSystem);
-            OSRDestroySpatialReference( hSRS );
         }
 
         json_object * const poGCPList = bJson ? json_object_new_array() : nullptr;
@@ -565,61 +589,46 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
 /* -------------------------------------------------------------------- */
 /*      Setup projected to lat/long transform if appropriate.           */
 /* -------------------------------------------------------------------- */
-    const char  *pszProjection = nullptr;
+    OGRSpatialReferenceH hProj = nullptr;
     if( GDALGetGeoTransform( hDataset, adfGeoTransform ) == CE_None )
-        pszProjection = GDALGetProjectionRef(hDataset);
+        hProj = GDALGetSpatialRef(hDataset);
 
     OGRCoordinateTransformationH hTransform = nullptr;
     bool bTransformToWGS84 = false;
 
-    if( pszProjection != nullptr && strlen(pszProjection) > 0 )
+    if( hProj )
     {
         OGRSpatialReferenceH hLatLong = nullptr;
 
-        OGRSpatialReferenceH hProj = OSRNewSpatialReference( pszProjection );
-        if( hProj != nullptr )
+        OGRErr eErr = OGRERR_NONE;
+        // Check that it looks like Earth before trying to reproject to wgs84...
+        if(bJson &&
+            fabs( OSRGetSemiMajor(hProj, &eErr) - 6378137.0) < 10000.0 &&
+            eErr == OGRERR_NONE )
         {
-            OGRErr eErr = OGRERR_NONE;
-            // Check that it looks like Earth before trying to reproject to wgs84...
-            if(bJson &&
-               fabs( OSRGetSemiMajor(hProj, &eErr) - 6378137.0) < 10000.0 &&
-               eErr == OGRERR_NONE )
+            bTransformToWGS84 = true;
+            hLatLong = OSRNewSpatialReference( nullptr );
+            OSRSetWellKnownGeogCS( hLatLong, "WGS84" );
+        }
+        else
+        {
+            hLatLong = OSRCloneGeogCS( hProj );
+            if( hLatLong )
             {
-                bTransformToWGS84 = true;
-                hLatLong = OSRNewSpatialReference( nullptr );
-                OSRSetWellKnownGeogCS( hLatLong, "WGS84" );
-            }
-            else
-            {
-                hLatLong = OSRCloneGeogCS( hProj );
-                if( hLatLong )
-                {
-                    // Drop GEOGCS|UNIT child to be sure to output as degrees
-                    OGRSpatialReference* poLatLong = reinterpret_cast<
-                        OGRSpatialReference*>(hLatLong);
-                    OGR_SRSNode *poGEOGCS = poLatLong->GetRoot();
-                    if( poGEOGCS )
-                    {
-                        const int iUnitChild =
-                            poGEOGCS->FindChild("UNIT");
-                        if( iUnitChild != -1 )
-                            poGEOGCS->DestroyChild(iUnitChild);
-                    }
-                }
+                // Override GEOGCS|UNIT child to be sure to output as degrees
+                OSRSetAngularUnits( hLatLong, SRS_UA_DEGREE, CPLAtof(SRS_UA_DEGREE_CONV) );
             }
         }
 
         if( hLatLong != nullptr )
         {
+            OSRSetAxisMappingStrategy(hLatLong, OAMS_TRADITIONAL_GIS_ORDER);
             CPLPushErrorHandler( CPLQuietErrorHandler );
             hTransform = OCTNewCoordinateTransformation( hProj, hLatLong );
             CPLPopErrorHandler();
 
             OSRDestroySpatialReference( hLatLong );
         }
-
-        if( hProj != nullptr )
-            OSRDestroySpatialReference( hProj );
     }
 
 /* -------------------------------------------------------------------- */
@@ -797,7 +806,7 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
                     if( bJson )
                     {
                         json_object *poMin =
-                            json_object_new_double_with_precision(dfMin, 3);
+                            gdal_json_object_new_double_or_str_for_non_finite(dfMin, 3);
                         json_object_object_add(poBand, "min", poMin);
                     }
                     else
@@ -811,7 +820,7 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
                     if( bJson )
                     {
                         json_object *poMax =
-                            json_object_new_double_with_precision(dfMax, 3);
+                            gdal_json_object_new_double_or_str_for_non_finite(dfMax, 3);
                         json_object_object_add(poBand, "max", poMax);
                     }
                     else
@@ -831,10 +840,10 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
                         if( bJson )
                         {
                             json_object *poComputedMin =
-                                json_object_new_double_with_precision(
+                                gdal_json_object_new_double_or_str_for_non_finite(
                                     adfCMinMax[0], 3);
                             json_object *poComputedMax =
-                                json_object_new_double_with_precision(
+                                gdal_json_object_new_double_or_str_for_non_finite(
                                     adfCMinMax[1], 3);
                             json_object_object_add(poBand, "computedMin",
                                                    poComputedMin);
@@ -867,17 +876,19 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
             if( bJson )
             {
                 json_object *poMinimum =
-                    json_object_new_double_with_precision(dfMinStat, 3);
-                json_object *poMaximum =
-                    json_object_new_double_with_precision(dfMaxStat, 3);
-                json_object *poMean =
-                    json_object_new_double_with_precision(dfMean, 3);
-                json_object *poStdDev =
-                    json_object_new_double_with_precision(dfStdDev, 3);
-
+                    gdal_json_object_new_double_or_str_for_non_finite(dfMinStat, 3);
                 json_object_object_add(poBand, "minimum", poMinimum);
+
+                json_object *poMaximum =
+                    gdal_json_object_new_double_or_str_for_non_finite(dfMaxStat, 3);
                 json_object_object_add(poBand, "maximum", poMaximum);
+
+                json_object *poMean =
+                    gdal_json_object_new_double_or_str_for_non_finite(dfMean, 3);
                 json_object_object_add(poBand, "mean", poMean);
+
+                json_object *poStdDev =
+                    gdal_json_object_new_double_or_str_for_non_finite(dfStdDev, 3);
                 json_object_object_add(poBand, "stdDev", poStdDev);
             }
             else
@@ -974,34 +985,21 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
         const double dfNoData = GDALGetRasterNoDataValue( hBand, &bGotNodata );
         if( bGotNodata )
         {
-            if( CPLIsNan(dfNoData) )
+            if( bJson )
             {
-                if( bJson )
-                {
-                    json_object *poNoDataValue = json_object_new_string("nan");
-                    json_object_object_add(poBand, "noDataValue",
-                                           poNoDataValue);
-                }
-                else
-                {
-                    Concat(osStr, psOptions->bStdoutOutput,
-                           "  NoData Value=nan\n" );
-                }
+                json_object *poNoDataValue = gdal_json_object_new_double_or_str_for_non_finite(dfNoData, 18);
+                json_object_object_add(poBand, "noDataValue",
+                                        poNoDataValue);
+            }
+            else if( CPLIsNan(dfNoData) )
+            {
+                Concat(osStr, psOptions->bStdoutOutput,
+                        "  NoData Value=nan\n" );
             }
             else
             {
-                if(bJson)
-                {
-                    json_object *poNoDataValue =
-                        json_object_new_double_with_precision(dfNoData, 18);
-                    json_object_object_add(poBand, "noDataValue",
-                                           poNoDataValue);
-                }
-                else
-                {
-                    Concat(osStr, psOptions->bStdoutOutput,
-                           "  NoData Value=%.18g\n", dfNoData );
-                }
+                Concat(osStr, psOptions->bStdoutOutput,
+                        "  NoData Value=%.18g\n", dfNoData );
             }
         }
 
@@ -1408,7 +1406,11 @@ char *GDALInfo( GDALDatasetH hDataset, const GDALInfoOptions *psOptions )
         json_object_object_add(poJsonObject, "bands", poBands);
         Concat(osStr, psOptions->bStdoutOutput, "%s",
                json_object_to_json_string_ext(poJsonObject,
-                                              JSON_C_TO_STRING_PRETTY));
+                                              JSON_C_TO_STRING_PRETTY
+#ifdef JSON_C_TO_STRING_NOSLASHESCAPE
+                                              | JSON_C_TO_STRING_NOSLASHESCAPE
+#endif
+                                             ));
         json_object_put(poJsonObject);
     }
 
@@ -1721,6 +1723,7 @@ static void GDALInfoReportMetadata( const GDALInfoOptions* psOptions,
             {
                 if( !EQUAL(*papszIter, "") &&
                     !EQUAL(*papszIter, "IMAGE_STRUCTURE") &&
+                    !EQUAL(*papszIter, "TILING_SCHEME") &&
                     !EQUAL(*papszIter, "SUBDATASETS") &&
                     !EQUAL(*papszIter, "GEOLOCATION") &&
                     !EQUAL(*papszIter, "RPC") )
@@ -1773,6 +1776,8 @@ static void GDALInfoReportMetadata( const GDALInfoOptions* psOptions,
 
     if (!bIsBand)
     {
+        GDALInfoPrintMetadata( psOptions, hObject, "TILING_SCHEME", "Tiling Scheme",
+                               pszIndent, bJson, poMetadata, osStr );
         GDALInfoPrintMetadata( psOptions, hObject, "SUBDATASETS", "Subdatasets",
                                pszIndent, bJson, poMetadata, osStr );
         GDALInfoPrintMetadata( psOptions, hObject, "GEOLOCATION", "Geolocation",
@@ -1790,7 +1795,7 @@ static void GDALInfoReportMetadata( const GDALInfoOptions* psOptions,
  * Allocates a GDALInfoOptions struct.
  *
  * @param papszArgv NULL terminated list of options (potentially including filename and open options too), or NULL.
- *                  The accepted options are the ones of the <a href="gdalinfo.html">gdalinfo</a> utility.
+ *                  The accepted options are the ones of the <a href="/programs/gdalinfo.html">gdalinfo</a> utility.
  * @param psOptionsForBinary (output) may be NULL (and should generally be NULL),
  *                           otherwise (gdalinfo_bin.cpp use case) must be allocated with
  *                           GDALInfoOptionsForBinaryNew() prior to this function. Will be
@@ -1822,6 +1827,7 @@ GDALInfoOptions *GDALInfoOptionsNew(
     psOptions->bShowColorTable = TRUE;
     psOptions->bListMDD = FALSE;
     psOptions->bShowFileList = TRUE;
+    psOptions->pszWKTFormat = CPLStrdup("WKT2");
 
 /* -------------------------------------------------------------------- */
 /*      Parse arguments.                                                */
@@ -1887,6 +1893,27 @@ GDALInfoOptions *GDALInfoOptionsNew(
                 psOptionsForBinary->nSubdataset = atoi(papszArgv[i]);
             }
         }
+        else if( EQUAL(papszArgv[i], "-wkt_format") && papszArgv[i+1] != nullptr )
+        {
+            CPLFree(psOptions->pszWKTFormat);
+            psOptions->pszWKTFormat = CPLStrdup( papszArgv[++i] );
+        }
+
+        else if( EQUAL(papszArgv[i], "-if") && papszArgv[i+1] != nullptr )
+        {
+            i++;
+            if( psOptionsForBinary )
+            {
+                if( GDALGetDriverByName(papszArgv[i]) == nullptr )
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined,
+                             "%s is not a recognized driver", papszArgv[i]);
+                }
+                psOptionsForBinary->papszAllowInputDrivers = CSLAddString(
+                    psOptionsForBinary->papszAllowInputDrivers, papszArgv[i] );
+            }
+        }
+
         else if( papszArgv[i][0] == '-' )
         {
             CPLError(CE_Failure, CPLE_NotSupported,
@@ -1929,6 +1956,7 @@ void GDALInfoOptionsFree( GDALInfoOptions *psOptions )
     if( psOptions != nullptr )
     {
         CSLDestroy( psOptions->papszExtraMDDomains );
+        CPLFree( psOptions->pszWKTFormat );
 
         CPLFree(psOptions);
     }

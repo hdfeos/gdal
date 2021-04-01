@@ -43,7 +43,7 @@ extern "C" void RegisterOGRCSW();
 
 class OGRCSWDataSource;
 
-class OGRCSWLayer : public OGRLayer
+class OGRCSWLayer final: public OGRLayer
 {
     OGRCSWDataSource*   poDS;
     OGRFeatureDefn*     poFeatureDefn;
@@ -84,7 +84,7 @@ class OGRCSWLayer : public OGRLayer
 /*                           OGRCSWDataSource                           */
 /************************************************************************/
 
-class OGRCSWDataSource : public OGRDataSource
+class OGRCSWDataSource final: public OGRDataSource
 {
     char*               pszName;
     CPLString           osBaseURL;
@@ -138,7 +138,8 @@ OGRCSWLayer::OGRCSWLayer( OGRCSWDataSource* poDSIn ) :
     SetDescription(poFeatureDefn->GetName());
     poFeatureDefn->Reference();
     poFeatureDefn->SetGeomType(wkbPolygon);
-    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84);
+    OGRSpatialReference* poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     poFeatureDefn->GetGeomFieldDefn(0)->SetName("boundingbox");
     poFeatureDefn->GetGeomFieldDefn(0)->SetSpatialRef(poSRS);
     {
@@ -595,13 +596,16 @@ GDALDataset* OGRCSWLayer::FetchGetRecords()
                                                  FALSE,
                                                  0, 0, false, true,
                                                  false );
-                    bool bLatLongOrder = true;
-                    if( !osSRS.empty() )
-                        bLatLongOrder = GML_IsSRSLatLongOrder(osSRS);
-                    if( bLatLongOrder && CPLTestBool(
-                            CPLGetConfigOption("GML_INVERT_AXIS_ORDER_IF_LAT_LONG", "YES")) )
-                        poGeom->swapXY();
-                    poFeature->SetGeometryDirectly(poGeom);
+                    if( poGeom )
+                    {
+                        bool bLatLongOrder = true;
+                        if( !osSRS.empty() )
+                            bLatLongOrder = GML_IsSRSLatLongOrder(osSRS);
+                        if( bLatLongOrder && CPLTestBool(
+                                CPLGetConfigOption("GML_INVERT_AXIS_ORDER_IF_LAT_LONG", "YES")) )
+                            poGeom->swapXY();
+                        poFeature->SetGeometryDirectly(poGeom);
+                    }
                 }
 
                 psIter->psNext = psNext;
@@ -1055,7 +1059,7 @@ void RegisterOGRCSW()
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "OGC CSW (Catalog  Service for the Web)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_csw.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/csw.html" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "CSW:" );
 

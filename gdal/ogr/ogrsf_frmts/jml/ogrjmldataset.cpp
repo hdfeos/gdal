@@ -192,9 +192,17 @@ OGRLayer * OGRJMLDataset::ICreateLayer( const char * pszLayerName,
         CSLFetchNameValueDef(papszOptions, "CREATE_OGR_STYLE_FIELD", "NO"));
     bool bClassicGML = CPLTestBool(
         CSLFetchNameValueDef(papszOptions, "CLASSIC_GML", "NO"));
-    poLayer = new OGRJMLWriterLayer( pszLayerName, poSRS, this, fp,
+    auto poSRSClone = poSRS;
+    if( poSRSClone )
+    {
+        poSRSClone = poSRSClone->Clone();
+        poSRSClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    poLayer = new OGRJMLWriterLayer( pszLayerName, poSRSClone, this, fp,
                                      bAddRGBField, bAddOGRStyleField,
                                      bClassicGML);
+    if( poSRSClone )
+        poSRSClone->Release();
 
     return poLayer;
 }
@@ -214,7 +222,7 @@ void RegisterOGRJML()
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "OpenJUMP JML" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "jml" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_jml.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/jml.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_FEATURE_STYLES, "YES" );

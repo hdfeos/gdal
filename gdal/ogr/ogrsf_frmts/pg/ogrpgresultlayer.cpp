@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -86,7 +86,13 @@ OGRPGResultLayer::OGRPGResultLayer( OGRPGDataSource *poDSIn,
         }
     }
 
-    if( !osRequest.empty() )
+    CPLString osQuery(pszRawQueryIn);
+    // Only a INNER JOIN can guarantee that the non-nullability of source columns
+    // will be valid for the result of the join.
+    if( !osRequest.empty() &&
+        osQuery.ifind("LEFT JOIN") == std::string::npos &&
+        osQuery.ifind("RIGHT JOIN") == std::string::npos &&
+        osQuery.ifind("OUTER JOIN") == std::string::npos )
     {
         osRequest = "SELECT attnum, attrelid FROM pg_attribute WHERE attnotnull = 't' AND (" + osRequest + ")";
         PGresult* hResult = OGRPG_PQexec(poDS->GetPGConn(), osRequest );
@@ -394,9 +400,11 @@ void OGRPGResultLayer::ResolveSRID(const OGRPGGeomFieldDefn* poGFldDefn)
             osGetSRID += OGRPGEscapeColumnName(poGFldDefn->GetNameRef());
             if (poDS->sPostGISVersion.nMajor > 2 || (poDS->sPostGISVersion.nMajor == 2 && poDS->sPostGISVersion.nMinor >= 2))
                 osGetSRID += "::geometry";
-            osGetSRID += ") FROM(";
+            osGetSRID += ") FROM (";
             osGetSRID += pszRawStatement;
-            osGetSRID += ") AS ogrpggetsrid LIMIT 1";
+            osGetSRID += ") AS ogrpggetsrid WHERE (";
+            osGetSRID += OGRPGEscapeColumnName(poGFldDefn->GetNameRef());
+            osGetSRID += " IS NOT NULL) LIMIT 1";
 
             PGresult* hSRSIdResult = OGRPG_PQexec(poDS->GetPGConn(), osGetSRID );
 

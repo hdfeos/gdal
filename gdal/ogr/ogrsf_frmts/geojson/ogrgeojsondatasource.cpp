@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Mateusz Loskot
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -381,6 +381,7 @@ OGRLayer* OGRGeoJSONDataSource::ICreateLayer( const char* pszNameIn,
         {
             OGRSpatialReference oSRSWGS84;
             oSRSWGS84.SetWellKnownGeogCS( "WGS84" );
+            oSRSWGS84.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
             if( !poSRS->IsSame(&oSRSWGS84) )
             {
                 poCT = OGRCreateCoordinateTransformation( poSRS, &oSRSWGS84 );
@@ -389,9 +390,7 @@ OGRLayer* OGRGeoJSONDataSource::ICreateLayer( const char* pszNameIn,
                     CPLError(
                         CE_Warning, CPLE_AppDefined,
                         "Failed to create coordinate transformation between the "
-                        "input coordinate system and WGS84.  This may be because "
-                        "they are not transformable, or because projection "
-                        "services (PROJ.4 DLL/.so) could not be loaded." );
+                        "input coordinate system and WGS84." );
 
                     return nullptr;
                 }
@@ -798,7 +797,9 @@ void OGRGeoJSONDataSource::LoadLayers(GDALOpenInfo* poOpenInfo,
             if( !ReadFromFile( poOpenInfo, pszUnprefixed ) )
                 return;
         }
-        OGRErr err = reader.Parse( pszGeoData_ );
+        OGRErr err = reader.Parse( pszGeoData_,
+            nSrcType == eGeoJSONSourceService &&
+            !STARTS_WITH_CI(poOpenInfo->pszFilename, "TopoJSON:") );
         if( OGRERR_NONE == err )
         {
             reader.ReadLayers( this );
@@ -813,7 +814,7 @@ void OGRGeoJSONDataSource::LoadLayers(GDALOpenInfo* poOpenInfo,
         GDALOpenInfo oOpenInfo(pszUnprefixed, GA_ReadOnly);
         if( oOpenInfo.fpL == nullptr || oOpenInfo.pabyHeader == nullptr )
             return;
-        oOpenInfo.TryToIngest(6000);
+        CPL_IGNORE_RET_VAL(oOpenInfo.TryToIngest(6000));
         CPLFree(pszGeoData_);
         pszGeoData_ = CPLStrdup(
                         reinterpret_cast<const char*>(oOpenInfo.pabyHeader));
@@ -945,6 +946,10 @@ void OGRGeoJSONDataSource::SetOptionsOnReader(GDALOpenInfo* poOpenInfo,
     poReader->SetArrayAsString(
         CPLTestBool(CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "ARRAY_AS_STRING",
                 CPLGetConfigOption("OGR_GEOJSON_ARRAY_AS_STRING", "NO"))));
+
+    poReader->SetDateAsString(
+        CPLTestBool(CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "DATE_AS_STRING",
+                CPLGetConfigOption("OGR_GEOJSON_DATE_AS_STRING", "NO"))));
 }
 
 /************************************************************************/
@@ -1076,22 +1081,65 @@ void OGRGeoJSONDataSource::FlushCache()
                 }
                 if( bOK )
                 {
-                    CPLString osBackup(pszName_);
-                    osBackup += ".bak";
-                    if( VSIRename(pszName_, osBackup) < 0 )
+                    const bool bOverwrite =
+                        CPLTestBool(CPLGetConfigOption("OGR_GEOJSON_REWRITE_IN_PLACE",
+#ifdef WIN32
+                                                       "YES"
+#else
+                                                       "NO"
+#endif
+                                                        ));
+                    if( bOverwrite )
                     {
-                        CPLError(CE_Failure, CPLE_AppDefined,
-                                "Cannot create backup copy");
-                    }
-                    else if( VSIRename(osNewFilename, pszName_) < 0 )
-                    {
-                        CPLError(CE_Failure, CPLE_AppDefined,
-                                "Cannot rename %s to %s",
-                                osNewFilename.c_str(), pszName_);
+                        VSILFILE* fpTarget = nullptr;
+                        for( int attempt = 0; attempt < 10; attempt++ )
+                        {
+                            fpTarget = VSIFOpenL(pszName_, "rb+");
+                            if( fpTarget )
+                                break;
+                            CPLSleep(0.1);
+                        }
+                        if( !fpTarget )
+                        {
+                            CPLError(CE_Failure, CPLE_AppDefined,
+                                     "Cannot rewrite %s", pszName_);
+                        }
+                        else
+                        {
+                            const bool bCopyOK = CPL_TO_BOOL(
+                                VSIOverwriteFile(fpTarget, osNewFilename));
+                            VSIFCloseL(fpTarget);
+                            if( bCopyOK )
+                            {
+                                VSIUnlink(osNewFilename);
+                            }
+                            else
+                            {
+                                CPLError(CE_Failure, CPLE_AppDefined,
+                                         "Cannot rewrite %s with content of %s",
+                                         pszName_, osNewFilename.c_str());
+                            }
+                        }
                     }
                     else
                     {
-                        VSIUnlink(osBackup);
+                        CPLString osBackup(pszName_);
+                        osBackup += ".bak";
+                        if( VSIRename(pszName_, osBackup) < 0 )
+                        {
+                            CPLError(CE_Failure, CPLE_AppDefined,
+                                    "Cannot create backup copy");
+                        }
+                        else if( VSIRename(osNewFilename, pszName_) < 0 )
+                        {
+                            CPLError(CE_Failure, CPLE_AppDefined,
+                                    "Cannot rename %s to %s",
+                                    osNewFilename.c_str(), pszName_);
+                        }
+                        else
+                        {
+                            VSIUnlink(osBackup);
+                        }
                     }
                 }
             }

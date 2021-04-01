@@ -85,14 +85,14 @@
         band::GetUnitType() returns meters.
         band::GetScale() returns SCAL * (scale/65536)
         band::GetOffset() returns SCAL * offset
-        ds::GetProjectionRef() returns a local CS
+        ds::_GetProjectionRef() returns a local CS
                 using meters.
         ds::GetGeoTransform() returns a scale matrix
                 having SCAL sx,sy members.
 
         ds::SetGeoTransform() lets us establish the
                 size of ground pixels.
-        ds::SetProjection() lets us establish what
+        ds::_SetProjection() lets us establish what
                 units ground measures are in (also needed
                 to calc the size of ground pixels).
         band::SetUnitType() tells us what units
@@ -139,7 +139,7 @@ static bool approx_equal(double a, double b)
 
 class TerragenRasterBand;
 
-class TerragenDataset : public GDALPamDataset
+class TerragenDataset final: public GDALPamDataset
 {
     friend class TerragenRasterBand;
 
@@ -178,9 +178,15 @@ class TerragenDataset : public GDALPamDataset
                                 GDALDataType eType, char** papszOptions );
 
     virtual CPLErr      GetGeoTransform( double* ) override;
-    virtual const char* GetProjectionRef(void) override;
-    virtual CPLErr SetProjection( const char * ) override;
+    virtual const char* _GetProjectionRef(void) override;
+    virtual CPLErr _SetProjection( const char * ) override;
     virtual CPLErr SetGeoTransform( double * ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
  protected:
     bool get(GInt16&);
@@ -204,7 +210,7 @@ class TerragenDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class TerragenRasterBand : public GDALPamRasterBand
+class TerragenRasterBand final: public GDALPamRasterBand
 {
     friend class TerragenDataset;
 
@@ -481,7 +487,6 @@ bool TerragenDataset::write_header()
                   "Couldn't write to Terragen file %s.\n"
                   "Is file system full?",
                   m_pszFilename );
-        VSIFCloseL( m_fp );
 
         return false;
     }
@@ -571,7 +576,6 @@ bool TerragenDataset::write_header()
                   "Couldn't write to Terragen file %s.\n"
                   "Is file system full?",
                   m_pszFilename );
-        VSIFCloseL( m_fp );
 
         return false;
     }
@@ -630,7 +634,6 @@ bool TerragenDataset::write_header()
                   "Couldn't write to Terragen file %s.\n"
                   "Cannot find adequate heightscale/baseheight combination.",
                   m_pszFilename );
-        VSIFCloseL( m_fp );
 
         return false;
     }
@@ -842,7 +845,7 @@ int TerragenDataset::LoadFromFile()
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr TerragenDataset::SetProjection( const char * pszNewProjection )
+CPLErr TerragenDataset::_SetProjection( const char * pszNewProjection )
 {
     // Terragen files aren't really georeferenced, but
     // we should get the projection's linear units so
@@ -882,7 +885,7 @@ CPLErr TerragenDataset::SetProjection( const char * pszNewProjection )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char* TerragenDataset::GetProjectionRef(void)
+const char* TerragenDataset::_GetProjectionRef(void)
 {
     if(m_pszProjection == nullptr )
         return "";
@@ -1075,7 +1078,7 @@ void GDALRegister_Terragen()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "ter" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Terragen heightfield" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_terragen.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/terragen.html" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONOPTIONLIST,
 "<CreationOptionList>"

@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -38,6 +38,8 @@
 #include "ogrpgutility.h"
 #include "ogr_pgdump.h"
 
+#include <vector>
+
 /* These are the OIDs for some builtin types, as returned by PQftype(). */
 /* They were copied from pg_type.h in src/include/catalog/pg_type.h */
 
@@ -56,6 +58,7 @@
 #define XIDOID                  28
 #define CIDOID                  29
 #define OIDVECTOROID            30
+#define JSONOID                 114
 #define FLOAT4OID               700
 #define FLOAT8OID               701
 #define BOOLARRAYOID            1000
@@ -75,6 +78,8 @@
 #define TIMESTAMPTZOID          1184
 #define NUMERICOID              1700
 #define NUMERICARRAYOID         1231
+#define UUIDOID                 2950
+#define JSONBOID                3802
 
 CPLString OGRPGEscapeString(void *hPGConn,
                             const char* pszStrValue, int nMaxLength = -1,
@@ -135,7 +140,7 @@ class OGRPGGeomFieldDefn final: public OGRGeomFieldDefn
 /*                          OGRPGFeatureDefn                            */
 /************************************************************************/
 
-class OGRPGFeatureDefn: public OGRFeatureDefn
+class OGRPGFeatureDefn CPL_NON_FINAL: public OGRFeatureDefn
 {
     public:
         explicit OGRPGFeatureDefn( const char * pszName = nullptr ) :
@@ -160,7 +165,7 @@ class OGRPGFeatureDefn: public OGRFeatureDefn
 /*                            OGRPGLayer                                */
 /************************************************************************/
 
-class OGRPGLayer : public OGRLayer
+class OGRPGLayer CPL_NON_FINAL: public OGRLayer
 {
   protected:
     OGRPGFeatureDefn   *poFeatureDefn;
@@ -306,6 +311,8 @@ class OGRPGTableLayer final: public OGRPGLayer
     int                 iFIDAsRegularColumnIndex;
 
     CPLString           m_osFirstGeometryFieldName;
+
+    std::vector<bool>   m_abGeneratedColumns{};
 
     virtual CPLString   GetFromClauseForGetExtent() override { return pszSqlTableName; }
 
@@ -455,7 +462,6 @@ class OGRPGDataSource final: public OGRDataSource
     int                 nLayers;
 
     char               *pszName;
-    char               *pszDBName;
 
     int                 bDSUpdate;
     int                 bHavePostGIS;
@@ -559,6 +565,7 @@ class OGRPGDataSource final: public OGRDataSource
     virtual OGRLayer *  ExecuteSQL( const char *pszSQLCommand,
                                     OGRGeometry *poSpatialFilter,
                                     const char *pszDialect ) override;
+    virtual OGRErr      AbortSQL() override;
     virtual void        ReleaseResultSet( OGRLayer * poLayer ) override;
 
     virtual const char* GetMetadataItem(const char* pszKey,

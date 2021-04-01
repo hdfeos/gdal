@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999,  Les Technologies SoftMap Inc.
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -31,6 +31,7 @@
 #include "ogr_feature.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 
 #include "cpl_conv.h"
@@ -377,7 +378,7 @@ const OGRFieldDefn *OGRFeatureDefn::GetFieldDefn( int iField ) const
  * from.
  * @param iField the field to fetch, between 0 and GetFieldCount()-1.
  *
- * @return an handle to an internal field definition object or NULL if invalid
+ * @return a handle to an internal field definition object or NULL if invalid
  * index.  This object should not be modified or freed by the application.
  */
 
@@ -729,7 +730,7 @@ const OGRGeomFieldDefn *OGRFeatureDefn::GetGeomFieldDefn( int iGeomField ) const
  * @param iGeomField the geometry field to fetch, between 0 and
  * GetGeomFieldCount() - 1.
  *
- * @return an handle to an internal field definition object or NULL if invalid
+ * @return a handle to an internal field definition object or NULL if invalid
  * index.  This object should not be modified or freed by the application.
  *
  * @since GDAL 1.11
@@ -1229,6 +1230,37 @@ int OGRFeatureDefn::GetFieldIndex( const char * pszFieldName ) const
 }
 
 /************************************************************************/
+/*                      GetFieldIndexCaseSensitive()                    */
+/************************************************************************/
+
+/**
+ * \brief Find field by name, in a case sensitive way.
+ *
+ * The field index of the first field matching the passed field name is returned.
+ *
+ * @param pszFieldName the field name to search for.
+ *
+ * @return the field index, or -1 if no match found.
+ */
+
+int OGRFeatureDefn::GetFieldIndexCaseSensitive( const char * pszFieldName ) const
+
+{
+    GetFieldCount();
+    for( int i = 0; i < nFieldCount; i++ )
+    {
+        const OGRFieldDefn* poFDefn = GetFieldDefn(i);
+        if( poFDefn != nullptr &&
+            strcmp(pszFieldName, poFDefn->GetNameRef() ) == 0 )
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+/************************************************************************/
 /*                        OGR_FD_GetFieldIndex()                        */
 /************************************************************************/
 /**
@@ -1544,9 +1576,12 @@ std::vector<int> OGRFeatureDefn::ComputeMapForSetFrom( const OGRFeatureDefn* poS
     std::map<CPLString, int> oMapNameToTargetFieldIndexUC;
     for( int i = 0; i < GetFieldCount(); i++ )
     {
-        const char* pszName = GetFieldDefn(i)->GetNameRef();
+        const OGRFieldDefn* poFldDefn = GetFieldDefn(i);
+        assert(poFldDefn); /* Make GCC-8 -Wnull-dereference happy */
+        const char* pszName = poFldDefn->GetNameRef();
+
         // In the insane case where there are several matches, arbitrarily
-        // decide for the first one (preserve past behaviour)
+        // decide for the first one (preserve past behavior)
         if( oMapNameToTargetFieldIndex.find(pszName) ==
                                         oMapNameToTargetFieldIndex.end() )
         {
@@ -1557,7 +1592,10 @@ std::vector<int> OGRFeatureDefn::ComputeMapForSetFrom( const OGRFeatureDefn* poS
     aoMapSrcToTargetIdx.resize(poSrcFDefn->GetFieldCount());
     for( int i = 0; i < poSrcFDefn->GetFieldCount(); i++ )
     {
-        const char* pszSrcName = poSrcFDefn->GetFieldDefn(i)->GetNameRef();
+        const OGRFieldDefn* poSrcFldDefn = poSrcFDefn->GetFieldDefn(i);
+        assert(poSrcFldDefn); /* Make GCC-8 -Wnull-dereference happy */
+        const char* pszSrcName = poSrcFldDefn->GetNameRef();
+
         auto oIter = oMapNameToTargetFieldIndex.find(pszSrcName);
         if( oIter == oMapNameToTargetFieldIndex.end() )
         {
@@ -1566,8 +1604,10 @@ std::vector<int> OGRFeatureDefn::ComputeMapForSetFrom( const OGRFeatureDefn* poS
             {
                 for( int j = 0; j < GetFieldCount(); j++ )
                 {
+                    const OGRFieldDefn* poFldDefn = GetFieldDefn(j);
+                    assert(poFldDefn); /* Make GCC-8 -Wnull-dereference happy */
                     oMapNameToTargetFieldIndexUC[
-                        CPLString(GetFieldDefn(j)->GetNameRef()).toupper()] = j;
+                        CPLString(poFldDefn->GetNameRef()).toupper()] = j;
                 }
             }
             oIter = oMapNameToTargetFieldIndexUC.find(

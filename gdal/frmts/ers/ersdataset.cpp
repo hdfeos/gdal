@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -92,15 +92,29 @@ class ERSDataset final: public RawDataset
     void FlushCache(void) override;
     CPLErr GetGeoTransform( double * padfTransform ) override;
     CPLErr SetGeoTransform( double *padfTransform ) override;
-    const char *GetProjectionRef(void) override;
-    CPLErr SetProjection( const char * ) override;
+    const char *_GetProjectionRef(void) override;
+    CPLErr _SetProjection( const char * ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
     char **GetFileList(void) override;
 
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
-    CPLErr SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
+    CPLErr _SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
                     const char *pszGCPProjection ) override;
+    using RawDataset::SetGCPs;
+    CPLErr SetGCPs( int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
+                    const OGRSpatialReference* poSRS ) override {
+        return OldSetGCPsFromNew(nGCPCountIn, pasGCPListIn, poSRS);
+    }
 
     char **GetMetadataDomainList() override;
     const char *GetMetadataItem( const char * pszName,
@@ -111,7 +125,7 @@ class ERSDataset final: public RawDataset
     static int Identify( GDALOpenInfo * );
     static GDALDataset *Create( const char * pszFilename,
                                 int nXSize, int nYSize, int nBands,
-                                GDALDataType eType, char ** papszParmList );
+                                GDALDataType eType, char ** papszParamList );
 };
 
 /************************************************************************/
@@ -230,7 +244,7 @@ char **ERSDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "ERS", NULL);
+                                   "ERS", nullptr);
 }
 
 /************************************************************************/
@@ -288,7 +302,7 @@ int ERSDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *ERSDataset::GetGCPProjection()
+const char *ERSDataset::_GetGCPProjection()
 
 {
     return pszGCPProjection;
@@ -308,7 +322,7 @@ const GDAL_GCP *ERSDataset::GetGCPs()
 /*                              SetGCPs()                               */
 /************************************************************************/
 
-CPLErr ERSDataset::SetGCPs( int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
+CPLErr ERSDataset::_SetGCPs( int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
                             const char *pszGCPProjectionIn )
 
 {
@@ -404,11 +418,11 @@ CPLErr ERSDataset::SetGCPs( int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *ERSDataset::GetProjectionRef()
+const char *ERSDataset::_GetProjectionRef()
 
 {
     // try xml first
-    const char* pszPrj = GDALPamDataset::GetProjectionRef();
+    const char* pszPrj = GDALPamDataset::_GetProjectionRef();
     if(pszPrj && strlen(pszPrj) > 0)
         return pszPrj;
 
@@ -419,7 +433,7 @@ const char *ERSDataset::GetProjectionRef()
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr ERSDataset::SetProjection( const char *pszSRS )
+CPLErr ERSDataset::_SetProjection( const char *pszSRS )
 
 {
     if( pszProjection && EQUAL(pszSRS,pszProjection) )
@@ -731,7 +745,7 @@ void ERSDataset::ReadGCPs()
 /* ==================================================================== */
 /************************************************************************/
 
-class ERSRasterBand : public RawRasterBand
+class ERSRasterBand final: public RawRasterBand
 {
   public:
     ERSRasterBand( GDALDataset *poDS, int nBand, VSILFILE * fpRaw,
@@ -1271,7 +1285,7 @@ GDALDataset *ERSDataset::Open( GDALOpenInfo * poOpenInfo )
     poDS->TryLoadXML();
 
     // if no SR in xml, try aux
-    const char* pszPrj = poDS->GDALPamDataset::GetProjectionRef();
+    const char* pszPrj = poDS->GDALPamDataset::_GetProjectionRef();
     if( !pszPrj || strlen(pszPrj) == 0 )
     {
         // try aux
@@ -1498,7 +1512,7 @@ void GDALRegister_ERS()
     poDriver->SetDescription( "ERS" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "ERMapper .ers Labelled" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_ers.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/ers.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "ers" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 UInt16 Int32 UInt32 "

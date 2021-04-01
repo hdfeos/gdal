@@ -51,7 +51,7 @@ OGRPLScenesDataV1Layer::OGRPLScenesDataV1Layer( OGRPLScenesDataV1Dataset* poDS,
                                                 const char* pszName ) :
     m_poDS(poDS),
     m_bFeatureDefnEstablished(false),
-    m_poSRS(new OGRSpatialReference(SRS_WKT_WGS84)),
+    m_poSRS(new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG)),
     m_nTotalFeatures(-1),
     m_nNextFID(1),
     m_bEOF(false),
@@ -64,6 +64,8 @@ OGRPLScenesDataV1Layer::OGRPLScenesDataV1Layer( OGRPLScenesDataV1Dataset* poDS,
     m_poAttributeFilter(nullptr),
     m_bFilterMustBeClientSideEvaluated(false)
 {
+    m_poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
     // Cannot be moved to initializer list because of use of this, which MSVC 2008 doesn't like
     m_poFeatureDefn = new OGRPLScenesDataV1FeatureDefn(this, pszName);
 
@@ -103,14 +105,14 @@ OGRFeatureDefn* OGRPLScenesDataV1Layer::GetLayerDefn()
 /************************************************************************/
 
 void OGRPLScenesDataV1Layer::RegisterField(OGRFieldDefn* poFieldDefn,
-                                       const char* pszQueriableJSonName,
+                                       const char* pszQueryableJSonName,
                                        const char* pszPrefixedJSonName)
 {
     const int nIdx = m_poFeatureDefn->GetFieldCount();
     m_oMapPrefixedJSonFieldNameToFieldIdx[pszPrefixedJSonName] = nIdx;
-    if( pszQueriableJSonName )
+    if( pszQueryableJSonName )
     {
-        m_oMapFieldIdxToQueriableJSonFieldName[nIdx] = pszQueriableJSonName;
+        m_oMapFieldIdxToQueryableJSonFieldName[nIdx] = pszQueryableJSonName;
     }
     m_poFeatureDefn->AddFieldDefn(poFieldDefn);
 }
@@ -183,8 +185,8 @@ void OGRPLScenesDataV1Layer::EstablishLayerDefn()
         OGRFieldDefn oFieldDefn("id", OFTString);
         RegisterField(&oFieldDefn, "id", "id");
     }
-    const int nFields = json_object_array_length(poFields);
-    for( int i=0; i<nFields; i++ )
+    const auto nFields = json_object_array_length(poFields);
+    for( auto i=decltype(nFields){0}; i<nFields; i++ )
     {
         json_object* poField = json_object_array_get_idx(poFields, i);
         if( poField && json_object_get_type(poField) == json_type_object )
@@ -253,8 +255,8 @@ void OGRPLScenesDataV1Layer::EstablishLayerDefn()
             return;
         }
 
-        const int nAssets = json_object_array_length(poAssets);
-        for( int i=0; i<nAssets; i++ )
+        const auto nAssets = json_object_array_length(poAssets);
+        for( auto i=decltype(nAssets){0}; i<nAssets; i++ )
         {
             json_object* poAsset = json_object_array_get_idx(poAssets, i);
             if( poAsset && json_object_get_type(poAsset) == json_type_string )
@@ -530,16 +532,16 @@ bool OGRPLScenesDataV1Layer::IsSimpleComparison(const swq_expr_node* poNode)
              poNode->nSubExprCount == 2 &&
              poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
              poNode->papoSubExpr[1]->eNodeType == SNT_CONSTANT &&
-             m_oMapFieldIdxToQueriableJSonFieldName.find(
+             m_oMapFieldIdxToQueryableJSonFieldName.find(
                                     poNode->papoSubExpr[0]->field_index) !=
-                                m_oMapFieldIdxToQueriableJSonFieldName.end();
+                                m_oMapFieldIdxToQueryableJSonFieldName.end();
 }
 
 /************************************************************************/
 /*                             GetOperatorText()                        */
 /************************************************************************/
 
-static const char* GetOperatorText(int nOp)
+static const char* GetOperatorText(swq_op nOp)
 {
     if( nOp == SWQ_LT )
         return "lt";
@@ -660,7 +662,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                     json_object_new_string("RangeFilter"));
                 json_object_object_add(poFilter, "field_name",
                                     json_object_new_string(
-                                        m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                                        m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
                 json_object* poConfig = json_object_new_object();
                 const double EPS = 1e-8;
                 json_object_object_add(poConfig, "gte",
@@ -679,7 +681,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                     json_object_new_string("NumberInFilter"));
                 json_object_object_add(poFilter, "field_name",
                                     json_object_new_string(
-                                        m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                                        m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
                 json_object* poConfig = json_object_new_array();
                 json_object_array_add(poConfig,
                     (poNode->papoSubExpr[1]->field_type == SWQ_INTEGER) ?
@@ -698,7 +700,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                 json_object_new_string("StringInFilter"));
             json_object_object_add(poFilter, "field_name",
                         json_object_new_string(
-                            m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                            m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
             json_object* poConfig = json_object_new_array();
             json_object_array_add(poConfig,
                 json_object_new_string(poNode->papoSubExpr[1]->string_value));
@@ -719,7 +721,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                    json_object_new_string("RangeFilter"));
             json_object_object_add(poFilter, "field_name",
                                    json_object_new_string(
-                                       m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                                       m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
             json_object* poConfig = json_object_new_object();
             json_object_object_add(poConfig,
                 GetOperatorText(poNode->nOperation),
@@ -743,7 +745,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                    json_object_new_string("DateRangeFilter"));
             json_object_object_add(poFilter, "field_name",
                     json_object_new_string(
-                        m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                        m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
             json_object* poConfig = json_object_new_object();
             json_object_object_add(poConfig,
                 GetOperatorText(poNode->nOperation),
@@ -758,9 +760,9 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
               poNode->nOperation == SWQ_IN &&
               poNode->nSubExprCount >= 2 &&
               poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
-              m_oMapFieldIdxToQueriableJSonFieldName.find(
+              m_oMapFieldIdxToQueryableJSonFieldName.find(
                                     poNode->papoSubExpr[0]->field_index) !=
-                                m_oMapFieldIdxToQueriableJSonFieldName.end() )
+                                m_oMapFieldIdxToQueryableJSonFieldName.end() )
     {
         const int nFieldIdx = poNode->papoSubExpr[0]->field_index;
         if( m_poFeatureDefn->GetFieldDefn(nFieldIdx)->GetType() == OFTString )
@@ -770,7 +772,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                 json_object_new_string("StringInFilter"));
             json_object_object_add(poFilter, "field_name",
                         json_object_new_string(
-                            m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                            m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
             json_object* poConfig = json_object_new_array();
             json_object_object_add(poFilter, "config", poConfig);
             for( int i=1; i<poNode->nSubExprCount;i++)
@@ -794,7 +796,7 @@ json_object* OGRPLScenesDataV1Layer::BuildFilter(swq_expr_node* poNode)
                                 json_object_new_string("NumberInFilter"));
             json_object_object_add(poFilter, "field_name",
                         json_object_new_string(
-                            m_oMapFieldIdxToQueriableJSonFieldName[nFieldIdx]));
+                            m_oMapFieldIdxToQueryableJSonFieldName[nFieldIdx]));
             json_object* poConfig = json_object_new_array();
             json_object_object_add(poFilter, "config", poConfig);
             for( int i=1; i<poNode->nSubExprCount;i++)
@@ -1003,10 +1005,11 @@ OGRFeature* OGRPLScenesDataV1Layer::GetNextRawFeature()
         if( oIter != m_oMapPrefixedJSonFieldNameToFieldIdx.end() )
         {
             const int iField = oIter->second;
-            const int nStrings = json_object_array_length(poPermissions);
+            const auto nStrings = json_object_array_length(poPermissions);
             char** papszPermissions =
                 static_cast<char**>(CPLCalloc(nStrings+1, sizeof(char*)));
-            for(int i=0, j=0;i<nStrings;i++)
+            for(auto i=decltype(nStrings){0}, j=decltype(nStrings){0};
+                i<nStrings;i++)
             {
                 json_object* poPerm = json_object_array_get_idx(poPermissions,i);
                 if( poPerm && json_object_get_type(poPerm) == json_type_string )
@@ -1262,8 +1265,8 @@ GIntBig OGRPLScenesDataV1Layer::GetFeatureCount(int bForce)
                                                             json_type_array )
             {
                 GIntBig nRes = 0;
-                const int nBuckets = json_object_array_length(poBuckets);
-                for( int i=0; i<nBuckets;i++ )
+                const auto nBuckets = json_object_array_length(poBuckets);
+                for( auto i=decltype(nBuckets){0}; i<nBuckets;i++ )
                 {
                     json_object* poBucket =
                                 json_object_array_get_idx(poBuckets, i);

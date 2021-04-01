@@ -2,10 +2,10 @@
  *
  * Project:  GPX Translator
  * Purpose:  Implements OGRGPXDriver.
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2007-2008, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2008, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -118,7 +118,7 @@ void RegisterOGRGPX()
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "GPX" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "gpx" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_gpx.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/gpx.html" );
 
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONOPTIONLIST,
 "<CreationOptionList>"
@@ -130,7 +130,7 @@ void RegisterOGRGPX()
 "    <Value>CRLF</Value>"
 "    <Value>LF</Value>"
 "  </Option>"
-"  <Option name='GPX_USE_EXTENSIONS' type='boolean' description='Whether to write non-GPX attributes in an <extensions> tag' default='NO'/>"
+"  <Option name='GPX_USE_EXTENSIONS' type='boolean' description='Whether to write non-GPX attributes in an &lt;extensions&gt; tag' default='NO'/>"
 "  <Option name='GPX_EXTENSIONS_NS' type='string' description='Namespace value used for extension tags' default='ogr'/>"
 "  <Option name='GPX_EXTENSIONS_NS_URL' type='string' description='Namespace URI' default='http://osgeo.org/gdal'/>"
 "</CreationOptionList>");

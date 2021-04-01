@@ -2,10 +2,10 @@
  *
  * Project:  EDIGEO Translator
  * Purpose:  Implements OGREDIGEODataSource class
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -60,6 +60,7 @@ OGREDIGEODataSource::OGREDIGEODataSource() :
     iSIZE(-1),
     iOBJ_LNK(-1),
     iOBJ_LNK_LAYER(-1),
+    // coverity[tainted_data]
     dfSizeFactor(CPLAtof(
         CPLGetConfigOption("OGR_EDIGEO_FONT_SIZE_FACTOR", "2"))),
     bIncludeFontFamily(CPLTestBool(
@@ -253,6 +254,7 @@ int OGREDIGEODataSource::ReadGEO()
 
     /* All the SRS names mentioned in B.8.2.3 and B.8.3.1 are in the IGN file */
     poSRS = new OGRSpatialReference();
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
     CPLString osProj4Str = "+init=IGNF:" + osREL;
     if (poSRS->SetFromUserInput(osProj4Str.c_str()) != OGRERR_NONE)
     {

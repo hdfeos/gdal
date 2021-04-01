@@ -78,7 +78,9 @@ public:
     virtual ~GNMNetwork();
 
     // GDALDataset Interface
-    virtual const char *GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual char      **GetFileList(void) override;
 
     // GNMNetwork Interface
@@ -169,6 +171,10 @@ protected:
     virtual int CheckNetworkExist( const char* pszFilename,
                                    char** papszOptions ) = 0;
 
+//! @cond Doxygen_Suppress
+    const char *_GetProjectionRef(void) override;
+//! @endcond
+
 protected:
 //! @cond Doxygen_Suppress
     CPLString m_soName;
@@ -244,7 +250,7 @@ public:
      * @param nConFID - connection feature identificator (-1 for virtual connection)
      * @param dfCost - cost moving from source to target (default 1)
      * @param dfInvCost - cost moving from target to source (default 1)
-     * @param eDir - direction, may be source to target, traget to source or both.
+     * @param eDir - direction, may be source to target, target to source or both.
      *               (default - both)
      * @return CE_None on success
      */
@@ -631,9 +637,12 @@ typedef enum
  * @since GDAL 2.1
  */
 
-// cppcheck-suppress copyCtorAndEqOperator
 class CPL_DLL GNMRule
 {
+    // to hopefully please Coverity Scan which complains about missing
+    // move assignment operator for performance reasons
+    GNMRule& operator==(GNMRule&&) = delete;
+
 public:
     /** Constructor */
     GNMRule();
@@ -643,6 +652,10 @@ public:
     explicit GNMRule(const char* pszRule);
     /** Constructor */
     GNMRule(const GNMRule &oRule);
+
+    /** Assignment operator */
+    GNMRule& operator=(const GNMRule&) = default;
+
     virtual ~GNMRule();
     /**
      * @brief  This function indicate if rule string was parsed successfully

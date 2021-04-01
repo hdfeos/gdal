@@ -8,7 +8,7 @@
      - Use Info-ZIP Unicode Path Extra Field (0x7075) to get UTF-8 filenames
      - ZIP64: accept number_disk == 0 in unzlocal_SearchCentralDir64()
 
- * Copyright (c) 2008-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
 
    Original licence available in port/LICENCE_minizip
 */
@@ -520,6 +520,8 @@ extern unzFile ZEXPORT cpl_unzOpen2 (const char *path,
                                    (same than number_entry on nospan) */
 
     int err=UNZ_OK;
+
+    memset(&us, 0, sizeof(us));
 
     // Must be a trick to ensure that unz_copyright remains in the binary!
     // cppcheck-suppress knownConditionTrueFalse

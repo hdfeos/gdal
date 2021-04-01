@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Andrey Kiselev <dron@ak4719.spb.edu>
- * Copyright (c) 2007-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -126,7 +126,10 @@ class FASTDataset final: public GDALPamDataset
     static GDALDataset *Open( GDALOpenInfo * );
 
     CPLErr      GetGeoTransform( double * ) override;
-    const char  *GetProjectionRef() override;
+    const char  *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     VSILFILE    *FOpenChannel( const char *, int iBand, int iFASTBand );
     void        TryEuromap_IRS_1C_1D_ChannelNameConvention();
 
@@ -139,7 +142,7 @@ class FASTDataset final: public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class FASTRasterBand : public RawRasterBand
+class FASTRasterBand final: public RawRasterBand
 {
     friend class FASTDataset;
 
@@ -227,7 +230,7 @@ CPLErr FASTDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *FASTDataset::GetProjectionRef()
+const char *FASTDataset::_GetProjectionRef()
 
 {
     if( pszProjection )
@@ -966,7 +969,7 @@ GDALDataset *FASTDataset::Open( GDALOpenInfo * poOpenInfo )
     CPLFree( pszTemp );
 
     // Read 15 USGS projection parameters
-    double adfProjParms[15] = { 0.0 };
+    double adfProjParams[15] = { 0.0 };
     pszTemp = strstr( pszHeader, USGS_PARAMETERS );
     if ( pszTemp && !EQUAL( pszTemp, "" ) )
     {
@@ -976,7 +979,7 @@ GDALDataset *FASTDataset::Open( GDALOpenInfo * poOpenInfo )
             pszTemp = strpbrk( pszTemp, "-.0123456789" );
             if ( pszTemp )
             {
-                adfProjParms[i] = CPLScanDouble( pszTemp, VALUE_SIZE );
+                adfProjParams[i] = CPLScanDouble( pszTemp, VALUE_SIZE );
                 pszTemp = strpbrk( pszTemp, " \t" );
             }
             if (pszTemp == nullptr )
@@ -1062,7 +1065,7 @@ GDALDataset *FASTDataset::Open( GDALOpenInfo * poOpenInfo )
         // Create projection definition
         OGRSpatialReference oSRS;
         OGRErr eErr =
-            oSRS.importFromUSGS( iProjSys, iZone, adfProjParms, iDatum, bAnglesInPackedDMSFormat );
+            oSRS.importFromUSGS( iProjSys, iZone, adfProjParams, iDatum, bAnglesInPackedDMSFormat );
         if ( eErr != OGRERR_NONE )
             CPLDebug( "FAST", "Import projection from USGS failed: %d", eErr );
         oSRS.SetLinearUnits( SRS_UL_METER, 1.0 );
@@ -1204,7 +1207,7 @@ void GDALRegister_FAST()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "EOSAT FAST Format" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_fast.html" );
+                               "drivers/raster/fast.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = FASTDataset::Open;

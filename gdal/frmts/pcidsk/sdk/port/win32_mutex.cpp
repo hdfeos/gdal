@@ -1,10 +1,10 @@
 /******************************************************************************
  *
  * Purpose:  Implementation of pthreads based mutex.
- * 
+ *
  ******************************************************************************
  * Copyright (c) 2009
- * PCI Geomatics, 50 West Wilmot Street, Richmond Hill, Ont, Canada
+ * PCI Geomatics, 90 Allstate Parkway, Markham, Ontario, Canada.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -35,7 +35,7 @@
 /*                              Win32Mutex                              */
 /************************************************************************/
 
-class Win32Mutex : public PCIDSK::Mutex
+class Win32Mutex final : public PCIDSK::Mutex
 
 {
 private:
@@ -56,7 +56,7 @@ public:
 Win32Mutex::Win32Mutex(): hMutex(CreateMutex( NULL, 1, NULL ))
 
 {
-    Release(); // it is created acquired, but we want it free.
+    Win32Mutex::Release(); // it is created acquired, but we want it free.
 }
 
 /************************************************************************/

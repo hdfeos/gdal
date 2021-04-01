@@ -45,44 +45,54 @@ typedef enum
 typedef char retStringAndCPLFree;
 %}
 
+%apply Pointer NONNULL {const char *message};
 %inline %{
   void Debug( const char *msg_class, const char *message ) {
     CPLDebug( msg_class, "%s", message );
   }
+%}
+%clear (const char *message);
 
-  CPLErr SetErrorHandler( char const * pszCallbackName = NULL )
+%inline %{
+  CPLErr SetErrorHandler( CPLErrorHandler pfnErrorHandler = NULL, void* user_data = NULL )
   {
-    CPLErrorHandler pfnHandler = NULL;
-    if( pszCallbackName == NULL || EQUAL(pszCallbackName,"CPLQuietErrorHandler") )
-      pfnHandler = CPLQuietErrorHandler;
-    else if( EQUAL(pszCallbackName,"CPLDefaultErrorHandler") )
-      pfnHandler = CPLDefaultErrorHandler;
-    else if( EQUAL(pszCallbackName,"CPLLoggingErrorHandler") )
-      pfnHandler = CPLLoggingErrorHandler;
+    if( pfnErrorHandler == NULL )
+    {
+        pfnErrorHandler = CPLDefaultErrorHandler;
+    }
 
-    if ( pfnHandler == NULL )
-      return CE_Fatal;
-
-    CPLSetErrorHandler( pfnHandler );
+    CPLSetErrorHandlerEx( pfnErrorHandler, user_data );
 
     return CE_None;
   }
 %}
+
+%rename (SetCurrentErrorHandlerCatchDebug) CPLSetCurrentErrorHandlerCatchDebug;
+void CPLSetCurrentErrorHandlerCatchDebug( int bCatchDebug );
 
 #ifdef SWIGPYTHON
 
 %nothread;
 
 %{
+extern "C" int CPL_DLL GDALIsInGlobalDestructor();
+
 void CPL_STDCALL PyCPLErrorHandler(CPLErr eErrClass, int err_no, const char* pszErrorMsg)
 {
+    if( GDALIsInGlobalDestructor() )
+    {
+        // this is typically during Python interpreter shutdown, and ends up in a crash
+        // because error handling tries to do thread initialization.
+        return;
+    }
+
     void* user_data = CPLGetErrorHandlerUserData();
     PyObject *psArgs;
 
     SWIG_PYTHON_THREAD_BEGIN_BLOCK;
 
     psArgs = Py_BuildValue("(iis)", eErrClass, err_no, pszErrorMsg );
-    PyEval_CallObject( (PyObject*)user_data, psArgs);
+    PyObject_CallObject( (PyObject*)user_data, psArgs);
     Py_XDECREF(psArgs);
 
     SWIG_PYTHON_THREAD_END_BLOCK;
@@ -178,15 +188,23 @@ void CPL_STDCALL PyCPLErrorHandler(CPLErr eErrClass, int err_no, const char* psz
 %rename (FileFromMemBuffer) wrapper_VSIFileFromMemBuffer;
 %rename (Unlink) VSIUnlink;
 %rename (HasThreadSupport) wrapper_HasThreadSupport;
+%rename (NetworkStatsReset) VSINetworkStatsReset;
+%rename (NetworkStatsGetAsSerializedJSON) VSINetworkStatsGetAsSerializedJSON;
 
+%apply Pointer NONNULL {const char *pszScope};
 retStringAndCPLFree*
 GOA2GetAuthorizationURL( const char *pszScope );
+%clear (const char *pszScope);
 
+%apply Pointer NONNULL {const char *pszAuthToken};
 retStringAndCPLFree*
 GOA2GetRefreshToken( const char *pszAuthToken, const char *pszScope );
+%clear (const char *pszAuthToken);
 
+%apply Pointer NONNULL {const char *pszRefreshToken};
 retStringAndCPLFree*
 GOA2GetAccessToken( const char *pszRefreshToken, const char *pszScope );
+%clear (const char *pszRefreshToken);
 
 #if !defined(SWIGJAVA) && !defined(SWIGPYTHON)
 void CPLPushErrorHandler( CPLErrorHandler );
@@ -331,6 +349,104 @@ char **wrapper_VSIReadDirEx( const char * utf8_path, int nMaxFiles = 0 )
 char **VSIReadDirRecursive( const char * utf8_path );
 %clear char **;
 
+#ifdef SWIGPYTHON
+%rename (OpenDir) wrapper_VSIOpenDir;
+%inline {
+VSIDIR* wrapper_VSIOpenDir( const char * utf8_path,
+                            int nRecurseDepth = -1,
+                            char** options = NULL )
+{
+    return VSIOpenDir(utf8_path, nRecurseDepth, options);
+}
+}
+
+%{
+typedef struct
+{
+    char*        name;
+    int          mode;
+    GIntBig      size;
+    GIntBig      mtime;
+    bool         modeKnown;
+    bool         sizeKnown;
+    bool         mtimeKnown;
+    char**       extra;
+} DirEntry;
+%}
+
+struct DirEntry
+{
+%immutable;
+    char*        name;
+    int          mode;
+    GIntBig      size;
+    GIntBig      mtime;
+    bool         modeKnown;
+    bool         sizeKnown;
+    bool         mtimeKnown;
+
+%apply (char **dict) {char **};
+    char**       extra;
+%clear char **;
+%mutable;
+
+%extend {
+  DirEntry( const DirEntry *entryIn ) {
+    DirEntry *self = (DirEntry*) CPLMalloc( sizeof( DirEntry ) );
+    self->name = CPLStrdup(entryIn->name);
+    self->mode = entryIn->mode;
+    self->size = entryIn->size;
+    self->mtime = entryIn->mtime;
+    self->modeKnown = entryIn->modeKnown;
+    self->sizeKnown = entryIn->sizeKnown;
+    self->mtimeKnown = entryIn->mtimeKnown;
+    self->extra = CSLDuplicate(entryIn->extra);
+    return self;
+  }
+
+  ~DirEntry() {
+    CPLFree(self->name);
+    CSLDestroy(self->extra);
+    CPLFree(self);
+  }
+
+  bool IsDirectory()
+  {
+     return (self->mode & S_IFDIR) != 0;
+  }
+
+} /* extend */
+} /* DirEntry */ ;
+
+%rename (GetNextDirEntry) wrapper_VSIGetNextDirEntry;
+%newobject wrapper_VSIGetNextDirEntry;
+%apply Pointer NONNULL {VSIDIR* dir};
+%inline {
+DirEntry* wrapper_VSIGetNextDirEntry(VSIDIR* dir)
+{
+    const VSIDIREntry* vsiEntry = VSIGetNextDirEntry(dir);
+    if( vsiEntry == nullptr )
+    {
+        return nullptr;
+    }
+    DirEntry* entry = (DirEntry*) CPLMalloc( sizeof( DirEntry ) );
+    entry->name = CPLStrdup(vsiEntry->pszName);
+    entry->mode = vsiEntry->nMode;
+    entry->size = vsiEntry->nSize;
+    entry->mtime = vsiEntry->nMTime;
+    entry->modeKnown = vsiEntry->bModeKnown == TRUE;
+    entry->sizeKnown = vsiEntry->bSizeKnown == TRUE;
+    entry->mtimeKnown = vsiEntry->bMTimeKnown == TRUE;
+    entry->extra = CSLDuplicate(vsiEntry->papszExtra);
+    return entry;
+}
+}
+
+%rename (CloseDir) VSICloseDir;
+void VSICloseDir(VSIDIR* dir);
+
+#endif
+
 %apply Pointer NONNULL {const char * pszKey};
 void CPLSetConfigOption( const char * pszKey, const char * pszValue );
 
@@ -371,12 +487,12 @@ GByte *CPLHexToBinary( const char *pszHex, int *pnBytes );
 
 #if defined(SWIGPYTHON)
 
-%apply (GIntBig nLen, char *pBuf) {( GIntBig nBytes, const GByte *pabyData )};
+%apply (GIntBig nLen, char *pBuf) {( GIntBig nBytes, const char *pabyData )};
 %inline {
-void wrapper_VSIFileFromMemBuffer( const char* utf8_path, GIntBig nBytes, const GByte *pabyData)
+void wrapper_VSIFileFromMemBuffer( const char* utf8_path, GIntBig nBytes, const char *pabyData)
 {
     const size_t nSize = static_cast<size_t>(nBytes);
-    GByte* pabyDataDup = (GByte*)VSIMalloc(nSize);
+    void* pabyDataDup = VSIMalloc(nSize);
     if (pabyDataDup == NULL)
             return;
     memcpy(pabyDataDup, pabyData, nSize);
@@ -407,6 +523,28 @@ void wrapper_VSIFileFromMemBuffer( const char* utf8_path, int nBytes, const GByt
 /* Added in GDAL 1.7.0 */
 VSI_RETVAL VSIUnlink(const char * utf8_path );
 
+%rename (UnlinkBatch) wrapper_VSIUnlinkBatch;
+%apply (char **options) {char ** files};
+%inline {
+bool wrapper_VSIUnlinkBatch(char** files)
+{
+    int* success = VSIUnlinkBatch(files);
+    if( !success )
+        return false;
+    int bRet = true;
+    for( int i = 0; files && files[i]; i++ )
+    {
+        if( !success[i] ) {
+            bRet = false;
+            break;
+        }
+    }
+    VSIFree(success);
+    return bRet;
+}
+}
+%clear (char **files);
+
 /* Added in GDAL 1.7.0 */
 /* Thread support is necessary for binding languages with threaded GC */
 /* even if the user doesn't explicitly use threads */
@@ -430,6 +568,29 @@ VSI_RETVAL VSIRmdirRecursive(const char *utf8_path );
 VSI_RETVAL VSIRename(const char * pszOld, const char *pszNew );
 %clear (const char* pszOld);
 %clear (const char* pszNew);
+
+#if defined(SWIGPYTHON)
+%rename (Sync) wrapper_VSISync;
+
+%apply (const char* utf8_path) {(const char* pszSource)};
+%apply (const char* utf8_path) {(const char* pszTarget)};
+%feature( "kwargs" ) wrapper_VSISync;
+
+%inline {
+bool wrapper_VSISync(const char* pszSource,
+                     const char* pszTarget,
+                     char** options = NULL,
+                     GDALProgressFunc callback=NULL,
+                     void* callback_data=NULL)
+{
+    return VSISync( pszSource, pszTarget, options, callback, callback_data, nullptr );
+}
+}
+
+%clear (const char* pszSource);
+%clear (const char* pszTarget);
+
+#endif
 
 const char* VSIGetActualURL(const char * utf8_path);
 
@@ -529,6 +690,20 @@ int wrapper_VSIStatL( const char * utf8_path, StatBuf *psStatBufOut, int nFlags 
 
 #endif
 
+%rename (GetFileMetadata) VSIGetFileMetadata;
+%apply (char **dict) { char ** };
+char** VSIGetFileMetadata( const char *utf8_path, const char* domain,
+                           char** options = NULL );
+%clear char **;
+
+%rename (SetFileMetadata) VSISetFileMetadata;
+%apply (char **dict) { char ** metadata };
+bool VSISetFileMetadata( const char * utf8_path,
+                         char** metadata,
+                         const char* domain,
+                         char** options = NULL );
+%clear char **;
+
 %apply Pointer NONNULL {VSILFILE* fp};
 
 %rename (VSIFOpenL) wrapper_VSIFOpenL;
@@ -542,14 +717,16 @@ VSILFILE   *wrapper_VSIFOpenL( const char *utf8_path, const char *pszMode )
 %}
 
 %rename (VSIFOpenExL) wrapper_VSIFOpenExL;
+%apply (char **dict) { char ** };
 %inline %{
-VSILFILE   *wrapper_VSIFOpenExL( const char *utf8_path, const char *pszMode, int bSetError )
+VSILFILE   *wrapper_VSIFOpenExL( const char *utf8_path, const char *pszMode, int bSetError = FALSE, char** options = NULL )
 {
     if (!pszMode) /* would lead to segfault */
         pszMode = "r";
-    return VSIFOpenExL( utf8_path, pszMode, bSetError );
+    return VSIFOpenEx2L( utf8_path, pszMode, bSetError, options );
 }
 %}
+%clear char **;
 
 int VSIFEofL( VSILFILE* fp );
 int VSIFFlushL( VSILFILE* fp );
@@ -610,6 +787,9 @@ void VSIStdoutUnsetRedirection()
 
 void VSICurlClearCache();
 void VSICurlPartialClearCache( const char* utf8_path );
+
+void VSINetworkStatsReset();
+retStringAndCPLFree* VSINetworkStatsGetAsSerializedJSON( char** options = NULL );
 
 #endif /* !defined(SWIGJAVA) */
 

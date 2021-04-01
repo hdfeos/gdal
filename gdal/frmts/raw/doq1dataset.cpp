@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2009-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -63,7 +63,7 @@ static double DOQGetField( unsigned char *pabyData, int nBytes )
 {
     char szWork[128] = { '\0' };
 
-    strncpy( szWork, reinterpret_cast<const char *>( pabyData ), nBytes );
+    memcpy( szWork, reinterpret_cast<const char *>( pabyData ), nBytes );
     szWork[nBytes] = '\0';
 
     for( int i = 0; i < nBytes; i++ )
@@ -110,7 +110,7 @@ static void DOQGetDescription( GDALDataset *poDS, unsigned char *pabyData )
 /* ==================================================================== */
 /************************************************************************/
 
-class DOQ1Dataset : public RawDataset
+class DOQ1Dataset final: public RawDataset
 {
     VSILFILE    *fpImage;       // image data file.
 
@@ -128,7 +128,10 @@ class DOQ1Dataset : public RawDataset
                 ~DOQ1Dataset();
 
     CPLErr      GetGeoTransform( double * padfTransform ) override;
-    const char  *GetProjectionRef( void ) override;
+    const char  *_GetProjectionRef( void ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     static GDALDataset *Open( GDALOpenInfo * );
 };
@@ -181,7 +184,7 @@ CPLErr DOQ1Dataset::GetGeoTransform( double * padfTransform )
 /*                        GetProjectionString()                         */
 /************************************************************************/
 
-const char *DOQ1Dataset::GetProjectionRef()
+const char *DOQ1Dataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -407,7 +410,7 @@ void GDALRegister_DOQ1()
     poDriver->SetDescription( "DOQ1" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "USGS DOQ (Old Style)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#DOQ1" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/doq1.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = DOQ1Dataset::Open;

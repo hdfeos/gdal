@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements OGRPGDumpLayer class
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -78,8 +78,8 @@ OGRPGDumpLayer::OGRPGDumpLayer( OGRPGDumpDataSource* poDSIn,
     nForcedSRSId(-2),
     nForcedGeometryTypeFlags(-1),
     bCreateSpatialIndexFlag(true),
-    nPostGISMajor(1),
-    nPostGISMinor(2),
+    nPostGISMajor(0),
+    nPostGISMinor(0),
     iNextShapeId(0),
     iFIDAsRegularColumnIndex(-1),
     bAutoFIDOnCreateViaCopy(true),
@@ -347,7 +347,7 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert( OGRFeature *poFeature )
             }
             else
             {
-                poGeom->exportToWkt( &pszWKT );
+                poGeom->exportToWkt( &pszWKT, wkbVariantIso );
 
                 if( pszWKT != nullptr )
                 {
@@ -454,6 +454,7 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaCopy( OGRFeature *poFeature )
                                           poFeature,
                                           pszFIDColumn,
                                           bFIDColumnInCopyFields,
+                                          std::vector<bool>(poFeatureDefn->GetFieldCount(), true),
                                           OGRPGDumpEscapeStringWithUserData,
                                           nullptr);
 
@@ -480,6 +481,7 @@ void OGRPGCommonAppendCopyFieldsExceptGeom(
     OGRFeature* poFeature,
     const char* pszFIDColumn,
     bool bFIDColumnInCopyFields,
+    const std::vector<bool>& abFieldsToInclude,
     OGRPGCommonEscapeStringCbk pfnEscapeString,
     void* userdata )
 {
@@ -510,9 +512,13 @@ void OGRPGCommonAppendCopyFieldsExceptGeom(
     int nFieldCount = poFeatureDefn->GetFieldCount();
     bool bAddTab = !osCommand.empty();
 
+    CPLAssert( nFieldCount == static_cast<int>(abFieldsToInclude.size()) );
+
     for( int i = 0; i < nFieldCount;  i++ )
     {
         if (i == nFIDIndex)
+            continue;
+        if( !abFieldsToInclude[i] )
             continue;
 
         const char *pszStrValue = poFeature->GetFieldAsString(i);
@@ -1179,7 +1185,7 @@ CPLString OGRPGCommonLayerGetType( OGRFieldDefn& oField,
                                    bool bPreservePrecision,
                                    bool bApproxOK )
 {
-    char szFieldType[256];
+    const char* pszFieldType = "";
 
 /* -------------------------------------------------------------------- */
 /*      Work out the PostgreSQL type.                                   */
@@ -1187,79 +1193,83 @@ CPLString OGRPGCommonLayerGetType( OGRFieldDefn& oField,
     if( oField.GetType() == OFTInteger )
     {
         if( oField.GetSubType() == OFSTBoolean )
-            strcpy( szFieldType, "BOOLEAN" );
+            pszFieldType = "BOOLEAN";
         else if( oField.GetSubType() == OFSTInt16 )
-            strcpy( szFieldType, "SMALLINT" );
+            pszFieldType = "SMALLINT";
         else if( oField.GetWidth() > 0 && bPreservePrecision )
-            snprintf( szFieldType, sizeof(szFieldType), "NUMERIC(%d,0)", oField.GetWidth() );
+            pszFieldType = CPLSPrintf( "NUMERIC(%d,0)", oField.GetWidth() );
         else
-            strcpy( szFieldType, "INTEGER" );
+            pszFieldType = "INTEGER";
     }
     else if( oField.GetType() == OFTInteger64 )
     {
         if( oField.GetWidth() > 0 && bPreservePrecision )
-            snprintf( szFieldType, sizeof(szFieldType), "NUMERIC(%d,0)", oField.GetWidth() );
+            pszFieldType = CPLSPrintf( "NUMERIC(%d,0)", oField.GetWidth() );
         else
-            strcpy( szFieldType, "INT8" );
+            pszFieldType = "INT8";
     }
     else if( oField.GetType() == OFTReal )
     {
         if( oField.GetSubType() == OFSTFloat32 )
-            strcpy( szFieldType, "REAL" );
+            pszFieldType = "REAL";
         else if( oField.GetWidth() > 0 &&
                  oField.GetPrecision() > 0 &&
                  bPreservePrecision )
-            snprintf( szFieldType, sizeof(szFieldType), "NUMERIC(%d,%d)",
+            pszFieldType = CPLSPrintf( "NUMERIC(%d,%d)",
                      oField.GetWidth(), oField.GetPrecision() );
         else
-            strcpy( szFieldType, "FLOAT8" );
+            pszFieldType = "FLOAT8";
     }
     else if( oField.GetType() == OFTString )
     {
-        if (oField.GetWidth() > 0 &&  bPreservePrecision )
-            snprintf( szFieldType, sizeof(szFieldType), "VARCHAR(%d)",  oField.GetWidth() );
+        if (oField.GetSubType() == OFSTJSON )
+            pszFieldType = CPLGetConfigOption("OGR_PG_JSON_TYPE", "JSON");
+        else if (oField.GetSubType() == OFSTUUID )
+            pszFieldType = CPLGetConfigOption("OGR_PG_UUID_TYPE", "UUID");
+        else if (oField.GetWidth() > 0 && oField.GetWidth() < 10485760 && bPreservePrecision )
+            pszFieldType = CPLSPrintf( "VARCHAR(%d)",  oField.GetWidth() );
         else
-            strcpy( szFieldType, "VARCHAR");
+            pszFieldType = CPLGetConfigOption("OGR_PG_STRING_TYPE", "VARCHAR");
     }
     else if( oField.GetType() == OFTIntegerList )
     {
         if( oField.GetSubType() == OFSTBoolean )
-            strcpy( szFieldType, "BOOLEAN[]" );
+            pszFieldType = "BOOLEAN[]";
         else if( oField.GetSubType() == OFSTInt16 )
-            strcpy( szFieldType, "INT2[]" );
+            pszFieldType = "INT2[]";
         else
-            strcpy( szFieldType, "INTEGER[]" );
+            pszFieldType = "INTEGER[]";
     }
     else if( oField.GetType() == OFTInteger64List )
     {
-        strcpy( szFieldType, "INT8[]" );
+        pszFieldType = "INT8[]";
     }
     else if( oField.GetType() == OFTRealList )
     {
         if( oField.GetSubType() == OFSTFloat32 )
-            strcpy( szFieldType, "REAL[]" );
+            pszFieldType = "REAL[]";
         else
-            strcpy( szFieldType, "FLOAT8[]" );
+            pszFieldType = "FLOAT8[]";
     }
     else if( oField.GetType() == OFTStringList )
     {
-        strcpy( szFieldType, "varchar[]" );
+        pszFieldType = "varchar[]";
     }
     else if( oField.GetType() == OFTDate )
     {
-        strcpy( szFieldType, "date" );
+        pszFieldType = "date";
     }
     else if( oField.GetType() == OFTTime )
     {
-        strcpy( szFieldType, "time" );
+        pszFieldType = "time";
     }
     else if( oField.GetType() == OFTDateTime )
     {
-        strcpy( szFieldType, "timestamp with time zone" );
+        pszFieldType = "timestamp with time zone";
     }
     else if( oField.GetType() == OFTBinary )
     {
-        strcpy( szFieldType, "bytea" );
+        pszFieldType = "bytea";
     }
     else if( bApproxOK )
     {
@@ -1267,7 +1277,7 @@ CPLString OGRPGCommonLayerGetType( OGRFieldDefn& oField,
                   "Can't create field %s with type %s on PostgreSQL layers.  Creating as VARCHAR.",
                   oField.GetNameRef(),
                   OGRFieldDefn::GetFieldTypeName(oField.GetType()) );
-        strcpy( szFieldType, "VARCHAR" );
+        pszFieldType = "VARCHAR";
     }
     else
     {
@@ -1275,10 +1285,9 @@ CPLString OGRPGCommonLayerGetType( OGRFieldDefn& oField,
                   "Can't create field %s with type %s on PostgreSQL layers.",
                   oField.GetNameRef(),
                   OGRFieldDefn::GetFieldTypeName(oField.GetType()) );
-        strcpy( szFieldType, "");
     }
 
-    return szFieldType;
+    return pszFieldType;
 }
 
 /************************************************************************/
@@ -1443,6 +1452,16 @@ bool OGRPGCommonLayerSetType( OGRFieldDefn& oField,
     {
         oField.SetType( OFTBinary );
     }
+    else if( EQUAL(pszType,"json") || EQUAL(pszType, "jsonb") )
+    {
+        oField.SetType( OFTString );
+        oField.SetSubType( OFSTJSON );
+    }
+    else if( EQUAL(pszType,"uuid") )
+    {
+        oField.SetType( OFTString );
+        oField.SetSubType( OFSTUUID );
+    }
     else
     {
         CPLDebug( "PGCommon", "Field %s is of unknown format type %s (type=%s).",
@@ -1547,7 +1566,7 @@ OGRErr OGRPGDumpLayer::CreateField( OGRFieldDefn *poFieldIn,
     CPLString osFieldType;
     OGRFieldDefn oField( poFieldIn );
 
-    // Can be set to NO to test ogr2ogr default behaviour
+    // Can be set to NO to test ogr2ogr default behavior
     const bool bAllowCreationOfFieldWithFIDName =
         CPLTestBool(CPLGetConfigOption(
             "PGDUMP_DEBUG_ALLOW_CREATION_FIELD_WITH_FID_NAME", "YES"));
@@ -1608,6 +1627,8 @@ OGRErr OGRPGDumpLayer::CreateField( OGRFieldDefn *poFieldIn,
                       osFieldType.c_str() );
     if( !oField.IsNullable() )
         osCommand += " NOT NULL";
+    if( oField.IsUnique() )
+        osCommand += " UNIQUE";
     if( oField.GetDefault() != nullptr && !oField.IsDefaultDriverSpecific() )
     {
         osCommand += " DEFAULT ";

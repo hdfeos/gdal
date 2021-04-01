@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -305,6 +305,10 @@ ENVIDataset::~ENVIDataset()
             CPLError(CE_Failure, CPLE_FileIO, "I/O error");
         }
     }
+    if( !m_asGCPs.empty() )
+    {
+        GDALDeinitGCPs(static_cast<int>(m_asGCPs.size()), m_asGCPs.data());
+    }
     CPLFree(pszProjection);
     CPLFree(pszHDRFilename);
 }
@@ -333,12 +337,6 @@ void ENVIDataset::FlushCache()
         return;
 
     // Rewrite out the header.
-#ifdef CPL_LSB
-    const int iBigEndian = 0;
-#else
-    const int iBigEndian = 1;
-#endif
-
     bool bOK = VSIFPrintfL(fp, "ENVI\n") >= 0;
     if ("" != sDescription)
         bOK &= VSIFPrintfL(fp, "description = {\n%s}\n",
@@ -373,7 +371,13 @@ void ENVIDataset::FlushCache()
         break;
     }
     bOK &= VSIFPrintfL(fp, "interleave = %s\n", pszInterleaving) >= 0;
-    bOK &= VSIFPrintfL(fp, "byte order = %d\n", iBigEndian) >= 0;
+
+    const char* pszByteOrder = m_aosHeader["byte_order"];
+    if( pszByteOrder )
+    {
+        // Supposed to be required
+        bOK &= VSIFPrintfL(fp, "byte order = %s\n", pszByteOrder) >= 0;
+    }
 
     // Write class and color information.
     catNames = band->GetCategoryNames();
@@ -454,6 +458,13 @@ void ENVIDataset::FlushCache()
     }
     bOK &= VSIFPrintfL(fp, "}\n") >= 0;
 
+    int bHasNoData = FALSE;
+    double dfNoDataValue = band->GetNoDataValue(&bHasNoData);
+    if( bHasNoData )
+    {
+        bOK &= VSIFPrintfL(fp, "data ignore value = %.18g\n", dfNoDataValue) >= 0;
+    }
+
     // Write the metadata that was read into the ENVI domain.
     char **papszENVIMetadata = GetMetadata("ENVI");
 
@@ -493,7 +504,8 @@ void ENVIDataset::FlushCache()
              poKey == "class names" ||
              poKey == "band names" ||
              poKey == "map info" ||
-             poKey == "projection info" )
+             poKey == "projection info" ||
+             poKey == "data ignore value" )
         {
             CSLDestroy(papszTokens);
             continue;
@@ -616,7 +628,12 @@ void ENVIDataset::WriteProjectionInfo()
         adfGeoTransform[0] != 0.0 || adfGeoTransform[1] != 1.0 ||
         adfGeoTransform[2] != 0.0 || adfGeoTransform[3] != 0.0 ||
         adfGeoTransform[4] != 0.0 || adfGeoTransform[5] != 1.0;
-    if( bHasNonDefaultGT )
+    if( adfGeoTransform[1] > 0.0 && adfGeoTransform[2] == 0.0 &&
+        adfGeoTransform[4] == 0.0 && adfGeoTransform[5] > 0.0 )
+    {
+        osRotation = ", rotation=180";
+    }
+    else if( bHasNonDefaultGT )
     {
         const double dfRotation1 =
             -atan2(-adfGeoTransform[2], adfGeoTransform[1]) * kdfRadToDeg;
@@ -1106,7 +1123,7 @@ bool ENVIDataset::WritePseudoGcpInfo()
     // Write out gcps into the envi header
     // returns 0 if the gcps are not present.
 
-    const int iNum = GetGCPCount();
+    const int iNum = std::min(GetGCPCount(), 4);
     if (iNum == 0)
         return false;
 
@@ -1120,9 +1137,11 @@ bool ENVIDataset::WritePseudoGcpInfo()
     bool bRet = VSIFPrintfL(fp, "geo points = {\n") >= 0;
     for( int iR = 0; iR < iNum; iR++ )
     {
+        // Add 1 to pixel and line for ENVI convention
         bRet &= VSIFPrintfL(
             fp, " %#0.4f, %#0.4f, %#0.8f, %#0.8f",
-            pGcpStructs[iR].dfGCPPixel, pGcpStructs[iR].dfGCPLine,
+            1 + pGcpStructs[iR].dfGCPPixel,
+            1 + pGcpStructs[iR].dfGCPLine,
             pGcpStructs[iR].dfGCPY, pGcpStructs[iR].dfGCPX) >= 0;
         if( iR < iNum - 1 )
             bRet &= VSIFPrintfL(fp, ",\n") >= 0;
@@ -1137,13 +1156,13 @@ bool ENVIDataset::WritePseudoGcpInfo()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *ENVIDataset::GetProjectionRef() { return pszProjection; }
+const char *ENVIDataset::_GetProjectionRef() { return pszProjection; }
 
 /************************************************************************/
 /*                          SetProjection()                             */
 /************************************************************************/
 
-CPLErr ENVIDataset::SetProjection( const char *pszNewProjection )
+CPLErr ENVIDataset::_SetProjection( const char *pszNewProjection )
 
 {
     CPLFree(pszProjection);
@@ -1227,11 +1246,11 @@ CPLErr ENVIDataset::SetMetadataItem( const char *pszName,
 /************************************************************************/
 
 CPLErr ENVIDataset::SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
-                             const char *pszGCPProjection )
+                            const OGRSpatialReference *poSRS )
 {
     bHeaderDirty = true;
 
-    return RawDataset::SetGCPs(nGCPCount, pasGCPList, pszGCPProjection);
+    return RawDataset::SetGCPs(nGCPCount, pasGCPList, poSRS);
 }
 
 /************************************************************************/
@@ -1370,6 +1389,7 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
     char **papszFields = SplitList(pszMapinfo);
     const char *pszUnits = nullptr;
     double dfRotation = 0.0;
+    bool bUpsideDown = false;
     const int nCount = CSLCount(papszFields);
 
     if( nCount < 7 )
@@ -1388,8 +1408,9 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
         else if ( STARTS_WITH(papszFields[i], "rotation=") )
         {
             dfRotation =
-                CPLAtof(papszFields[i] + strlen("rotation=")) *
-                kdfDegToRad * -1.0;
+                CPLAtof(papszFields[i] + strlen("rotation="));
+            bUpsideDown = fabs(dfRotation) == 180.0;
+            dfRotation *= kdfDegToRad * -1.0;
         }
     }
 
@@ -1426,10 +1447,18 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
     adfGeoTransform[3] = pixelNorthing + (yReference - 1) * yPixelSize;
     adfGeoTransform[4] = -sin(dfRotation) * yPixelSize;
     adfGeoTransform[5] = -cos(dfRotation) * yPixelSize;
+    if( bUpsideDown ) // to avoid numeric approximations
+    {
+        adfGeoTransform[1] = xPixelSize;
+        adfGeoTransform[2] = 0;
+        adfGeoTransform[4] = 0;
+        adfGeoTransform[5] = yPixelSize;
+    }
 
     // TODO(schwehr): Symbolic constants for the fields.
     // Capture projection.
     OGRSpatialReference oSRS;
+    bool bGeogCRSSet = false;
     if ( oSRS.importFromESRI(papszCSS) != OGRERR_NONE )
     {
         oSRS.Clear();
@@ -1441,16 +1470,19 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
                 SetENVIDatum(&oSRS, papszFields[9]);
             else
                 oSRS.SetWellKnownGeogCS("NAD27");
+            bGeogCRSSet = true;
         }
         else if( STARTS_WITH_CI(papszFields[0], "State Plane (NAD 27)") &&
                  nCount > 7 )
         {
             oSRS.SetStatePlane(ITTVISToUSGSZone(atoi(papszFields[7])), FALSE);
+            bGeogCRSSet = true;
         }
         else if( STARTS_WITH_CI(papszFields[0], "State Plane (NAD 83)") &&
                  nCount > 7 )
         {
             oSRS.SetStatePlane(ITTVISToUSGSZone(atoi(papszFields[7])), TRUE);
+            bGeogCRSSet = true;
         }
         else if( STARTS_WITH_CI(papszFields[0], "Geographic Lat") &&
                  nCount > 7 )
@@ -1459,6 +1491,7 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
                 SetENVIDatum(&oSRS, papszFields[7]);
             else
                 oSRS.SetWellKnownGeogCS("WGS84");
+            bGeogCRSSet = true;
         }
         else if( nPICount > 8 && atoi(papszPI[0]) == 3 )  // TM
         {
@@ -1523,6 +1556,10 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
                        CPLAtofM(papszPI[5]), CPLAtofM(papszPI[6]) );
         }
     }
+    else
+    {
+        bGeogCRSSet = CPL_TO_BOOL(oSRS.IsProjected());
+    }
 
     CSLDestroy(papszCSS);
 
@@ -1533,9 +1570,8 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
         oSRS.SetLocalCS(papszFields[0]);
 
     // Try to set datum from projection info line if we have a
-    // projected coordinate system without a GEOGCS.
-    if( oSRS.IsProjected() && oSRS.GetAttrNode("GEOGCS") == nullptr
-        && nPICount > 3 )
+    // projected coordinate system without a GEOGCS explicitly set.
+    if( oSRS.IsProjected() && !bGeogCRSSet && nPICount > 3 )
     {
         // Do we have a datum on the projection info line?
         int iDatum = nPICount - 1;
@@ -1611,7 +1647,6 @@ bool ENVIDataset::ProcessMapinfo( const char *pszMapinfo )
     // Turn back into WKT.
     if( oSRS.GetRoot() != nullptr )
     {
-        oSRS.Fixup();
         if ( pszProjection )
         {
             CPLFree(pszProjection);
@@ -1749,6 +1784,71 @@ void ENVIDataset::ProcessRPCinfo( const char *pszRPCinfo,
     CSLDestroy(papszFields);
 }
 
+/************************************************************************/
+/*                             GetGCPCount()                            */
+/************************************************************************/
+
+int ENVIDataset::GetGCPCount()
+{
+    int nGCPCount = RawDataset::GetGCPCount();
+    if( nGCPCount )
+        return nGCPCount;
+    return static_cast<int>(m_asGCPs.size());
+}
+
+/************************************************************************/
+/*                              GetGCPs()                               */
+/************************************************************************/
+
+const GDAL_GCP *ENVIDataset::GetGCPs()
+{
+    int nGCPCount = RawDataset::GetGCPCount();
+    if( nGCPCount )
+        return RawDataset::GetGCPs();
+    if( !m_asGCPs.empty() )
+        return m_asGCPs.data();
+    return nullptr;
+}
+
+/************************************************************************/
+/*                         ProcessGeoPoints()                           */
+/*                                                                      */
+/*      Extract GCPs                                                    */
+/************************************************************************/
+
+void ENVIDataset::ProcessGeoPoints( const char *pszGeoPoints )
+{
+    char **papszFields = SplitList(pszGeoPoints);
+    const int nCount = CSLCount(papszFields);
+
+    if( (nCount % 4) != 0 )
+    {
+        CSLDestroy(papszFields);
+        return;
+    }
+    m_asGCPs.resize(nCount / 4);
+    if( !m_asGCPs.empty() )
+    {
+        GDALInitGCPs(static_cast<int>(m_asGCPs.size()), m_asGCPs.data());
+    }
+    for( int i = 0; i < static_cast<int>(m_asGCPs.size()); i++ )
+    {
+        // Subtract 1 to pixel and line for ENVI convention
+        m_asGCPs[i].dfGCPPixel = CPLAtof( papszFields[i * 4 + 0] ) - 1;
+        m_asGCPs[i].dfGCPLine = CPLAtof( papszFields[i * 4 + 1] ) - 1;
+        m_asGCPs[i].dfGCPY = CPLAtof( papszFields[i * 4 + 2] );
+        m_asGCPs[i].dfGCPX = CPLAtof( papszFields[i * 4 + 3] );
+        m_asGCPs[i].dfGCPZ = 0;
+    }
+    CSLDestroy(papszFields);
+}
+
+static unsigned byteSwapUInt(unsigned swapMe)
+{
+    CPL_MSBPTR32(&swapMe);
+    return swapMe;
+}
+
 void ENVIDataset::ProcessStatsFile()
 {
     osStaFilename = CPLResetExtension(pszHDRFilename, "sta");
@@ -1781,10 +1881,10 @@ void ENVIDataset::ProcessStatsFile()
     }
 
     // TODO(schwehr): What are 1, 4, 8, and 40?
-    int lOffset = 0;
+    unsigned lOffset = 0;
     if( VSIFSeekL(fpStaFile, 40 + static_cast<vsi_l_offset>(nb + 1) * 4, SEEK_SET) == 0 &&
-        VSIFReadL(&lOffset, sizeof(int), 1, fpStaFile) == 1 &&
-        VSIFSeekL(fpStaFile, 40 + static_cast<vsi_l_offset>(nb + 1) * 8 + byteSwapInt(lOffset) + nb,
+        VSIFReadL(&lOffset, sizeof(lOffset), 1, fpStaFile) == 1 &&
+        VSIFSeekL(fpStaFile, 40 + static_cast<vsi_l_offset>(nb + 1) * 8 + byteSwapUInt(lOffset) + nb,
                   SEEK_SET) == 0)
     {
         // This should be the beginning of the statistics.
@@ -1888,9 +1988,12 @@ bool ENVIDataset::ReadHeader( VSILFILE *fpHdr )
 
         if( iEqual != std::string::npos && iEqual > 0 )
         {
-            const char *pszValue = osWorkingLine + iEqual + 1;
-            while( *pszValue == ' ' || *pszValue == '\t' )
-                pszValue++;
+            CPLString osValue(osWorkingLine.substr(iEqual + 1));
+            auto found = osValue.find_first_not_of(" \t");
+            if( found != std::string::npos )
+                osValue = osValue.substr(found);
+            else
+                osValue.clear();
 
             osWorkingLine.resize(iEqual);
             iEqual --;
@@ -1909,10 +2012,26 @@ bool ENVIDataset::ReadHeader( VSILFILE *fpHdr )
                     osWorkingLine[i] = '_';
             }
 
-            m_aosHeader.SetNameValue(osWorkingLine, pszValue);
+            m_aosHeader.SetNameValue(osWorkingLine, osValue);
         }
     }
 
+    return true;
+}
+
+/************************************************************************/
+/*                        GetRawBinaryLayout()                          */
+/************************************************************************/
+
+bool ENVIDataset::GetRawBinaryLayout(GDALDataset::RawBinaryLayout& sLayout)
+{
+    const bool bIsCompressed = atoi(
+        m_aosHeader.FetchNameValueDef("file_compression", "0")) != 0;
+    if( bIsCompressed )
+        return false;
+    if( !RawDataset::GetRawBinaryLayout(sLayout) )
+        return false;
+    sLayout.osRawFilename = GetDescription();
     return true;
 }
 
@@ -2495,12 +2614,19 @@ GDALDataset *ENVIDataset::Open( GDALOpenInfo *poOpenInfo, bool bFileSizeCheck )
             pszMapInfo));
     }
 
-    // Look for RPC mapinfo.
+    // Look for RPC.
     const char* pszRPCInfo = poDS->m_aosHeader["rpc_info"];
     if( !poDS->bFoundMapinfo && pszRPCInfo != nullptr )
     {
         poDS->ProcessRPCinfo(pszRPCInfo,
                              poDS->nRasterXSize, poDS->nRasterYSize);
+    }
+
+    // Look for geo_points / GCP
+    const char* pszGeoPoints = poDS->m_aosHeader["geo_points"];
+    if( !poDS->bFoundMapinfo && pszGeoPoints != nullptr )
+    {
+        poDS->ProcessGeoPoints(pszGeoPoints);
     }
 
     // Initialize any PAM information.
@@ -2690,6 +2816,16 @@ CPLErr ENVIRasterBand::SetCategoryNames( char **papszCategoryNamesIn )
 }
 
 /************************************************************************/
+/*                            SetNoDataValue()                          */
+/************************************************************************/
+
+CPLErr ENVIRasterBand::SetNoDataValue( double dfNoDataValue )
+{
+    reinterpret_cast<ENVIDataset *>(poDS)->bHeaderDirty = true;
+    return RawRasterBand::SetNoDataValue(dfNoDataValue);
+}
+
+/************************************************************************/
 /*                         GDALRegister_ENVI()                          */
 /************************************************************************/
 
@@ -2703,7 +2839,7 @@ void GDALRegister_ENVI()
     poDriver->SetDescription("ENVI");
     poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "ENVI .hdr Labelled");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "frmt_various.html#ENVI");
+    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/envi.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
                               "Byte Int16 UInt16 Int32 UInt32 "

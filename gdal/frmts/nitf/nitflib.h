@@ -7,7 +7,7 @@
  *
  **********************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2007-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -262,6 +262,8 @@ int       CPL_DLL  NITFDESGetTRE(   NITFDES* psDES,
 void      CPL_DLL  NITFDESFreeTREData( char* pabyTREData );
 
 int       CPL_DLL  NITFDESExtractShapefile(NITFDES* psDES, const char* pszRadixFileName);
+
+CPLXMLNode CPL_DLL *NITFDESGetXml(NITFFile*, int iSegment);
 
 /* -------------------------------------------------------------------- */
 /*      These are really intended to be private helper stuff for the    */

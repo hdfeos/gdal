@@ -46,7 +46,7 @@ const static int MAGIC1_OFFSET = 28; /* Magic number 1: 0x43534152 */
 // #define COSAR_MAGIC  0x43534152  /* String CSAR */
 // #define FILLER_MAGIC 0x7F7F7F7F  /* Filler value, we'll use this for a test */
 
-class COSARDataset : public GDALDataset
+class COSARDataset final: public GDALDataset
 {
 public:
         COSARDataset() : fp(nullptr) { }
@@ -56,7 +56,7 @@ public:
         static GDALDataset *Open( GDALOpenInfo * );
 };
 
-class COSARRasterBand : public GDALRasterBand
+class COSARRasterBand final: public GDALRasterBand
 {
     unsigned long nRTNB;
 
@@ -103,9 +103,9 @@ CPLErr COSARRasterBand::IReadBlock(CPL_UNUSED int nBlockXOff,
     nRSLV = CPL_SWAP32(nRSLV);
 #endif
 
-    if (nRSLV < nRSFV || nRSFV == 0
+    if (nRSLV < nRSFV || nRSFV == 0 || nRSLV == 0
         || nRSFV - 1 >= ((unsigned long) nBlockXSize)
-        || nRSLV - nRSFV > ((unsigned long) nBlockXSize)
+        || nRSLV - 1 >= ((unsigned long) nBlockXSize)
         || nRSFV >= this->nRTNB || nRSLV > this->nRTNB)
     {
         /* throw an error */
@@ -217,7 +217,7 @@ void GDALRegister_COSAR()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "COSAR Annotated Binary Matrix (TerraSAR-X)");
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_cosar.html");
+                               "drivers/raster/cosar.html");
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->pfnOpen = COSARDataset::Open;
     GetGDALDriverManager()->RegisterDriver(poDriver);

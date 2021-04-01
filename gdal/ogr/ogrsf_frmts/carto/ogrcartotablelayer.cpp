@@ -2,10 +2,10 @@
  *
  * Project:  Carto Translator
  * Purpose:  Implements OGRCARTOTableLayer class.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -154,6 +154,7 @@ OGRCARTOTableLayer::OGRCARTOTableLayer(OGRCARTODataSource* poDSIn,
     bCartodbfy = false;
     nMaxChunkSize = atoi(CPLGetConfigOption("CARTO_MAX_CHUNK_SIZE",
             CPLGetConfigOption("CARTODB_MAX_CHUNK_SIZE", "15"))) * 1024 * 1024;
+    bDropOnCreation = false;
 }
 
 /************************************************************************/
@@ -296,6 +297,8 @@ OGRFeatureDefn * OGRCARTOTableLayer::GetLayerDefnInternal(CPL_UNUSED json_object
                         if( pszSRText != nullptr )
                         {
                             l_poSRS = new OGRSpatialReference();
+                            l_poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
                             if( l_poSRS->importFromWkt(pszSRText) != OGRERR_NONE )
                             {
                                 delete l_poSRS;
@@ -620,7 +623,6 @@ OGRErr OGRCARTOTableLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
     }
     
     const char *pszNameIn = poGeomFieldIn->GetNameRef();
-    CPLString osGeomFieldName = CPLString(pszNameIn);
     if( pszNameIn == nullptr || EQUAL(pszNameIn, "") )
     {        
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -641,8 +643,15 @@ OGRErr OGRCARTOTableLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
         if( poFeatureDefn->GetGeomFieldCount() == 0 )
             poGeomField->SetName( "the_geom" );
     }
-    poGeomField->SetSpatialRef(poGeomFieldIn->GetSpatialRef());
-    
+    auto l_poSRS = poGeomFieldIn->GetSpatialRef();
+    if( l_poSRS )
+    {
+        l_poSRS = l_poSRS->Clone();
+        l_poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        poGeomField->SetSpatialRef(l_poSRS);
+        l_poSRS->Release();
+    }
+
     if( bLaunderColumnNames )
     {
         char *pszSafeName = OGRPGCommonLaunderName( poGeomField->GetNameRef(), "PG" );
@@ -1866,9 +1875,14 @@ OGRErr OGRCARTOTableLayer::RunDeferredCreationIfNecessary()
     bDeferredCreation = false;
 
     CPLString osSQL;
-    osSQL.Printf("CREATE TABLE %s ( %s SERIAL,",
-                 OGRCARTOEscapeIdentifier(osName).c_str(),
-                 osFIDColName.c_str());
+    CPLDebug( "CARTO", "Overwrite on creation (%d)", bDropOnCreation );
+    if ( bDropOnCreation )
+        osSQL.Printf("BEGIN; DROP TABLE IF EXISTS %s;",
+                     OGRCARTOEscapeIdentifier(osName).c_str());
+
+    osSQL += CPLSPrintf("CREATE TABLE %s ( %s SERIAL,",
+                        OGRCARTOEscapeIdentifier(osName).c_str(),
+                        osFIDColName.c_str());
 
     for( int i = 0; i < poFeatureDefn->GetGeomFieldCount(); i++ )
     {
@@ -1927,6 +1941,11 @@ OGRErr OGRCARTOTableLayer::RunDeferredCreationIfNecessary()
     osSQL += CPLSPrintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT nextval('%s')",
                         OGRCARTOEscapeIdentifier(osName).c_str(),
                         osFIDColName.c_str(), osSeqName.c_str());
+
+    if ( bDropOnCreation )
+        osSQL += "; COMMIT;";
+
+    bDropOnCreation = false;
 
     json_object* poObj = poDS->RunSQL(osSQL);
     if( poObj == nullptr )

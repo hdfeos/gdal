@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2005, Andrey Kiselev <dron@ak4719.spb.edu>
- * Copyright (c) 2007-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,8 @@
 #include "ogr_spatialref.h"
 
 #include "rmfdataset.h"
+
+#include "cpl_safemaths.hpp"
 
 CPL_CVSID("$Id$")
 
@@ -181,14 +183,23 @@ CPLErr RMFRasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
        nRawXSize == static_cast<GUInt32>(nBlockXSize) &&
        nRawYSize == static_cast<GUInt32>(nBlockYSize))
     {
+        bool bNullTile = false;
         if(CE_None != poGDS->ReadTile(nBlockXOff, nBlockYOff,
                                       reinterpret_cast<GByte*>(pImage),
-                                      nRawBytes, nRawXSize, nRawYSize))
+                                      nRawBytes, nRawXSize, nRawYSize,
+                                      bNullTile))
         {
             CPLError(CE_Failure, CPLE_FileIO,
                      "Failed to read tile xOff %d yOff %d",
                      nBlockXOff, nBlockYOff);
             return CE_Failure;
+        }
+        if(bNullTile)
+        {
+            const int nChunkSize = std::max(1, GDALGetDataTypeSizeBytes(eDataType));
+            const GPtrDiff_t nWords = static_cast<GPtrDiff_t>(nBlockXSize) * nBlockYSize;
+            GDALCopyWords64(&poGDS->sHeader.dfNoData, GDT_Float64, 0,
+                            pImage, eDataType, nChunkSize, nWords);
         }
         return CE_None;
     }
@@ -225,7 +236,8 @@ CPLErr RMFRasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
 
         if(CE_None != poGDS->ReadTile(nBlockXOff, nBlockYOff,
                                       poGDS->pabyCurrentTile, nRawBytes,
-                                      nRawXSize, nRawYSize))
+                                      nRawXSize, nRawYSize,
+                                      poGDS->bCurrentTileIsNull))
         {
             CPLError(CE_Failure, CPLE_FileIO,
                      "Failed to read tile xOff %d yOff %d",
@@ -239,11 +251,19 @@ CPLErr RMFRasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
 /*  Deinterleave pixels from input buffer.                              */
 /* -------------------------------------------------------------------- */
 
-    if((poGDS->eRMFType == RMFT_RSW &&
-        (poGDS->sHeader.nBitDepth == 8 ||
-         poGDS->sHeader.nBitDepth == 24 ||
-         poGDS->sHeader.nBitDepth == 32)) ||
-       (poGDS->eRMFType == RMFT_MTW))
+    if(poGDS->bCurrentTileIsNull)
+    {
+        const int nChunkSize = std::max(1, GDALGetDataTypeSizeBytes(eDataType));
+        const GPtrDiff_t nWords = static_cast<GPtrDiff_t>(nBlockXSize) * nBlockYSize;
+        GDALCopyWords64(&poGDS->sHeader.dfNoData, GDT_Float64, 0,
+                        pImage, eDataType, nChunkSize, nWords);
+        return CE_None;
+    }
+    else if((poGDS->eRMFType == RMFT_RSW &&
+             (poGDS->sHeader.nBitDepth == 8 ||
+              poGDS->sHeader.nBitDepth == 24 ||
+              poGDS->sHeader.nBitDepth == 32)) ||
+            (poGDS->eRMFType == RMFT_MTW))
     {
         size_t  nTilePixelSize = poGDS->sHeader.nBitDepth / 8;
         size_t  nTileLineSize = nTilePixelSize * nRawXSize;
@@ -466,8 +486,9 @@ CPLErr RMFRasterBand::IWriteBlock( int nBlockXOff, int nBlockYOff,
             if(poGDS->paiTiles[2 * nTile + 1])
             {
                 CPLErr eRes;
+                bool bNullTile = false;
                 eRes = poGDS->ReadTile(nBlockXOff, nBlockYOff, oTile.oData.data(),
-                                       nTileSize, nRawXSize, nRawYSize);
+                                       nTileSize, nRawXSize, nRawYSize, bNullTile);
                 if(eRes != CE_None)
                 {
                     CPLError(CE_Failure, CPLE_FileIO,
@@ -708,6 +729,7 @@ RMFDataset::RMFDataset() :
     paiTiles(nullptr),
     pabyDecompressBuffer(nullptr),
     pabyCurrentTile(nullptr),
+    bCurrentTileIsNull(false),
     nCurrentTileXOff(-1),
     nCurrentTileYOff(-1),
     nCurrentTileBytes(0),
@@ -804,7 +826,7 @@ CPLErr RMFDataset::SetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *RMFDataset::GetProjectionRef()
+const char *RMFDataset::_GetProjectionRef()
 {
     if( pszProjection )
         return pszProjection;
@@ -816,7 +838,7 @@ const char *RMFDataset::GetProjectionRef()
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr RMFDataset::SetProjection( const char * pszNewProjection )
+CPLErr RMFDataset::_SetProjection( const char * pszNewProjection )
 
 {
     CPLFree( pszProjection );
@@ -964,6 +986,7 @@ do {                                                    \
             CPLCalloc( sHeader.nExtHdrSize, 1 ) );
 
         RMF_WRITE_LONG( pabyExtHeader, sExtHeader.nEllipsoid, 24 );
+        RMF_WRITE_LONG( pabyExtHeader, sExtHeader.nVertDatum, 28 );
         RMF_WRITE_LONG( pabyExtHeader, sExtHeader.nDatum, 32 );
         RMF_WRITE_LONG( pabyExtHeader, sExtHeader.nZone, 36 );
 
@@ -1070,13 +1093,13 @@ int RMFDataset::Identify( GDALOpenInfo *poOpenInfo )
 
 GDALDataset *RMFDataset::Open( GDALOpenInfo * poOpenInfo )
 {
-    GDALDataset* poDS = Open( poOpenInfo, nullptr, 0 );
+    auto poDS = Open( poOpenInfo, nullptr, 0 );
     if( poDS == nullptr )
     {
         return nullptr;
     }
 
-    RMFDataset* poCurrentLayer = dynamic_cast<RMFDataset*>( poDS );
+    RMFDataset* poCurrentLayer = poDS;
     RMFDataset* poParent = poCurrentLayer;
     const int   nMaxPossibleOvCount = 64;
 
@@ -1091,11 +1114,11 @@ GDALDataset *RMFDataset::Open( GDALOpenInfo * poOpenInfo )
     return poDS;
 }
 
-GDALDataset *RMFDataset::Open(GDALOpenInfo * poOpenInfo,
+RMFDataset *RMFDataset::Open(GDALOpenInfo * poOpenInfo,
                               RMFDataset* poParentDS,
                               vsi_l_offset nNextHeaderOffset )
 {
-    if( !Identify(poOpenInfo) || 
+    if( !Identify(poOpenInfo) ||
         (poParentDS == nullptr && poOpenInfo->fpL == nullptr) )
         return nullptr;
 
@@ -1121,43 +1144,35 @@ GDALDataset *RMFDataset::Open(GDALOpenInfo * poOpenInfo,
 
 #define RMF_READ_SHORT(ptr, value, offset)                              \
 do {                                                                    \
+    memcpy(&(value), (GInt16*)((ptr) + (offset)), sizeof(GInt16));      \
     if( poDS->bBigEndian )                                              \
     {                                                                   \
-        (value) = CPL_MSBWORD16(*(GInt16*)((ptr) + (offset)));          \
+        CPL_MSBPTR16(&(value));                                         \
     }                                                                   \
     else                                                                \
     {                                                                   \
-        (value) = CPL_LSBWORD16(*(GInt16*)((ptr) + (offset)));          \
+        CPL_LSBPTR16(&(value));                                         \
     }                                                                   \
 } while( false );
 
 #define RMF_READ_ULONG(ptr, value, offset)                              \
 do {                                                                    \
+    memcpy(&(value), (GUInt32*)((ptr) + (offset)), sizeof(GUInt32));    \
     if( poDS->bBigEndian )                                              \
     {                                                                   \
-        (value) = CPL_MSBWORD32(*(GUInt32*)((ptr) + (offset)));         \
+        CPL_MSBPTR32(&(value));                                         \
     }                                                                   \
     else                                                                \
     {                                                                   \
-        (value) = CPL_LSBWORD32(*(GUInt32*)((ptr) + (offset)));         \
+        CPL_LSBPTR32(&(value));                                         \
     }                                                                   \
 } while( false );
 
-#define RMF_READ_LONG(ptr, value, offset)                               \
-do {                                                                    \
-    if( poDS->bBigEndian )                                              \
-    {                                                                   \
-        (value) = CPL_MSBWORD32(*(GInt32*)((ptr) + (offset)));          \
-    }                                                                   \
-    else                                                                \
-    {                                                                   \
-        (value) = CPL_LSBWORD32(*(GInt32*)((ptr) + (offset)));          \
-    }                                                                   \
-} while( false );
+#define RMF_READ_LONG(ptr, value, offset) RMF_READ_ULONG(ptr, value, offset)
 
 #define RMF_READ_DOUBLE(ptr, value, offset)                             \
 do {                                                                    \
-    (value) = *reinterpret_cast<double*>((ptr) + (offset));             \
+    memcpy(&(value), (double*)((ptr) + (offset)), sizeof(double));      \
     if( poDS->bBigEndian )                                              \
     {                                                                   \
         CPL_MSBPTR64(&(value));                                         \
@@ -1264,11 +1279,22 @@ do {                                                                    \
         return nullptr;
     }
 
-    GUInt64 nMaxTileBits = 2ULL *
-                           static_cast<GUInt64>(poDS->sHeader.nTileWidth) *
-                           static_cast<GUInt64>(poDS->sHeader.nTileHeight) *
-                           static_cast<GUInt64>(poDS->sHeader.nBitDepth);
-    if(nMaxTileBits > static_cast<GUInt64>(std::numeric_limits<GUInt32>::max()))
+    bool bInvalidTileSize;
+    try
+    {
+        GUInt64 nMaxTileBits =
+            (CPLSM(static_cast<GUInt64>(2)) *
+             CPLSM(static_cast<GUInt64>(poDS->sHeader.nTileWidth)) *
+             CPLSM(static_cast<GUInt64>(poDS->sHeader.nTileHeight)) *
+             CPLSM(static_cast<GUInt64>(poDS->sHeader.nBitDepth))).v();
+        bInvalidTileSize = (
+            nMaxTileBits > static_cast<GUInt64>(std::numeric_limits<GUInt32>::max()));
+    }
+    catch( ... )
+    {
+        bInvalidTileSize = true;
+    }
+    if( bInvalidTileSize )
     {
         CPLError(CE_Warning, CPLE_IllegalArg,
                  "Invalid tile size. Width %lu, height %lu, bit depth %lu.",
@@ -1332,6 +1358,7 @@ do {                                                                    \
         if( poDS->sHeader.nExtHdrSize >= 36 + 4 )
         {
             RMF_READ_LONG( pabyExtHeader, poDS->sExtHeader.nEllipsoid, 24 );
+            RMF_READ_LONG( pabyExtHeader, poDS->sExtHeader.nVertDatum, 28 );
             RMF_READ_LONG( pabyExtHeader, poDS->sExtHeader.nDatum, 32 );
             RMF_READ_LONG( pabyExtHeader, poDS->sExtHeader.nZone, 36 );
         }
@@ -1710,7 +1737,17 @@ do {                                                                    \
         if(poDS->sHeader.iEPSGCode > RMF_EPSG_MIN_CODE &&
            (OGRERR_NONE != res || oSRS.IsLocal()))
         {
-            oSRS.importFromEPSG(poDS->sHeader.iEPSGCode);
+            res = oSRS.importFromEPSG(poDS->sHeader.iEPSGCode);
+        }
+
+        const char* pszSetVertCS =
+            CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
+                                "RMF_SET_VERTCS",
+                                 CPLGetConfigOption("RMF_SET_VERTCS", "NO"));
+        if(CPLTestBool(pszSetVertCS) && res == OGRERR_NONE &&
+           poDS->sExtHeader.nVertDatum > 0)
+        {
+            oSRS.importVertCSFromPanorama(poDS->sExtHeader.nVertDatum);
         }
 
         if( poDS->pszProjection )
@@ -1779,15 +1816,15 @@ do {                                                                    \
 /************************************************************************/
 GDALDataset *RMFDataset::Create( const char * pszFilename,
                                  int nXSize, int nYSize, int nBands,
-                                 GDALDataType eType, char **papszParmList )
+                                 GDALDataType eType, char **papszParamList )
 {
     return Create( pszFilename, nXSize, nYSize, nBands,
-                   eType, papszParmList, nullptr, 1.0 );
+                   eType, papszParamList, nullptr, 1.0 );
 }
 
 GDALDataset *RMFDataset::Create( const char * pszFilename,
                                  int nXSize, int nYSize, int nBands,
-                                 GDALDataType eType, char **papszParmList,
+                                 GDALDataType eType, char **papszParamList,
                                  RMFDataset* poParentDS, double dfOvFactor )
 
 {
@@ -1854,13 +1891,13 @@ GDALDataset *RMFDataset::Create( const char * pszFilename,
         dfResolution = RMF_DEFAULT_RESOLUTION;
         dfPixelSize = 1;
 
-        if( CPLFetchBool( papszParmList, "MTW", false) )
+        if( CPLFetchBool( papszParamList, "MTW", false) )
             poDS->eRMFType = RMFT_MTW;
         else
             poDS->eRMFType = RMFT_RSW;
 
         GUInt32 iVersion = RMF_VERSION;
-        const char *pszRMFHUGE = CSLFetchNameValue(papszParmList, "RMFHUGE");
+        const char *pszRMFHUGE = CSLFetchNameValue(papszParamList, "RMFHUGE");
 
         if( pszRMFHUGE == nullptr )
             pszRMFHUGE = "NO";// Keep old behavior by default
@@ -1890,13 +1927,13 @@ GDALDataset *RMFDataset::Create( const char * pszFilename,
             }
         }
 
-        const char *pszValue = CSLFetchNameValue(papszParmList,"BLOCKXSIZE");
+        const char *pszValue = CSLFetchNameValue(papszParamList,"BLOCKXSIZE");
         if( pszValue != nullptr )
             nBlockXSize = atoi( pszValue );
         if( static_cast<int>(nBlockXSize) <= 0 )
             nBlockXSize = RMF_DEFAULT_BLOCKXSIZE;
 
-        pszValue = CSLFetchNameValue(papszParmList,"BLOCKYSIZE");
+        pszValue = CSLFetchNameValue(papszParamList,"BLOCKYSIZE");
         if( pszValue != nullptr )
             nBlockYSize = atoi( pszValue );
         if( static_cast<int>(nBlockYSize) <= 0 )
@@ -2054,9 +2091,9 @@ GDALDataset *RMFDataset::Create( const char * pszFilename,
         poDS->sHeader.adfElevMinMax[1] = 0.0;
         poDS->sHeader.dfNoData = 0.0;
         poDS->sHeader.iCompression = GetCompressionType(
-                                        CSLFetchNameValue(papszParmList,
+                                        CSLFetchNameValue(papszParamList,
                                                           "COMPRESS"));
-        if(CE_None != poDS->InitCompressorData(papszParmList))
+        if(CE_None != poDS->InitCompressorData(papszParamList))
         {
             delete poDS;
             return nullptr;
@@ -2064,7 +2101,7 @@ GDALDataset *RMFDataset::Create( const char * pszFilename,
 
         if(poDS->sHeader.iCompression == RMF_COMPRESSION_JPEG)
         {
-            const char* pszJpegQuality = CSLFetchNameValue(papszParmList,
+            const char* pszJpegQuality = CSLFetchNameValue(papszParamList,
                                                            "JPEG_QUALITY");
             if(pszJpegQuality == nullptr)
             {
@@ -2637,9 +2674,9 @@ void RMFDataset::WriteTileJobFunc(void* pData)
     }
 }
 
-CPLErr RMFDataset::InitCompressorData(char **papszParmList)
+CPLErr RMFDataset::InitCompressorData(char **papszParamList)
 {
-    const char* pszNumThreads = CSLFetchNameValue(papszParmList, "NUM_THREADS");
+    const char* pszNumThreads = CSLFetchNameValue(papszParamList, "NUM_THREADS");
     if(pszNumThreads == nullptr)
         pszNumThreads = CPLGetConfigOption("GDAL_NUM_THREADS", nullptr);
 
@@ -2654,6 +2691,10 @@ CPLErr RMFDataset::InitCompressorData(char **papszParmList)
     if(nThreads < 0)
     {
         nThreads = 0;
+    }
+    if( nThreads > 1024 )
+    {
+        nThreads = 1024;
     }
 
     poCompressData = std::make_shared<RMFCompressData>();
@@ -2866,8 +2907,11 @@ CPLErr RMFDataset::WriteRawTile(int nBlockXOff, int nBlockYOff,
 
 CPLErr RMFDataset::ReadTile(int nBlockXOff, int nBlockYOff,
                             GByte* pabyData, size_t nRawBytes,
-                            GUInt32 nRawXSize, GUInt32 nRawYSize)
+                            GUInt32 nRawXSize, GUInt32 nRawYSize,
+                            bool& bNullTile)
 {
+    bNullTile = false;
+
     const GUInt32 nTile = nBlockYOff * nXTiles + nBlockXOff;
     if(2 * nTile + 1 >= sHeader.nTileTblSize / sizeof(GUInt32))
     {
@@ -2893,6 +2937,7 @@ CPLErr RMFDataset::ReadTile(int nBlockXOff, int nBlockYOff,
 
     if(nTileOffset == 0)
     {
+        bNullTile = true;
         return CE_None;
     }
 
@@ -3045,7 +3090,7 @@ void GDALRegister_RMF()
     poDriver->SetDescription( "RMF" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Raster Matrix Format" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_rmf.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/rmf.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "rsw" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 Int32 Float64" );
@@ -3073,6 +3118,10 @@ void GDALRegister_RMF()
     poDriver->pfnIdentify = RMFDataset::Identify;
     poDriver->pfnOpen = RMFDataset::Open;
     poDriver->pfnCreate = RMFDataset::Create;
+    poDriver->SetMetadataItem( GDAL_DMD_OPENOPTIONLIST,
+        "<OpenOptionList>"
+        "  <Option name='RMF_SET_VERTCS' type='string' description='Layers spatial reference will include vertical coordinate system description if exist' default='NO'/>"
+        "</OpenOptionList>");
 
     GetGDALDriverManager()->RegisterDriver( poDriver );
 }

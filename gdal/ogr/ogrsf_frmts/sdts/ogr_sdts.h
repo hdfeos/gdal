@@ -40,7 +40,7 @@ class OGRSDTSDataSource;
 /*                             OGRSDTSLayer                             */
 /************************************************************************/
 
-class OGRSDTSLayer : public OGRLayer
+class OGRSDTSLayer final: public OGRLayer
 {
     OGRFeatureDefn     *poFeatureDefn;
 
@@ -68,7 +68,7 @@ class OGRSDTSLayer : public OGRLayer
 /*                          OGRSDTSDataSource                           */
 /************************************************************************/
 
-class OGRSDTSDataSource : public OGRDataSource
+class OGRSDTSDataSource final: public OGRDataSource
 {
     SDTSTransfer        *poTransfer;
     char                *pszName;
@@ -89,7 +89,7 @@ class OGRSDTSDataSource : public OGRDataSource
     OGRLayer            *GetLayer( int ) override;
     int                 TestCapability( const char * ) override;
 
-    OGRSpatialReference *GetSpatialRef() { return poSRS; }
+    OGRSpatialReference *DSGetSpatialRef() { return poSRS; }
 };
 
 #endif /* ndef OGR_SDTS_H_INCLUDED */

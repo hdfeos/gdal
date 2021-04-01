@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -8,7 +8,7 @@
 #
 ###############################################################################
 # Copyright (c) 2008, Frank Warmerdam <warmerdam@pobox.com>
-# Copyright (c) 2010, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -30,15 +30,13 @@
 ###############################################################################
 
 import os
-import sys
 
-sys.path.append('../pymod')
 
-import gdaltest
 import ogrtest
 import test_py_scripts
 
 from osgeo import ogr
+import pytest
 
 ###############################################################################
 # Test a fairly simple case, with nodata masking.
@@ -48,7 +46,7 @@ def test_gdal_polygonize_1():
 
     script_path = test_py_scripts.get_py_script('gdal_polygonize')
     if script_path is None:
-        return 'skip'
+        pytest.skip()
 
     # Create a OGR datasource to put results in.
     shp_drv = ogr.GetDriverByName('ESRI Shapefile')
@@ -68,7 +66,7 @@ def test_gdal_polygonize_1():
     shp_ds.Destroy()
 
     # run the algorithm.
-    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '../alg/data/polygonize_in.grd tmp poly DN')
+    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', test_py_scripts.get_data_path('alg')+'polygonize_in.grd tmp poly DN')
 
     # Confirm we get the set of expected features in the output layer.
 
@@ -76,9 +74,7 @@ def test_gdal_polygonize_1():
     shp_lyr = shp_ds.GetLayerByName('poly')
 
     expected_feature_number = 13
-    if shp_lyr.GetFeatureCount() != expected_feature_number:
-        gdaltest.post_reason('GetFeatureCount() returned %d instead of %d' % (shp_lyr.GetFeatureCount(), expected_feature_number))
-        return 'fail'
+    assert shp_lyr.GetFeatureCount() == expected_feature_number
 
     expect = [107, 123, 115, 115, 140, 148, 123, 140, 156,
               100, 101, 102, 103]
@@ -98,7 +94,7 @@ def test_gdal_polygonize_1():
     shp_drv = ogr.GetDriverByName('ESRI Shapefile')
     shp_drv.DeleteDataSource('tmp/poly.shp')
 
-    return 'success' if tr else 'fail'
+    assert tr
 
 ###############################################################################
 # Test a simple case without masking.
@@ -108,7 +104,7 @@ def test_gdal_polygonize_2():
 
     script_path = test_py_scripts.get_py_script('gdal_polygonize')
     if script_path is None:
-        return 'skip'
+        pytest.skip()
 
     shp_drv = ogr.GetDriverByName('ESRI Shapefile')
     try:
@@ -118,16 +114,14 @@ def test_gdal_polygonize_2():
         pass
 
     # run the algorithm.
-    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-b 1 -f "ESRI Shapefile" -q -nomask ../alg/data/polygonize_in.grd tmp')
+    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-b 1 -f "ESRI Shapefile" -q -nomask '+test_py_scripts.get_data_path('alg')+'polygonize_in.grd tmp')
 
     # Confirm we get the set of expected features in the output layer.
     shp_ds = ogr.Open('tmp')
     shp_lyr = shp_ds.GetLayerByName('out')
 
     expected_feature_number = 17
-    if shp_lyr.GetFeatureCount() != expected_feature_number:
-        gdaltest.post_reason('GetFeatureCount() returned %d instead of %d' % (shp_lyr.GetFeatureCount(), expected_feature_number))
-        return 'fail'
+    assert shp_lyr.GetFeatureCount() == expected_feature_number
 
     expect = [107, 123, 115, 132, 115, 132, 140, 132, 148, 123, 140,
               132, 156, 100, 101, 102, 103]
@@ -139,18 +133,18 @@ def test_gdal_polygonize_2():
     shp_drv = ogr.GetDriverByName('ESRI Shapefile')
     shp_drv.DeleteDataSource('tmp/out.shp')
 
-    return 'success' if tr else 'fail'
+    assert tr
 
 
 def test_gdal_polygonize_3():
 
     script_path = test_py_scripts.get_py_script('gdal_polygonize')
     if script_path is None:
-        return 'skip'
+        pytest.skip()
 
     drv = ogr.GetDriverByName('GPKG')
     if drv is None:
-        return 'skip'
+        pytest.skip()
     try:
         os.stat('tmp/out.gpkg')
         drv.DeleteDataSource('tmp/out.gpkg')
@@ -158,7 +152,7 @@ def test_gdal_polygonize_3():
         pass
 
     # run the algorithm.
-    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-b 1 -f "GPKG" -q -nomask ../alg/data/polygonize_in.grd tmp/out.gpkg')
+    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-b 1 -f "GPKG" -q -nomask '+test_py_scripts.get_data_path('alg')+'polygonize_in.grd tmp/out.gpkg')
 
     # Confirm we get the set of expected features in the output layer.
     gpkg_ds = ogr.Open('tmp/out.gpkg')
@@ -172,9 +166,8 @@ def test_gdal_polygonize_3():
     drv.DeleteDataSource('tmp/out.gpkg')
 
     if geom_is_polygon:
-        return 'success'
-    gdaltest.post_reason('GetGeomType() returned %d instead of %d or %d (ogr.wkbPolygon or ogr.wkbMultiPolygon)' % (geom_type, ogr.wkbPolygon, ogr.wkbMultiPolygon))
-    return 'fail'
+        return
+    pytest.fail('GetGeomType() returned %d instead of %d or %d (ogr.wkbPolygon or ogr.wkbMultiPolygon)' % (geom_type, ogr.wkbPolygon, ogr.wkbMultiPolygon))
 
 ###############################################################################
 # Test -b mask
@@ -184,46 +177,25 @@ def test_gdal_polygonize_4():
 
     script_path = test_py_scripts.get_py_script('gdal_polygonize')
     if script_path is None:
-        return 'skip'
+        pytest.skip()
 
     # Test mask syntax
-    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-q -f GML -b mask ../gcore/data/byte.tif tmp/out.gml')
+    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-q -f GML -b mask ' + test_py_scripts.get_data_path('gcore') + 'byte.tif tmp/out.gml')
 
     content = open('tmp/out.gml', 'rt').read()
 
     os.unlink('tmp/out.gml')
 
-    if content.find('<ogr:geometryProperty><gml:Polygon srsName="EPSG:26711"><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>440720,3751320 440720,3750120 441920,3750120 441920,3751320 440720,3751320</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></ogr:geometryProperty>') < 0:
-        gdaltest.post_reason('fail')
-        print(content)
-        return 'fail'
+    assert '<ogr:geometryProperty><gml:Polygon srsName="EPSG:26711"><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>440720,3751320 440720,3750120 441920,3750120 441920,3751320 440720,3751320</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></ogr:geometryProperty>' in content
 
     # Test mask,1 syntax
-    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-q -f GML -b mask,1 ../gcore/data/byte.tif tmp/out.gml')
+    test_py_scripts.run_py_script(script_path, 'gdal_polygonize', '-q -f GML -b mask,1 ' + test_py_scripts.get_data_path('gcore') + 'byte.tif tmp/out.gml')
 
     content = open('tmp/out.gml', 'rt').read()
 
     os.unlink('tmp/out.gml')
 
-    if content.find('<ogr:geometryProperty><gml:Polygon srsName="EPSG:26711"><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>440720,3751320 440720,3750120 441920,3750120 441920,3751320 440720,3751320</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></ogr:geometryProperty>') < 0:
-        gdaltest.post_reason('fail')
-        print(content)
-        return 'fail'
-
-    return 'success'
+    assert '<ogr:geometryProperty><gml:Polygon srsName="EPSG:26711"><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates>440720,3751320 440720,3750120 441920,3750120 441920,3751320 440720,3751320</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></ogr:geometryProperty>' in content
 
 
-gdaltest_list = [
-    test_gdal_polygonize_1,
-    test_gdal_polygonize_2,
-    test_gdal_polygonize_3,
-    test_gdal_polygonize_4
-]
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('test_gdal_polygonize')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

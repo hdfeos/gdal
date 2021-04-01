@@ -27,6 +27,7 @@
 
 #include "cpl_string.h"
 #include "ogr_srs_api.h"
+#include "ogr_spatialref.h"
 
 #include <algorithm>
 #include <cmath>
@@ -235,6 +236,7 @@ namespace tut
         ensure_equals("OSRSetTOWGS84 failed", err_, OGRERR_NONE);
         ensure("GetTOWGS84 result is wrong",
             std::equal(coeff, coeff + coeffSize, expect));
+        OSRSetLinearUnits(srs_, "Metre", 1);
 
         char* proj4 = nullptr;
         err_ = OSRExportToProj4(srs_, &proj4);
@@ -270,18 +272,7 @@ namespace tut
         ensure_equals("OSRExportToWkt failed", err_, OGRERR_NONE);
         ensure("OSRExportToWkt returned NULL", nullptr != wkt1);
 
-        err_ = OSRSetFromUserInput(srs_, "WGS84");
-        ensure_equals("OSRSetFromUserInput failed", err_, OGRERR_NONE);
-
-        char* wkt2 = nullptr;
-        err_ = OSRExportToWkt(srs_, &wkt2);
-        ensure_equals("OSRExportToWkt failed", err_, OGRERR_NONE);
-        ensure("OSRExportToWkt returned NULL", nullptr != wkt2);
-
-        ensure_equals("CRS84 lookup not as expected",
-            std::string(wkt1), std::string(wkt2));
         CPLFree(wkt1);
-        CPLFree(wkt2);
     }
 
     // Test URN support for EPSG
@@ -328,12 +319,14 @@ namespace tut
         ensure_equals("OSRExportToWkt failed", err_, OGRERR_NONE);
         ensure("OSRExportToWkt returned NULL", nullptr != wkt1);
 
-        std::string expect("PROJCS[\"UTM Zone 11, Northern Hemisphere\","
-                           "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\","
-                           "SPHEROID[\"WGS 84\",6378137,298.257223563,"
+        std::string expect("PROJCS[\"unnamed\",GEOGCS[\"WGS 84\","
+                           "DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\","
+                           "6378137,298.257223563,"
                            "AUTHORITY[\"EPSG\",\"7030\"]],"
-                           "AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,"
-                           "AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,"
+                           "AUTHORITY[\"EPSG\",\"6326\"]],"
+                           "PRIMEM[\"Greenwich\",0,"
+                           "AUTHORITY[\"EPSG\",\"8901\"]],"
+                           "UNIT[\"degree\",0.0174532925199433,"
                            "AUTHORITY[\"EPSG\",\"9122\"]],"
                            "AUTHORITY[\"EPSG\",\"4326\"]],"
                            "PROJECTION[\"Transverse_Mercator\"],"
@@ -342,11 +335,126 @@ namespace tut
                            "PARAMETER[\"scale_factor\",0.9996],"
                            "PARAMETER[\"false_easting\",500000],"
                            "PARAMETER[\"false_northing\",0],"
-                           "UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]]]");
+                           "UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]],"
+                           "AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]");
 
         ensure_equals("AUTO42001 urn lookup not as expected", std::string(wkt1), expect);
         CPLFree(wkt1);
     }
 
+    // Test StripTOWGS84IfKnownDatum
+    template<>
+    template<>
+    void object::test<8 >()
+    {
+        // Not a boundCRS
+        {
+            OGRSpatialReference oSRS;
+            oSRS.importFromEPSG(4326);
+            ensure(!oSRS.StripTOWGS84IfKnownDatum());
+        }
+        // Custom boundCRS --> do not strip TOWGS84
+        {
+            OGRSpatialReference oSRS;
+            oSRS.SetFromUserInput("+proj=longlat +ellps=GRS80 +towgs84=1,2,3,4,5,6,7");
+            ensure(!oSRS.StripTOWGS84IfKnownDatum());
+            double vals[7] = { 0 };
+            ensure(oSRS.GetTOWGS84(vals, 7) == OGRERR_NONE);
+        }
+        // BoundCRS whose base CRS has a known code --> strip TOWGS84
+        {
+            OGRSpatialReference oSRS;
+            oSRS.importFromEPSG(4326);
+            oSRS.SetTOWGS84(1,2,3,4,5,6,7);
+            ensure(oSRS.StripTOWGS84IfKnownDatum());
+            double vals[7] = { 0 };
+            ensure(oSRS.GetTOWGS84(vals, 7) != OGRERR_NONE);
+        }
+        // BoundCRS whose datum code is known --> strip TOWGS84
+        {
+            OGRSpatialReference oSRS;
+            oSRS.SetFromUserInput(
+                "GEOGCS[\"bar\","
+                "DATUM[\"foo\","
+                "SPHEROID[\"WGS 84\",6378137,298.257223563],"
+                "TOWGS84[1,2,3,4,5,6,7],"
+                "AUTHORITY[\"FOO\",\"1\"]],"
+                "PRIMEM[\"Greenwich\",0],"
+                "UNIT[\"degree\",0.0174532925199433]]");
+            ensure(oSRS.StripTOWGS84IfKnownDatum());
+            double vals[7] = { 0 };
+            ensure(oSRS.GetTOWGS84(vals, 7) != OGRERR_NONE);
+        }
+        // BoundCRS whose datum name is known --> strip TOWGS84
+        {
+            OGRSpatialReference oSRS;
+            oSRS.SetFromUserInput(
+                "GEOGCS[\"WGS 84\","
+                "DATUM[\"WGS_1984\","
+                "SPHEROID[\"WGS 84\",6378137,298.257223563],"
+                "TOWGS84[1,2,3,4,5,6,7]],"
+                "PRIMEM[\"Greenwich\",0],"
+                "UNIT[\"degree\",0.0174532925199433]]");
+            ensure(oSRS.StripTOWGS84IfKnownDatum());
+            double vals[7] = { 0 };
+            ensure(oSRS.GetTOWGS84(vals, 7) != OGRERR_NONE);
+        }
+        // BoundCRS whose datum name is unknown --> do not strip TOWGS84
+        {
+            OGRSpatialReference oSRS;
+            oSRS.SetFromUserInput(
+                "GEOGCS[\"WGS 84\","
+                "DATUM[\"i am unknown\","
+                "SPHEROID[\"WGS 84\",6378137,298.257223563],"
+                "TOWGS84[1,2,3,4,5,6,7]],"
+                "PRIMEM[\"Greenwich\",0],"
+                "UNIT[\"degree\",0.0174532925199433]]");
+            ensure(!oSRS.StripTOWGS84IfKnownDatum());
+            double vals[7] = { 0 };
+            ensure(oSRS.GetTOWGS84(vals, 7) == OGRERR_NONE);
+        }
+    }
+
+    // Test GetEPSGGeogCS
+    template<>
+    template<>
+    void object::test<9 >()
+    {
+        // When export to WKT1 is not possible
+        OGRSpatialReference oSRS;
+        oSRS.SetFromUserInput(
+            "PROJCRS[\"World_Vertical_Perspective\",\n"
+            "    BASEGEOGCRS[\"WGS 84\",\n"
+            "        DATUM[\"World Geodetic System 1984\",\n"
+            "            ELLIPSOID[\"WGS 84\",6378137,298.257223563,\n"
+            "                LENGTHUNIT[\"metre\",1]]],\n"
+            "        PRIMEM[\"Greenwich\",0,\n"
+            "            ANGLEUNIT[\"Degree\",0.0174532925199433]]],\n"
+            "    CONVERSION[\"World_Vertical_Perspective\",\n"
+            "        METHOD[\"Vertical Perspective\",\n"
+            "            ID[\"EPSG\",9838]],\n"
+            "        PARAMETER[\"Latitude of topocentric origin\",0,\n"
+            "            ANGLEUNIT[\"Degree\",0.0174532925199433],\n"
+            "            ID[\"EPSG\",8834]],\n"
+            "        PARAMETER[\"Longitude of topocentric origin\",0,\n"
+            "            ANGLEUNIT[\"Degree\",0.0174532925199433],\n"
+            "            ID[\"EPSG\",8835]],\n"
+            "        PARAMETER[\"Viewpoint height\",35800000,\n"
+            "            LENGTHUNIT[\"metre\",1],\n"
+            "            ID[\"EPSG\",8840]]],\n"
+            "    CS[Cartesian,2],\n"
+            "        AXIS[\"(E)\",east,\n"
+            "            ORDER[1],\n"
+            "            LENGTHUNIT[\"metre\",1]],\n"
+            "        AXIS[\"(N)\",north,\n"
+            "            ORDER[2],\n"
+            "            LENGTHUNIT[\"metre\",1]],\n"
+            "    USAGE[\n"
+            "        SCOPE[\"Not known.\"],\n"
+            "        AREA[\"World.\"],\n"
+            "        BBOX[-90,-180,90,180]],\n"
+            "    ID[\"ESRI\",54049]]");
+        ensure_equals(oSRS.GetEPSGGeogCS(), 4326);
+    }
 
 } // namespace tut

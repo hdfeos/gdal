@@ -2,10 +2,10 @@
  *
  * Project:  GDAL Rasterlite driver
  * Purpose:  Implement GDAL Rasterlite support using OGR SQLite driver
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  **********************************************************************
- * Copyright (c) 2009-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -69,11 +69,6 @@ char** RasterliteGetTileDriverOptions(char** papszOptions)
         CSLFetchNameValueDef(papszOptions, "DRIVER", "GTiff");
 
     char** papszTileDriverOptions = nullptr;
-    if (EQUAL(pszDriverName, "EPSILON"))
-    {
-        papszTileDriverOptions = CSLSetNameValue(papszTileDriverOptions,
-                                                "RASTERLITE_OUTPUT", "YES");
-    }
 
     const char* pszQuality = CSLFetchNameValue(papszOptions, "QUALITY");
     if (pszQuality)
@@ -100,10 +95,6 @@ char** RasterliteGetTileDriverOptions(char** papszOptions)
                 papszOptions, papszTileDriverOptions, "COMPRESS", "GTiff");
     papszTileDriverOptions = RasterliteAddTileDriverOptionsForDriver(
                 papszOptions, papszTileDriverOptions, "PHOTOMETRIC", "GTiff");
-    papszTileDriverOptions = RasterliteAddTileDriverOptionsForDriver(
-                papszOptions, papszTileDriverOptions, "TARGET", "EPSILON");
-    papszTileDriverOptions = RasterliteAddTileDriverOptionsForDriver(
-                papszOptions, papszTileDriverOptions, "FILTER", "EPSILON");
 
     return papszTileDriverOptions;
 }
@@ -121,6 +112,8 @@ static int RasterliteInsertSRID(OGRDataSourceH hDS, const char* pszWKT)
         OGRSpatialReferenceH hSRS = OSRNewSpatialReference(pszWKT);
         if (hSRS)
         {
+            OSRSetAxisMappingStrategy(hSRS, OAMS_TRADITIONAL_GIS_ORDER);
+
             const char* pszAuthorityName = OSRGetAuthorityName(hSRS, nullptr);
             if (pszAuthorityName) osAuthorityName = pszAuthorityName;
 

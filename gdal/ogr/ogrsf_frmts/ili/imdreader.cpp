@@ -222,6 +222,8 @@ public:
         {
             if (*it == nullptr) continue;
             const char* psName = CPLGetXMLValue( *it, "Name", nullptr );
+            if( psName == nullptr )
+                continue;
             const char* psTypeRef = CPLGetXMLValue( *it, "Type.REF", nullptr );
             if (psTypeRef == nullptr) //Assoc Role
                 AddField(psName, OFTString); //FIXME: numeric?
@@ -292,7 +294,7 @@ public:
                             AddGeomField(psName, wkbPolygon);
 
                             //We add the area helper point geometry after polygon
-                            //for better behaviour of clients with limited multi geometry support
+                            //for better behavior of clients with limited multi geometry support
                             CPLString areaPointGeomName = psName + CPLString("__Point");
                             AddCoord(areaPointGeomName, psElementNode);
                         } else if (EQUAL(psKind, "Surface"))

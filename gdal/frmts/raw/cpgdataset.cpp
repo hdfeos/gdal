@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2009, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -85,10 +85,16 @@ class CPGDataset final: public RawDataset
     ~CPGDataset() override;
 
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
 
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * ) override;
 
     char **GetFileList() override;
@@ -165,7 +171,7 @@ char **CPGDataset::GetFileList()
 /* ==================================================================== */
 /************************************************************************/
 
-class SIRC_QSLCRasterBand : public GDALRasterBand
+class SIRC_QSLCRasterBand final: public GDALRasterBand
 {
     friend class CPGDataset;
 
@@ -199,7 +205,7 @@ constexpr int M44 = 15;
 /* ==================================================================== */
 /************************************************************************/
 
-class CPG_STOKESRasterBand : public GDALRasterBand
+class CPG_STOKESRasterBand final: public GDALRasterBand
 {
     friend class CPGDataset;
 
@@ -969,7 +975,7 @@ GDALDataset *CPGDataset::InitializeType3Dataset( const char *pszFilename )
     {
         CPLError( CE_Failure, CPLE_AppDefined,
                   "%s is missing a required parameter (number of pixels, "
-                  "number of lines,\nnumber of bands, bytes per pixel, or "
+                  "number of lines,\number of bands, bytes per pixel, or "
                   "data organization).",
                   pszWorkname );
         CPLFree(pszWorkname);
@@ -1172,7 +1178,7 @@ int CPGDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *CPGDataset::GetGCPProjection()
+const char *CPGDataset::_GetGCPProjection()
 
 {
   return pszGCPProjection;
@@ -1192,7 +1198,7 @@ const GDAL_GCP *CPGDataset::GetGCPs()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *CPGDataset::GetProjectionRef()
+const char *CPGDataset::_GetProjectionRef()
 
 {
     return pszProjection;

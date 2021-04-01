@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Portions Copyright (c) Her majesty the Queen in right of Canada as
  * represented by the Minister of National Defence, 2006.
@@ -92,8 +92,10 @@ typedef struct
     bool bUseInternalOverviews;
 } JPGDatasetOpenArgs;
 
+class JPGDatasetCommon;
+
 #if defined(JPEG_DUAL_MODE_8_12) && !defined(JPGDataset)
-GDALDataset *JPEGDataset12Open(JPGDatasetOpenArgs *psArgs);
+JPGDatasetCommon *JPEGDataset12Open(JPGDatasetOpenArgs *psArgs);
 GDALDataset *JPEGDataset12CreateCopy( const char *pszFilename,
                                       GDALDataset *poSrcDS,
                                       int bStrict, char **papszOptions,
@@ -109,7 +111,6 @@ GDALDataset *JPEGDataset12CreateCopy( const char *pszFilename,
 #  define JPEG_LIB_MK1_OR_12BIT 1
 #endif
 
-class JPGDatasetCommon;
 GDALRasterBand *JPGCreateBand(JPGDatasetCommon *poDS, int nBand);
 
 typedef void (*my_jpeg_write_m_header)(void *cinfo, int marker,
@@ -133,18 +134,21 @@ void JPGAddICCProfile( void *pInfo,
                        my_jpeg_write_m_header p_jpeg_write_m_header,
                        my_jpeg_write_m_byte p_jpeg_write_m_byte);
 
-typedef struct GDALJPEGErrorStruct
+class GDALJPEGUserData
 {
+public:
     jmp_buf     setjmp_buffer;
-    bool        bNonFatalErrorEncountered;
-    void      (*p_previous_emit_message)(j_common_ptr cinfo, int msg_level);
-    GDALJPEGErrorStruct() :
-        bNonFatalErrorEncountered(false),
-        p_previous_emit_message(nullptr)
+    bool        bNonFatalErrorEncountered = false;
+    void      (*p_previous_emit_message)(j_common_ptr cinfo, int msg_level) = nullptr;
+    int         nMaxScans;
+
+    GDALJPEGUserData() :
+        nMaxScans(atoi(
+            CPLGetConfigOption("GDAL_JPEG_MAX_ALLOWED_SCAN_NUMBER", "100")))
     {
         memset(&setjmp_buffer, 0, sizeof(setjmp_buffer));
     }
-} GDALJPEGErrorStruct;
+};
 
 /************************************************************************/
 /* ==================================================================== */
@@ -155,9 +159,10 @@ typedef struct GDALJPEGErrorStruct
 class JPGRasterBand;
 class JPGMaskBand;
 
-class JPGDatasetCommon : public GDALPamDataset
+class JPGDatasetCommon CPL_NON_FINAL: public GDALPamDataset
 {
   protected:
+    friend class JPGDataset;
     friend class JPGRasterBand;
     friend class JPGMaskBand;
 
@@ -166,6 +171,8 @@ class JPGDatasetCommon : public GDALPamDataset
     int           nInternalOverviewsCurrent;
     int           nInternalOverviewsToFree;
     GDALDataset **papoInternalOverviews;
+    JPGDatasetCommon* poActiveDS = nullptr; /* only valid in parent DS */
+    JPGDatasetCommon** ppoActiveDS = nullptr; /* &poActiveDS of poActiveDS from parentDS */
     void          InitInternalOverviews();
     GDALDataset  *InitEXIFOverview();
 
@@ -184,9 +191,8 @@ class JPGDatasetCommon : public GDALPamDataset
     bool   bHasReadEXIFMetadata;
     bool   bHasReadXMPMetadata;
     bool   bHasReadICCMetadata;
+    bool   bHasReadFLIRMetadata = false;
     char   **papszMetadata;
-    char   **papszSubDatasets;
-    bool   bigendian;
     int    nExifOffset;
     int    nInterOffset;
     int    nGPSOffset;
@@ -196,7 +202,16 @@ class JPGDatasetCommon : public GDALPamDataset
     bool   bHasDoneJpegCreateDecompress;
     bool   bHasDoneJpegStartDecompress;
 
+    int    m_nSubdatasetCount = 0;
+
+    // FLIR raw thermal image
+    bool   m_bRawThermalLittleEndian = false;
+    int    m_nRawThermalImageWidth = 0;
+    int    m_nRawThermalImageHeight = 0;
+    std::vector<GByte> m_abyRawThermalImage{};
+
     virtual CPLErr LoadScanline(int, GByte* outBuffer = nullptr) = 0;
+    virtual void   StopDecompress() = 0;
     virtual CPLErr Restart() = 0;
 
     virtual int GetDataPrecision() = 0;
@@ -208,8 +223,12 @@ class JPGDatasetCommon : public GDALPamDataset
     void   CheckForMask();
     void   DecompressMask();
 
+    void   LoadForMetadataDomain( const char *pszDomain );
+
     void   ReadEXIFMetadata();
     void   ReadXMPMetadata();
+    void   ReadFLIRMetadata();
+    GDALDataset* OpenFLIRRawThermalImage();
 
     bool   bHasCheckedForMask;
     JPGMaskBand *poMaskBand;
@@ -247,7 +266,10 @@ class JPGDatasetCommon : public GDALPamDataset
     virtual CPLErr GetGeoTransform( double * ) override;
 
     virtual int    GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
 
     virtual char  **GetMetadataDomainList() override;
@@ -271,7 +293,7 @@ class JPGDatasetCommon : public GDALPamDataset
 
 class JPGDataset final: public JPGDatasetCommon
 {
-    GDALJPEGErrorStruct sErrorStruct;
+    GDALJPEGUserData sUserData;
 
     bool ErrorOutOnNonFatalError();
 
@@ -283,6 +305,7 @@ class JPGDataset final: public JPGDatasetCommon
     struct jpeg_progress_mgr sJProgress;
 
     virtual CPLErr LoadScanline(int, GByte* outBuffer) override;
+    virtual void   StopDecompress() override;
     virtual CPLErr Restart() override;
     virtual int GetDataPrecision() override { return sDInfo.data_precision; }
     virtual int GetOutColorSpace() override { return sDInfo.out_color_space; }
@@ -293,14 +316,14 @@ class JPGDataset final: public JPGDatasetCommon
 #endif
     void   SetScaleNumAndDenom();
 
-    static GDALDataset *OpenStage2( JPGDatasetOpenArgs *psArgs,
+    static JPGDatasetCommon *OpenStage2( JPGDatasetOpenArgs *psArgs,
                                     JPGDataset *&poDS );
 
   public:
                  JPGDataset();
     virtual ~JPGDataset();
 
-    static GDALDataset *Open( JPGDatasetOpenArgs *psArgs );
+    static JPGDatasetCommon *Open( JPGDatasetOpenArgs *psArgs );
     static GDALDataset *CreateCopy( const char *pszFilename,
                                     GDALDataset *poSrcDS,
                                     int bStrict, char ** papszOptions,
@@ -310,7 +333,7 @@ class JPGDataset final: public JPGDatasetCommon
         const char *pszFilename, GDALDataset *poSrcDS, char **papszOptions,
         GDALProgressFunc pfnProgress, void *pProgressData, VSILFILE *fpImage,
         GDALDataType eDT, int nQuality, bool bAppendMask,
-        GDALJPEGErrorStruct &sErrorStruct, struct jpeg_compress_struct &sCInfo,
+        GDALJPEGUserData &sUserData, struct jpeg_compress_struct &sCInfo,
         struct jpeg_error_mgr &sJErr, GByte *&pabyScanline);
     static void ErrorExit(j_common_ptr cinfo);
 };

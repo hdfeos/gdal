@@ -1,11 +1,11 @@
 /******************************************************************************
  *
  * Project:  OpenGIS Simple Features Reference Implementation
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  * Purpose:  OSM XML and OSM PBF parser
  *
  ******************************************************************************
- * Copyright (c) 2012-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -59,7 +59,9 @@ CPL_CVSID("$Id$")
 // doing checks for each byte.
 constexpr int EXTRA_BYTES = 1;
 
+#ifdef HAVE_EXPAT
 constexpr int XML_BUFSIZE = 64 * 1024;
+#endif
 
 // Per OSM PBF spec
 constexpr unsigned int MAX_BLOB_HEADER_SIZE = 64 * 1024;
@@ -1916,7 +1918,6 @@ static OSMRetCode PBF_ProcessBlock(OSMContext* psCtxt)
     psCtxt->nBlobOffset = 0;
     psCtxt->nBlobSize = 0;
 
-    bool nRet = false;
     int nBlobCount = 0;
     OSMRetCode eRetCode = OSM_OK;
     unsigned int nBlobSizeAcc = 0;
@@ -1954,10 +1955,10 @@ static OSMRetCode PBF_ProcessBlock(OSMContext* psCtxt)
         psCtxt->nBytesRead += nHeaderSize;
 
         memset(psCtxt->pabyBlobHeader + nHeaderSize, 0, EXTRA_BYTES);
-        nRet = ReadBlobHeader(psCtxt->pabyBlobHeader, 
+        const bool bRet = ReadBlobHeader(psCtxt->pabyBlobHeader, 
                               psCtxt->pabyBlobHeader + nHeaderSize,
                               &nBlobSize, &eType);
-        if( !nRet || eType == BLOB_UNKNOWN )
+        if( !bRet || eType == BLOB_UNKNOWN )
         {
             eRetCode = OSM_ERROR;
             break;
@@ -1985,7 +1986,7 @@ static OSMRetCode PBF_ProcessBlock(OSMContext* psCtxt)
             }
             psCtxt->pabyBlob = pabyBlobNew;
         }
-        // Given how Protocol buffer work, we can merge sevaral buffers
+        // Given how Protocol buffer work, we can merge several buffers
         // by just appending them to the previous ones.
         if( VSIFReadL(psCtxt->pabyBlob + nBlobSizeAcc, 1,
                       nBlobSize, psCtxt->fp) != nBlobSize )
@@ -2018,8 +2019,8 @@ static OSMRetCode PBF_ProcessBlock(OSMContext* psCtxt)
     {
         psCtxt->nBlobOffset = 0;
         psCtxt->nBlobSize = nBlobSizeAcc;
-        nRet = ReadBlob(psCtxt, eType);
-        if( nRet )
+        const bool bRet = ReadBlob(psCtxt, eType);
+        if( bRet )
         {
             if( eRetCode == OSM_EOF &&
                 (psCtxt->iNextJob < psCtxt->nJobs ||
@@ -2760,6 +2761,7 @@ OSMContext* OSM_Open( const char* pszFilename,
     if( nNumCPUs > 1 )
     {
         psCtxt->poWTP = new CPLWorkerThreadPool();
+        // coverity[tainted_data]
         if( !psCtxt->poWTP->Setup(nNumCPUs , nullptr, nullptr) )
         {
             delete psCtxt->poWTP;

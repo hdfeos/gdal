@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ###############################################################################
 # $Id$
 #
@@ -8,7 +8,7 @@
 #
 ###############################################################################
 # Copyright (c) 2005, Frank Warmerdam, warmerdam@pobox.com
-# Copyright (c) 2009, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2009, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -42,12 +42,11 @@ def Usage():
     print('       histrep.py -req <min> <max> <buckets> [-force] [-approxok]')
     print('                  [-ioor] input_file')
     print('')
-    sys.exit(1)
+    return 1
 
 
-# =============================================================================
-if __name__ == '__main__':
-    argv = gdal.GeneralCmdLineProcessor(sys.argv)
+def main(argv):
+    argv = gdal.GeneralCmdLineProcessor(argv)
 
     req = None
     force = 0
@@ -108,3 +107,9 @@ if __name__ == '__main__':
             print('Histogram: ', hist)
 
     ds = None
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
+

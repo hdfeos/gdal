@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2012-2018, Martin Landa <landa.martin gmail.com>
- * Copyright (c) 2012-2018, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2018, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -134,15 +134,14 @@ VFKReaderSQLite::VFKReaderSQLite( const GDALOpenInfo* poOpenInfo ) :
                  sqlite3_errmsg(m_poDB));
     }
 
-    int nRowCount = 0;
-    int nColCount = 0;
     CPLString osCommand;
     if( m_bDbSource )
     {
         /* check if it is really VFK DB datasource */
         char* pszErrMsg = nullptr;
         char** papszResult = nullptr;
-        nRowCount = nColCount = 0;
+        int nRowCount = 0;
+        int nColCount = 0;
 
         osCommand.Printf("SELECT * FROM sqlite_master WHERE type='table' AND name='%s'",
                          VFK_DB_TABLE);
@@ -166,7 +165,9 @@ VFKReaderSQLite::VFKReaderSQLite( const GDALOpenInfo* poOpenInfo ) :
         /* check if DB is up-to-date datasource */
         char* pszErrMsg = nullptr;
         char** papszResult = nullptr;
-        nRowCount = nColCount = 0;
+        int nRowCount = 0;
+        int nColCount = 0;
+
         osCommand.Printf("SELECT * FROM %s LIMIT 1", VFK_DB_TABLE);
         sqlite3_get_table(m_poDB,
                           osCommand.c_str(),
@@ -239,6 +240,7 @@ VFKReaderSQLite::VFKReaderSQLite( const GDALOpenInfo* poOpenInfo ) :
 
         /* insert S-JTSK into spatial_ref_sys table */
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if (poSRS->importFromEPSG(5514) != OGRERR_FAILURE)
         {
             char *pszWKT = nullptr;

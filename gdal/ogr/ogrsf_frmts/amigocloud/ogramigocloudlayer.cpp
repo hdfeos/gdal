@@ -123,19 +123,7 @@ OGRFeature *OGRAmigoCloudLayer::BuildFeature(json_object* poRowObj)
             }
             else if( json_object_get_type(poVal) == json_type_string )
             {
-                if( poFeatureDefn->GetFieldDefn(i)->GetType() == OFTDateTime )
-                {
-                    OGRField sField;
-                    if( OGRParseXMLDateTime( json_object_get_string(poVal),
-                                             &sField) )
-                    {
-                        poFeature->SetField(i, &sField);
-                    }
-                }
-                else
-                {
-                    poFeature->SetField(i, json_object_get_string(poVal));
-                }
+                poFeature->SetField(i, json_object_get_string(poVal));
             }
             else if( json_object_get_type(poVal) == json_type_int ||
                      json_object_get_type(poVal) == json_type_boolean )
@@ -234,7 +222,7 @@ OGRFeature *OGRAmigoCloudLayer::GetNextRawFeature()
             json_object_put(poCachedObj);
         poCachedObj = poObj;
 
-        nFetchedObjects = json_object_array_length(poRows);
+        nFetchedObjects = static_cast<decltype(nFetchedObjects)>(json_object_array_length(poRows));
         iNextInFetchedObjects = 0;
     }
 
@@ -334,9 +322,9 @@ void OGRAmigoCloudLayer::EstablishLayerDefn(const char* pszLayerName,
         return;
     }
 
-    int size = json_object_array_length(poFields);
+    auto size = json_object_array_length(poFields);
 
-    for(int i=0; i< size; i++)
+    for(auto i=decltype(size){0}; i< size; i++)
     {
         json_object *obj = json_object_array_get_idx(poFields, i);
 
@@ -390,12 +378,13 @@ void OGRAmigoCloudLayer::EstablishLayerDefn(const char* pszLayerName,
                 }
                 else if(EQUAL(fieldType.c_str(), "date"))
                 {
-                    if(!EQUAL(fieldName.c_str(), "created_at") &&
-                       !EQUAL(fieldName.c_str(), "updated_at"))
-                    {
-                        OGRFieldDefn oFieldDefn(fieldName.c_str(), OFTDateTime);
-                        poFeatureDefn->AddFieldDefn(&oFieldDefn);
-                    }
+                    OGRFieldDefn oFieldDefn(fieldName.c_str(), OFTDate);
+                    poFeatureDefn->AddFieldDefn(&oFieldDefn);
+                }
+                else if(EQUAL(fieldType.c_str(), "datetime"))
+                {
+                    OGRFieldDefn oFieldDefn(fieldName.c_str(), OFTDateTime);
+                    poFeatureDefn->AddFieldDefn(&oFieldDefn);
                 }
                 else if(EQUAL(fieldType.c_str(), "geometry"))
                 {
@@ -460,6 +449,7 @@ OGRSpatialReference* OGRAmigoCloudLayer::GetSRS(const char* pszGeomCol,
     {
         const char* pszSRTEXT = json_object_get_string(poSRTEXT);
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromWkt(pszSRTEXT) != OGRERR_NONE )
         {
             delete poSRS;

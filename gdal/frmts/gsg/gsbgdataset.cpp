@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2006, Kevin Locke <kwl7@cornell.edu>
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +48,7 @@ CPL_CVSID("$Id$")
 
 class GSBGRasterBand;
 
-class GSBGDataset : public GDALPamDataset
+class GSBGDataset final: public GDALPamDataset
 {
     friend class GSBGRasterBand;
 
@@ -71,7 +71,7 @@ class GSBGDataset : public GDALPamDataset
     static GDALDataset *Create( const char * pszFilename,
                                 int nXSize, int nYSize, int nBands,
                                 GDALDataType eType,
-                                char **papszParmList );
+                                char **papszParamList );
     static GDALDataset *CreateCopy( const char *pszFilename,
                                     GDALDataset *poSrcDS,
                                     int bStrict, char **papszOptions,
@@ -94,7 +94,7 @@ const size_t GSBGDataset::nHEADER_SIZE = 56;
 /* ==================================================================== */
 /************************************************************************/
 
-class GSBGRasterBand : public GDALPamRasterBand
+class GSBGRasterBand final: public GDALPamRasterBand
 {
     friend class GSBGDataset;
 
@@ -307,8 +307,7 @@ CPLErr GSBGRasterBand::IWriteBlock( int nBlockXOff, int nBlockYOff,
     if( nBlockYOff < 0 || nBlockYOff > nRasterYSize - 1 || nBlockXOff != 0 )
         return CE_Failure;
 
-    GSBGDataset *poGDS = dynamic_cast<GSBGDataset *>(poDS);
-    assert( poGDS != nullptr );
+    GSBGDataset *poGDS = cpl::down_cast<GSBGDataset *>(poDS);
 
     if( pafRowMinZ == nullptr || pafRowMaxZ == nullptr
         || nMinZRow < 0 || nMaxZRow < 0 )
@@ -658,18 +657,7 @@ CPLErr GSBGDataset::GetGeoTransform( double *padfGeoTransform )
     if( padfGeoTransform == nullptr )
         return CE_Failure;
 
-    GSBGRasterBand *poGRB = dynamic_cast<GSBGRasterBand *>(GetRasterBand( 1 ));
-
-    if( poGRB == nullptr )
-    {
-        padfGeoTransform[0] = 0;
-        padfGeoTransform[1] = 1;
-        padfGeoTransform[2] = 0;
-        padfGeoTransform[3] = 0;
-        padfGeoTransform[4] = 0;
-        padfGeoTransform[5] = 1;
-        return CE_Failure;
-    }
+    GSBGRasterBand *poGRB = cpl::down_cast<GSBGRasterBand *>(GetRasterBand( 1 ));
 
     /* check if we have a PAM GeoTransform stored */
     CPLPushErrorHandler( CPLQuietErrorHandler );
@@ -710,9 +698,9 @@ CPLErr GSBGDataset::SetGeoTransform( double *padfGeoTransform )
         return CE_Failure;
     }
 
-    GSBGRasterBand *poGRB = dynamic_cast<GSBGRasterBand *>(GetRasterBand( 1 ));
+    GSBGRasterBand *poGRB = cpl::down_cast<GSBGRasterBand *>(GetRasterBand( 1 ));
 
-    if( poGRB == nullptr || padfGeoTransform == nullptr)
+    if( padfGeoTransform == nullptr)
         return CE_Failure;
 
     /* non-zero transform 2 or 4 or negative 1 or 5 not supported natively */
@@ -854,7 +842,7 @@ GDALDataset *GSBGDataset::Create( const char * pszFilename,
                                   int nYSize,
                                   CPL_UNUSED int nBands,
                                   GDALDataType eType,
-                                  CPL_UNUSED char **papszParmList )
+                                  CPL_UNUSED char **papszParamList )
 {
     if( nXSize <= 0 || nYSize <= 0 )
     {
@@ -1116,7 +1104,7 @@ void GDALRegister_GSBG()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Golden Software Binary Grid (.grd)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#GSBG" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/gsbg.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "grd" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 UInt16 Float32" );

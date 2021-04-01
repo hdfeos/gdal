@@ -1,13 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR Test Suite
 # Purpose:  LOS/LAS Testing.
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2010, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -29,40 +29,20 @@
 ###############################################################################
 
 import os
-import sys
-
-sys.path.append('../pymod')
-
 import gdaltest
 
 ###############################################################################
 
 
-def loslas_online_1():
+def test_loslas_1():
 
-    if not gdaltest.download_file('http://www.ngs.noaa.gov/PC_PROD/NADCON/NADCON.zip', 'NADCON.zip'):
-        return 'skip'
-
-    try:
-        os.stat('tmp/cache/NADCON.zip')
-    except OSError:
-        return 'skip'
-
-    tst = gdaltest.GDALTest('LOSLAS', '/vsizip/tmp/cache/NADCON.zip/wyhpgn.los', 1, 0, filename_absolute=1)
+    tst = gdaltest.GDALTest('LOSLAS', 'data/loslas/wyhpgn.los', 1, 0, filename_absolute=1)
     gt = (-111.625, 0.25, 0.0, 45.625, 0.0, -0.25)
-    stats = (-0.0080000003799796, 0.031125999987125001, 0.0093017323318172005, 0.0075646520354096004)
-    return tst.testOpen(check_gt=gt, check_stat=stats, check_prj='WGS84')
+    stats = (-0.027868999168276787, 0.033906999975442886, 0.009716129862575248, 0.008260044951413324)
+    ret = tst.testOpen(check_gt=gt, check_stat=stats, check_prj='WGS84')
+    os.unlink('data/loslas/wyhpgn.los.aux.xml')
+    return ret
 
 
-gdaltest_list = [
-    loslas_online_1,
-]
 
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('LOSLAS')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

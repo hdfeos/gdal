@@ -184,27 +184,8 @@ void OGRWalkLayer::ResetReading()
 }
 
 /************************************************************************/
-/*                           GetNextFeature()                           */
+/*                         GetNextRawFeature()                          */
 /************************************************************************/
-
-OGRFeature *OGRWalkLayer::GetNextFeature()
-
-{
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if( poFeature == nullptr )
-            return nullptr;
-
-        if( (m_poFilterGeom == nullptr
-            || FilterGeometry( poFeature->GetGeometryRef() ) )
-            && (m_poAttrQuery == nullptr
-                || m_poAttrQuery->Evaluate( poFeature )) )
-            return poFeature;
-
-        delete poFeature;
-    }
-}
 
 OGRFeature *OGRWalkLayer::GetNextRawFeature()
 
@@ -351,6 +332,7 @@ void OGRWalkLayer::LookupSpatialRef( const char * pszMemo )
     if ( strlen(pszProj4) > 0 )
     {
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
         if( poSRS->importFromProj4( pszProj4 ) != OGRERR_NONE )
         {

@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -278,7 +278,9 @@ void GDALPamRasterBand::PamInitialize()
         dynamic_cast<GDALPamDataset *>( poNonPamParentDS );
     if( poParentDS == nullptr ) {
         // Should never happen.
-        CPLAssert(false);
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Programming error: found GDALPamRasterBand that is not "
+                 "attached to a GDALPamDataset.");
         return;
     }
 
@@ -408,7 +410,7 @@ CPLErr GDALPamRasterBand::XMLInit( CPLXMLNode *psTree,
              psEntry != nullptr;
              psEntry = psEntry->psNext )
         {
-            /* Don't skeep <Category> tag with empty content */
+            /* Don't skip <Category> tag with empty content */
             if( psEntry->eType != CXT_Element
                 || !EQUAL(psEntry->pszValue,"Category")
                 || (psEntry->psChild != nullptr &&
@@ -777,7 +779,7 @@ double GDALPamRasterBand::GetOffset( int *pbSuccess )
         return GDALRasterBand::GetOffset( pbSuccess );
 
     if( pbSuccess != nullptr )
-        *pbSuccess = TRUE;
+        *pbSuccess = psPam->bOffsetSet;
 
     return psPam->dfOffset;
 }
@@ -797,6 +799,7 @@ CPLErr GDALPamRasterBand::SetOffset( double dfNewOffset )
     if( psPam->dfOffset != dfNewOffset )
     {
         psPam->dfOffset = dfNewOffset;
+        psPam->bOffsetSet = true;
         psPam->poParentDS->MarkPamDirty();
     }
 
@@ -814,7 +817,7 @@ double GDALPamRasterBand::GetScale( int *pbSuccess )
         return GDALRasterBand::GetScale( pbSuccess );
 
     if( pbSuccess != nullptr )
-        *pbSuccess = TRUE;
+        *pbSuccess = psPam->bScaleSet;
 
     return psPam->dfScale;
 }
@@ -834,6 +837,7 @@ CPLErr GDALPamRasterBand::SetScale( double dfNewScale )
     if( dfNewScale != psPam->dfScale )
     {
         psPam->dfScale = dfNewScale;
+        psPam->bScaleSet = true;
         psPam->poParentDS->MarkPamDirty();
     }
     return CE_None;

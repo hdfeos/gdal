@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Brian Case
- * Copyright (c) 2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -92,12 +92,11 @@ static CameraPtr feat2kmlcamera( const struct fieldconfig& oFC,
     camera->set_latitude(poOgrFeat->GetFieldAsDouble(iCameraLatitudeField));
     camera->set_longitude(poOgrFeat->GetFieldAsDouble(iCameraLongitudeField));
     int isGX = FALSE;
-    int nAltitudeMode = kmldom::ALTITUDEMODE_CLAMPTOGROUND;
 
     if( iCameraAltitudeModeField >= 0 &&
         poOgrFeat->IsFieldSetAndNotNull(iCameraAltitudeModeField) )
     {
-        nAltitudeMode = kmlAltitudeModeFromString(
+        const int nAltitudeMode = kmlAltitudeModeFromString(
             poOgrFeat->GetFieldAsString(iCameraAltitudeModeField), isGX);
         camera->set_altitudemode(nAltitudeMode);
     }
@@ -232,7 +231,7 @@ static void OGRLIBKMLGetMaxDimensions( const char* pszURL,
 
 FeaturePtr feat2kml(
     OGRLIBKMLDataSource * poOgrDS,
-    OGRLayer * poOgrLayer,
+    OGRLIBKMLLayer * poOgrLayer,
     OGRFeature * poOgrFeat,
     KmlFactory * poKmlFactory,
     int bUseSimpleField )
@@ -353,7 +352,7 @@ FeaturePtr feat2kml(
                         poOgrFeat->GetFieldAsInteger(iImagePyramidMaxHeight);
                 }
 
-                if( nTileSize <= 0 || nMaxWidth <= 0 || nMaxHeight <= 0)
+                if( nMaxWidth <= 0 || nMaxHeight <= 0)
                 {
                     CPLError(
                         CE_Failure, CPLE_AppDefined,
@@ -628,10 +627,9 @@ FeaturePtr feat2kml(
         int isGX = FALSE;
         const int iAltitudeMode =
             poOgrFeat->GetFieldIndex(oFC.altitudeModefield);
-        int nAltitudeMode = kmldom::ALTITUDEMODE_CLAMPTOGROUND;
-        if( iAltitudeMode >= 0 && poOgrFeat->IsFieldSetAndNotNull(iAltitudeMode) )
+        if( poOgrFeat->IsFieldSetAndNotNull(iAltitudeMode) )
         {
-            nAltitudeMode = kmlAltitudeModeFromString(
+            const int nAltitudeMode = kmlAltitudeModeFromString(
                 poOgrFeat->GetFieldAsString(iAltitudeMode), isGX);
             model->set_altitudemode(nAltitudeMode);
 
@@ -785,10 +783,9 @@ FeaturePtr feat2kml(
         int isGX = FALSE;
         const int iAltitudeMode =
             poOgrFeat->GetFieldIndex(oFC.altitudeModefield);
-        int nAltitudeMode = kmldom::ALTITUDEMODE_CLAMPTOGROUND;
-        if( iAltitudeMode >= 0 && poOgrFeat->IsFieldSetAndNotNull(iAltitudeMode) )
+        if( poOgrFeat->IsFieldSetAndNotNull(iAltitudeMode) )
         {
-            nAltitudeMode = kmlAltitudeModeFromString(
+            const int nAltitudeMode = kmlAltitudeModeFromString(
                 poOgrFeat->GetFieldAsString(iAltitudeMode), isGX);
             camera->set_altitudemode(nAltitudeMode);
         }
@@ -840,14 +837,7 @@ FeaturePtr feat2kml(
                       poKmlFeature );
 
     /***** fields *****/
-    OGRLIBKMLLayer * const poKmlLayer =
-        dynamic_cast<OGRLIBKMLLayer *>(poOgrLayer);
-    if( poKmlLayer == nullptr )
-    {
-        CPLError(CE_Failure, CPLE_AppDefined, "dynamic_cast failed.");
-        return nullptr;
-    }
-    field2kml( poOgrFeat, poKmlLayer, poKmlFactory,
+    field2kml( poOgrFeat, poOgrLayer, poKmlFactory,
                poKmlFeature, bUseSimpleField );
 
     return poKmlFeature;

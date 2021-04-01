@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -35,16 +35,13 @@
 #include <cstring>
 
 #include <algorithm>
+#include <set>
 #include <utility>
+#include <vector>
 
 #include "gdal_alg.h"
 
 CPL_CVSID("$Id$")
-
-static int llCompareInt(const void *a, const void *b)
-{
-    return *static_cast<const int*>(a) - *static_cast<const int*>(b);
-}
 
 /************************************************************************/
 /*                       dllImageFilledPolygon()                        */
@@ -59,23 +56,11 @@ static int llCompareInt(const void *a, const void *b)
 /*      NEW: Nodes' coordinate are kept as double  in order             */
 /*      to compute accurately the intersections with the lines          */
 /*                                                                      */
-/*      Two methods for determining the border pixels:                  */
-/*                                                                      */
-/*      1) method = 0                                                   */
-/*         Inherits algorithm from version above but with several bugs  */
-/*         fixed except for the cone facing down.                       */
-/*         A pixel on which a line intersects a segment of a            */
-/*         polygon will always be considered as inside the shape.       */
-/*         Note that we only compute intersections with lines that      */
-/*         passes through the middle of a pixel (line coord = 0.5,      */
-/*         1.5, 2.5, etc.)                                              */
-/*                                                                      */
-/*      2) method = 1:                                                  */
-/*         A pixel is considered inside a polygon if its center         */
-/*         falls inside the polygon. This is somehow more robust unless */
-/*         the nodes are placed in the center of the pixels in which    */
-/*         case, due to numerical inaccuracies, it's hard to predict    */
-/*         if the pixel will be considered inside or outside the shape. */
+/*      A pixel is considered inside a polygon if its center            */
+/*      falls inside the polygon. This is robust unless                 */
+/*      the nodes are placed in the center of the pixels in which       */
+/*      case, due to numerical inaccuracies, it's hard to predict       */
+/*      if the pixel will be considered inside or outside the shape.    */
 /************************************************************************/
 
 /*
@@ -89,17 +74,11 @@ static int llCompareInt(const void *a, const void *b)
  */
 
 void GDALdllImageFilledPolygon(int nRasterXSize, int nRasterYSize,
-                               int nPartCount, int *panPartSize,
-                               double *padfX, double *padfY,
-                               double *dfVariant,
+                               int nPartCount, const int *panPartSize,
+                               const double *padfX, const double *padfY,
+                               const double *dfVariant,
                                llScanlineFunc pfnScanlineFunc, void *pCBData )
 {
-/*************************************************************************
-2nd Method (method=1):
-=====================
-No known bug
-*************************************************************************/
-
     if( !nPartCount )
     {
         return;
@@ -109,8 +88,7 @@ No known bug
     for( int part = 0; part < nPartCount; part++ )
         n += panPartSize[part];
 
-    // +1 to make clang static analyzer not warn about potential malloc(0).
-    int *polyInts = static_cast<int *>(malloc(sizeof(int) * (n + 1)));
+    std::vector<int> polyInts(n);
 
     double dminy = padfY[0];
     double dmaxy = padfY[0];
@@ -145,9 +123,6 @@ No known bug
 
         int part = 0;
         int ints = 0;
-
-        // Initialize polyInts, otherwise it can sometimes causes a seg fault.
-        memset(polyInts, -1, sizeof(int) * n);
 
         for( int i = 0; i < n; i++ )
         {
@@ -185,8 +160,7 @@ No known bug
             }
             else if( dy1 > dy2 )
             {
-                dy2 = padfY[ind1];
-                dy1 = padfY[ind2];
+                std::swap(dy1, dy2);
                 dx2 = padfX[ind1];
                 dx1 = padfX[ind2];
             }
@@ -224,16 +198,9 @@ No known bug
             }
         }
 
-        // It would be more efficient to do this inline, to avoid
-        // a function call for each comparison.
-        // NOTE - mloskot: make llCompareInt a functor and use std
-        // algorithm and it will be optimized and expanded
-        // automatically in compile-time, with modularity preserved.
-        //
-        // TODO(schwehr): Use std::sort.
-        qsort(polyInts, ints, sizeof(int), llCompareInt);
+        std::sort (polyInts.begin(), polyInts.begin()+ints);
 
-        for( int i = 0; i < ints; i += 2 )
+        for( int i = 0; i + 1 < ints; i += 2 )
         {
             if( polyInts[i] <= maxx && polyInts[i+1] > minx )
             {
@@ -242,8 +209,6 @@ No known bug
             }
         }
     }
-
-    free( polyInts );
 }
 
 /************************************************************************/
@@ -252,8 +217,9 @@ No known bug
 
 void GDALdllImagePoint( int nRasterXSize, int nRasterYSize,
                         int nPartCount,
-                        CPL_UNUSED int *panPartSize,
-                        double *padfX, double *padfY, double *padfVariant,
+                        const int * /*panPartSize*/,
+                        const double *padfX, const double *padfY,
+                        const double *padfVariant,
                         llPointFunc pfnPointFunc, void *pCBData )
 {
     for( int i = 0; i < nPartCount; i++ )
@@ -274,8 +240,9 @@ void GDALdllImagePoint( int nRasterXSize, int nRasterYSize,
 /************************************************************************/
 
 void GDALdllImageLine( int nRasterXSize, int nRasterYSize,
-                       int nPartCount, int *panPartSize,
-                       double *padfX, double *padfY, double *padfVariant,
+                       int nPartCount, const int *panPartSize,
+                       const double *padfX, const double *padfY,
+                       const double *padfVariant,
                        llPointFunc pfnPointFunc, void *pCBData )
 {
     if( !nPartCount )
@@ -322,6 +289,14 @@ void GDALdllImageLine( int nRasterXSize, int nRasterYSize,
                     ? 0.0
                     : (dfVariant1 - dfVariant) / nDeltaX;
 
+                // Do not burn the end point, unless we are in the last
+                // segment. This is to avoid burning twice intermediate points,
+                // which causes artifacts in Add mode
+                if( j != panPartSize[i] - 1 )
+                {
+                    nDeltaX --;
+                }
+
                 while( nDeltaX-- >= 0 )
                 {
                     if( 0 <= iX && iX < nRasterXSize
@@ -353,6 +328,14 @@ void GDALdllImageLine( int nRasterXSize, int nRasterYSize,
                     nDeltaY == 0
                     ? 0.0
                     : (dfVariant1 - dfVariant) / nDeltaY;
+
+                // Do not burn the end point, unless we are in the last
+                // segment. This is to avoid burning twice intermediate points,
+                // which causes artifacts in Add mode
+                if( j != panPartSize[i] - 1 )
+                {
+                    nDeltaY --;
+                }
 
                 while( nDeltaY-- >= 0 )
                 {
@@ -392,9 +375,11 @@ void GDALdllImageLine( int nRasterXSize, int nRasterYSize,
 
 void
 GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
-                            int nPartCount, int *panPartSize,
-                            double *padfX, double *padfY, double *padfVariant,
-                            llPointFunc pfnPointFunc, void *pCBData )
+                            int nPartCount, const int *panPartSize,
+                            const double *padfX, const double *padfY,
+                            const double *padfVariant,
+                            llPointFunc pfnPointFunc, void *pCBData,
+                            int bAvoidBurningSamePoints )
 
 {
     if( !nPartCount )
@@ -402,8 +387,14 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
 
     for( int i = 0, n = 0; i < nPartCount; n += panPartSize[i++] )
     {
+        std::set<std::pair<int,int>> lastBurntPoints;
+        std::set<std::pair<int,int>> newBurntPoints;
+
         for( int j = 1; j < panPartSize[i]; j++ )
         {
+            lastBurntPoints = std::move(newBurntPoints);
+            newBurntPoints.clear();
+
             double dfX = padfX[n + j - 1];
             double dfY = padfY[n + j - 1];
 
@@ -465,11 +456,37 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
                 dfVariant += dfDeltaVariant * (iY - dfY);
 
                 if( padfVariant == nullptr )
+                {
                     for( ; iY <= iYEnd; iY++ )
+                    {
+                        if( bAvoidBurningSamePoints )
+                        {
+                            auto yx = std::pair<int,int>(iY,iX);
+                            if( lastBurntPoints.find( yx ) != lastBurntPoints.end() )
+                            {
+                                continue;
+                            }
+                            newBurntPoints.insert(yx);
+                        }
                         pfnPointFunc( pCBData, iY, iX, 0.0 );
+                    }
+                }
                 else
+                {
                     for( ; iY <= iYEnd; iY++, dfVariant +=  dfDeltaVariant )
+                    {
+                        if( bAvoidBurningSamePoints )
+                        {
+                            auto yx = std::pair<int,int>(iY,iX);
+                            if( lastBurntPoints.find( yx ) != lastBurntPoints.end() )
+                            {
+                                continue;
+                            }
+                            newBurntPoints.insert(yx);
+                        }
                         pfnPointFunc( pCBData, iY, iX, dfVariant );
+                    }
+                }
 
                 continue;  // Next segment.
             }
@@ -502,11 +519,37 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
                 dfVariant += dfDeltaVariant * (iX - dfX);
 
                 if( padfVariant == nullptr )
+                {
                     for( ; iX <= iXEnd; iX++ )
+                    {
+                        if( bAvoidBurningSamePoints )
+                        {
+                            auto yx = std::pair<int,int>(iY,iX);
+                            if( lastBurntPoints.find( yx ) != lastBurntPoints.end() )
+                            {
+                                continue;
+                            }
+                            newBurntPoints.insert(yx);
+                        }
                         pfnPointFunc( pCBData, iY, iX, 0.0 );
+                    }
+                }
                 else
+                {
                     for( ; iX <= iXEnd; iX++, dfVariant +=  dfDeltaVariant )
+                    {
+                        if( bAvoidBurningSamePoints )
+                        {
+                            auto yx = std::pair<int,int>(iY,iX);
+                            if( lastBurntPoints.find( yx ) != lastBurntPoints.end() )
+                            {
+                                continue;
+                            }
+                            newBurntPoints.insert(yx);
+                        }
                         pfnPointFunc( pCBData, iY, iX, dfVariant );
+                    }
+                }
 
                 continue;  // Next segment.
             }
@@ -576,7 +619,22 @@ GDALdllImageLineAllTouched( int nRasterXSize, int nRasterYSize,
                 // We should be able to drop the Y check because we clipped
                 // in Y, but there may be some error with all the small steps.
                 if( iY >= 0 && iY < nRasterYSize )
-                    pfnPointFunc( pCBData, iY, iX, dfVariant );
+                {
+                    if( bAvoidBurningSamePoints )
+                    {
+                        auto yx = std::pair<int,int>(iY,iX);
+                        if( lastBurntPoints.find( yx ) == lastBurntPoints.end() &&
+                            newBurntPoints.find( yx ) == newBurntPoints.end() )
+                        {
+                            newBurntPoints.insert(yx);
+                            pfnPointFunc( pCBData, iY, iX, dfVariant );
+                        }
+                    }
+                    else
+                    {
+                        pfnPointFunc( pCBData, iY, iX, dfVariant );
+                    }
+                }
 
                 double dfStepX = floor(dfX+1.0) - dfX;
                 double dfStepY = dfStepX * dfSlope;

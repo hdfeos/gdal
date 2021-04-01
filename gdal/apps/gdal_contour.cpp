@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2003, Applied Coherent Technology (www.actgate.com).
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2018, Oslandia <infos at oslandia dot com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -73,8 +73,6 @@ static void Usage(const char* pszErrorMsg = nullptr)
 static void CreateElevAttrib(const char* pszElevAttrib, OGRLayerH hLayer)
 {
     OGRFieldDefnH hFld = OGR_Fld_Create( pszElevAttrib, OFTReal );
-    OGR_Fld_SetWidth( hFld, 12 );
-    OGR_Fld_SetPrecision( hFld, 3 );
     OGRErr eErr = OGR_L_CreateField( hLayer, hFld, FALSE );
     OGR_Fld_Destroy( hFld );
     if( eErr == OGRERR_FAILURE )
@@ -152,31 +150,37 @@ MAIN_START(argc, argv)
         else if( EQUAL(argv[i],"-a") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             pszElevAttrib = argv[++i];
         }
         else if( EQUAL(argv[i],"-amin") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             pszElevAttribMin = argv[++i];
         }
         else if( EQUAL(argv[i],"-amax") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             pszElevAttribMax = argv[++i];
         }
         else if( EQUAL(argv[i],"-off") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             dfOffset = CPLAtof(argv[++i]);
         }
         else if( EQUAL(argv[i],"-i") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             dfInterval = CPLAtof(argv[++i]);
         }
         else if( EQUAL(argv[i],"-e") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             dfExpBase = CPLAtof(argv[++i]);
         }
         else if( EQUAL(argv[i],"-p") )
@@ -192,26 +196,31 @@ MAIN_START(argc, argv)
                    && nFixedLevelCount
                    < static_cast<int>(sizeof(adfFixedLevels)/sizeof(double))
                    && ArgIsNumeric(argv[i+1]) )
+                // coverity[tainted_data]
                 adfFixedLevels[nFixedLevelCount++] = CPLAtof(argv[++i]);
         }
         else if( EQUAL(argv[i],"-b") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             nBandIn = atoi(argv[++i]);
         }
         else if( EQUAL(argv[i],"-f") || EQUAL(argv[i],"-of") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             pszFormat = argv[++i];
         }
         else if( EQUAL(argv[i],"-dsco") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             papszDSCO = CSLAddString(papszDSCO, argv[++i] );
         }
         else if( EQUAL(argv[i],"-lco") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             papszLCO = CSLAddString(papszLCO, argv[++i] );
         }
         else if( EQUAL(argv[i],"-3d")  )
@@ -222,11 +231,13 @@ MAIN_START(argc, argv)
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
             bNoDataSet = TRUE;
+            // coverity[tainted_data]
             dfNoData = CPLAtof(argv[++i]);
         }
         else if( EQUAL(argv[i],"-nln") )
         {
             CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
+            // coverity[tainted_data]
             pszNewLayerName = argv[++i];
         }
         else if( EQUAL(argv[i],"-inodata") )
@@ -262,6 +273,12 @@ MAIN_START(argc, argv)
     if (pszDstFilename == nullptr)
     {
         Usage("Missing destination filename.");
+    }
+
+    if( strcmp(pszDstFilename, "/vsistdout/") == 0 ||
+        strcmp(pszDstFilename, "/dev/stdout") == 0 )
+    {
+        bQuiet = true;
     }
 
     if (!bQuiet)
@@ -352,6 +369,28 @@ MAIN_START(argc, argv)
     OGR_Fld_SetWidth( hFld, 8 );
     OGR_L_CreateField( hLayer, hFld, FALSE );
     OGR_Fld_Destroy( hFld );
+
+    if( bPolygonize )
+    {
+        if( pszElevAttrib )
+        {
+            pszElevAttrib = nullptr;
+            CPLError(CE_Warning, CPLE_NotSupported,
+                     "-a is ignored in polygonal contouring mode. "
+                     "Use -amin and/or -amax instead");
+        }
+    }
+    else
+    {
+        if( pszElevAttribMin != nullptr || pszElevAttribMax != nullptr )
+        {
+            pszElevAttribMin = nullptr;
+            pszElevAttribMax = nullptr;
+            CPLError(CE_Warning, CPLE_NotSupported,
+                     "-amin and/or -amax are ignored in line contouring mode. "
+                     "Use -a instead");
+        }
+    }
 
     if( pszElevAttrib )
     {

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -7,7 +7,7 @@
 # Author:   Delfim Rego <delfimrego@gmail.com>
 #
 ###############################################################################
-# Copyright (c) 2009, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2009, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -28,10 +28,8 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 
-sys.path.append('../pymod')
-
+from osgeo import gdal
 import gdaltest
 
 ###############################################################################
@@ -39,7 +37,7 @@ import gdaltest
 # reduced to 1% of their initial size and metadata stripped
 
 
-def safe_1():
+def test_safe_1():
 
     tst = gdaltest.GDALTest(
         'SAFE',
@@ -47,14 +45,14 @@ def safe_1():
     return tst.testOpen()
 
 
-def safe_2():
+def test_safe_2():
 
     tst = gdaltest.GDALTest(
         'SAFE', 'SAFE_FAKE/test.SAFE/manifest.safe', 2, 3732)
     return tst.testOpen()
 
 
-def safe_3():
+def test_safe_3():
 
     tst = gdaltest.GDALTest(
         'SAFE',
@@ -62,7 +60,7 @@ def safe_3():
     return tst.testOpen()
 
 
-def safe_4():
+def test_safe_4():
 
     tst = gdaltest.GDALTest(
         'SAFE',
@@ -70,7 +68,7 @@ def safe_4():
     return tst.testOpen()
 
 
-def safe_5():
+def test_safe_5():
 
     tst = gdaltest.GDALTest(
         'SAFE',
@@ -78,17 +76,23 @@ def safe_5():
     return tst.testOpen()
 
 
-gdaltest_list = [
-    safe_1,
-    safe_2,
-    safe_3,
-    safe_4,
-    safe_5]
+def test_safe_WV():
 
-if __name__ == '__main__':
+    ds = gdal.Open('data/SAFE_FAKE_WV')
+    assert ds is not None
+    subds = ds.GetSubDatasets()
+    assert len(subds) == 2
 
-    gdaltest.setup_run('safe')
+    ds = gdal.Open(subds[0][0])
+    assert ds is not None
+    assert len(ds.GetSubDatasets()) == 0
+    assert len(ds.GetGCPs()) == 1
 
-    gdaltest.run_tests(gdaltest_list)
+    ds = gdal.Open(subds[1][0])
+    assert ds is not None
+    assert len(ds.GetSubDatasets()) == 0
+    assert len(ds.GetGCPs()) == 2
 
-    sys.exit(gdaltest.summarize())
+    with gdaltest.error_handler():
+        assert gdal.Open(subds[0][0] + 'xxxx') is None
+

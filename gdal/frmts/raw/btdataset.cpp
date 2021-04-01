@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2003, Frank Warmerdam
- * Copyright (c) 2007-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -66,8 +66,14 @@ class BTDataset final: public GDALPamDataset
     BTDataset();
     ~BTDataset() override;
 
-    const char *GetProjectionRef(void) override;
-    CPLErr SetProjection( const char * ) override;
+    const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr _SetProjection( const char * ) override;
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
     CPLErr GetGeoTransform( double * ) override;
     CPLErr SetGeoTransform( double * ) override;
 
@@ -475,7 +481,7 @@ CPLErr BTDataset::SetGeoTransform( double *padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *BTDataset::GetProjectionRef()
+const char *BTDataset::_GetProjectionRef()
 
 {
     if( pszProjection == nullptr )
@@ -488,7 +494,7 @@ const char *BTDataset::GetProjectionRef()
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr BTDataset::SetProjection( const char *pszNewProjection )
+CPLErr BTDataset::_SetProjection( const char *pszNewProjection )
 
 {
     CPLErr eErr = CE_None;
@@ -502,11 +508,11 @@ CPLErr BTDataset::SetProjection( const char *pszNewProjection )
 /*      Parse projection.                                               */
 /* -------------------------------------------------------------------- */
     OGRSpatialReference oSRS( pszProjection );
-    GInt16  nShortTemp = 0;
 
 /* -------------------------------------------------------------------- */
 /*      Linear units.                                                   */
 /* -------------------------------------------------------------------- */
+#if 0
     if( oSRS.IsGeographic() )
     {
         // nShortTemp = 0;
@@ -523,8 +529,8 @@ CPLErr BTDataset::SetProjection( const char *pszNewProjection )
         else
             nShortTemp = 1;
     }
-
-    nShortTemp = CPL_LSBWORD16( 1 );
+#endif
+    GInt16 nShortTemp = CPL_LSBWORD16( 1 );
     memcpy( abyHeader + 22, &nShortTemp, 2 );
 
 /* -------------------------------------------------------------------- */
@@ -972,7 +978,7 @@ void GDALRegister_BT()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                    "VTP .bt (Binary Terrain) 1.3 Format" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                                   "frmt_various.html#BT" );
+                                   "drivers/raster/bt.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "bt" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Int16 Int32 Float32" );

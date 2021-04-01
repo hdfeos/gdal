@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Philippe Vachon <philippe@cowpig.ca>
- * Copyright (c) 2009-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -38,6 +38,7 @@
 
 CPL_CVSID("$Id$")
 
+namespace {
 enum ePolarization {
     HH=0,
     HV,
@@ -52,6 +53,7 @@ enum eProductType {
     eGEC,
     eUnknown
 };
+} // namespace
 
 /************************************************************************/
 /* Helper Functions                                                     */
@@ -60,16 +62,16 @@ enum eProductType {
 /* GetFilePath: return a relative path to a file within an XML node.
  * Returns Null on failure
  */
-static const char *GetFilePath(CPLXMLNode *psXMLNode, const char **pszNodeType) {
+static CPLString GetFilePath(CPLXMLNode *psXMLNode, const char **pszNodeType) {
     const char *pszDirectory = CPLGetXMLValue( psXMLNode, "file.location.path", "" );
     const char *pszFilename = CPLGetXMLValue( psXMLNode, "file.location.filename", "" );
     *pszNodeType = CPLGetXMLValue (psXMLNode, "type", " " );
 
     if (pszDirectory == nullptr || pszFilename == nullptr) {
-        return nullptr;
+        return "";
     }
 
-    return CPLFormFilename( pszDirectory, pszFilename, "" );
+    return CPLString( pszDirectory ) + '/' + pszFilename;
 }
 
 /************************************************************************/
@@ -78,7 +80,7 @@ static const char *GetFilePath(CPLXMLNode *psXMLNode, const char **pszNodeType) 
 /* ==================================================================== */
 /************************************************************************/
 
-class TSXDataset : public GDALPamDataset {
+class TSXDataset final: public GDALPamDataset {
     int nGCPCount;
     GDAL_GCP *pasGCPList;
 
@@ -94,11 +96,17 @@ public:
     virtual ~TSXDataset();
 
     virtual int GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
 
     CPLErr GetGeoTransform( double* padfTransform) override;
-    const char* GetProjectionRef() override;
+    const char* _GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     static GDALDataset *Open( GDALOpenInfo *poOpenInfo );
     static int Identify( GDALOpenInfo *poOpenInfo );
@@ -112,7 +120,7 @@ private:
 /* ==================================================================== */
 /************************************************************************/
 
-class TSXRasterBand : public GDALPamRasterBand {
+class TSXRasterBand final: public GDALPamRasterBand {
     GDALDataset *poBand;
     ePolarization ePol;
 public:
@@ -256,9 +264,10 @@ int TSXDataset::Identify( GDALOpenInfo *poOpenInfo )
             const CPLString osFilename =
                 CPLFormCIFilename( poOpenInfo->pszFilename, CPLGetFilename( poOpenInfo->pszFilename ), "xml" );
 
-            /* Check if the filename contains TSX1_SAR (TerraSAR-X) or TDX1_SAR (TanDEM-X) */
+            /* Check if the filename contains TSX1_SAR (TerraSAR-X) or TDX1_SAR (TanDEM-X) or PAZ1_SAR (PAZ) */
             if (!(STARTS_WITH_CI(CPLGetBasename( osFilename ), "TSX1_SAR") ||
-                  STARTS_WITH_CI(CPLGetBasename( osFilename ), "TDX1_SAR")))
+                  STARTS_WITH_CI(CPLGetBasename( osFilename ), "TDX1_SAR") ||
+                  STARTS_WITH_CI(CPLGetBasename( osFilename ), "PAZ1_SAR")))
                 return 0;
 
             VSIStatBufL sStat;
@@ -269,9 +278,10 @@ int TSXDataset::Identify( GDALOpenInfo *poOpenInfo )
         return 0;
     }
 
-    /* Check if the filename contains TSX1_SAR (TerraSAR-X) or TDX1_SAR (TanDEM-X) */
+    /* Check if the filename contains TSX1_SAR (TerraSAR-X) or TDX1_SAR (TanDEM-X) or PAZ1_SAR (PAZ) */
     if (!(STARTS_WITH_CI(CPLGetBasename( poOpenInfo->pszFilename ), "TSX1_SAR") ||
-          STARTS_WITH_CI(CPLGetBasename( poOpenInfo->pszFilename ), "TDX1_SAR")))
+          STARTS_WITH_CI(CPLGetBasename( poOpenInfo->pszFilename ), "TDX1_SAR") ||
+          STARTS_WITH_CI(CPLGetBasename( poOpenInfo->pszFilename ), "PAZ1_SAR")))
         return 0;
 
     /* finally look for the <level1Product tag */
@@ -550,7 +560,7 @@ GDALDataset *TSXDataset::Open( GDALOpenInfo *poOpenInfo ) {
         const char *pszType = nullptr;
         const char *pszPath = CPLFormFilename(
                 CPLGetDirname( osFilename ),
-                GetFilePath(psComponent, &pszType),
+                GetFilePath(psComponent, &pszType).c_str(),
                 "" );
         const char *pszPolLayer = CPLGetXMLValue(psComponent, "polLayer", " ");
 
@@ -747,7 +757,7 @@ int TSXDataset::GetGCPCount() {
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *TSXDataset::GetGCPProjection() {
+const char *TSXDataset::_GetGCPProjection() {
     return pszGCPProjection;
 }
 
@@ -762,7 +772,7 @@ const GDAL_GCP *TSXDataset::GetGCPs() {
 /************************************************************************/
 /*                          GetProjectionRef()                          */
 /************************************************************************/
-const char *TSXDataset::GetProjectionRef()
+const char *TSXDataset::_GetProjectionRef()
 {
     return pszProjection;
 }
@@ -794,7 +804,7 @@ void GDALRegister_TSX()
     poDriver->SetDescription( "TSX" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "TerraSAR-X Product" );
-    // poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_tsx.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/tsx.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = TSXDataset::Open;

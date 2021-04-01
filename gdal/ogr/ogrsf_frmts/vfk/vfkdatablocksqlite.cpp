@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2012-2014, Martin Landa <landa.martin gmail.com>
- * Copyright (c) 2012-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -30,6 +30,8 @@
  ****************************************************************************/
 
 #include <algorithm>
+#include <map>
+#include <utility>
 
 #include "vfkreader.h"
 #include "vfkreaderp.h"
@@ -116,6 +118,7 @@ int VFKDataBlockSQLite::LoadGeometryPoint()
   \param poLine VFK feature
   \param oOGRLine line geometry
   \param[in,out] bValid true when feature's geometry is valid
+  \param ftype geometry VFK type
   \param[in,out] rowIdFeat list of row ids which forms linestring
   \param[in,out] nGeometries number of features with valid geometry
 */
@@ -268,7 +271,6 @@ int VFKDataBlockSQLite::LoadGeometryLineStringSBP()
             const GUIntBig ipcb  = sqlite3_column_int64(hStmt, 1);
             const char* pszFType = reinterpret_cast<const char*>(
                 sqlite3_column_text(hStmt, 2));
-            osFType = pszFType ? pszFType : "";
             int rowId = sqlite3_column_int(hStmt, 3);
 
             if (ipcb == 1) {
@@ -284,18 +286,17 @@ int VFKDataBlockSQLite::LoadGeometryLineStringSBP()
                 poFeature->SetRowId(rowId);
 
                 /* set geometry & reset */
-                CPLString osFTypeLine;
                 if( poLine &&
                     !SetGeometryLineString(
                         poLine, &oOGRLine,
-                        bValid, osFTypeLine, rowIdFeat, nGeometries) )
+                        bValid, osFType.c_str(), rowIdFeat, nGeometries) )
                 {
                     nInvalid++;
                 }
 
                 bValid = true;
                 poLine = poFeature;
-                osFTypeLine = osFType;
+                osFType = pszFType ? pszFType : "";
                 iIdx++;
             }
 
@@ -573,6 +574,80 @@ int VFKDataBlockSQLite::LoadGeometryPolygon()
         poRingList.clear();
 
         /* collect rings from lines */
+#if 1
+        // Fast version using a map to identify quickly a ring from its end point.
+        std::map<std::pair<double,double>, PointList*> oMapEndRing;
+        while( !poLineList.empty() )
+        {
+            auto pGeom = poLineList.front()->GetGeometry();
+            if( pGeom )
+            {
+                auto poLine = pGeom->toLineString();
+                if( poLine == nullptr || poLine->getNumPoints() < 2 )
+                    continue;
+                poLineList.erase(poLineList.begin());
+                PointList* poList = new PointList();
+                FillPointList(poList, poLine);
+                poRingList.emplace_back(poList);
+                OGRPoint oFirst, oLast;
+                poLine->StartPoint(&oFirst);
+                poLine->EndPoint(&oLast);
+                oMapEndRing[std::pair<double,double>(
+                    oLast.getX(), oLast.getY())] = poList;
+
+                bool bWorkDone = true;
+                while( bWorkDone && (*poList).front() != (*poList).back() )
+                {
+                    bWorkDone = false;
+                    for( auto oIter = poLineList.begin(); oIter != poLineList.end(); ++oIter )
+                    {
+                        const auto& oCandidate = *oIter;
+                        auto poCandidateGeom = oCandidate->GetGeometry();
+                        if( poCandidateGeom == nullptr )
+                            continue;
+                        poLine = poCandidateGeom->toLineString();
+                        if( poLine == nullptr || poLine->getNumPoints() < 2 )
+                            continue;
+                        poLine->StartPoint(&oFirst);
+                        poLine->EndPoint(&oLast);
+                        // MER = MapEndRing
+                        auto oIterMER = oMapEndRing.find(std::pair<double,double>(
+                            oFirst.getX(), oFirst.getY()));
+                        if( oIterMER != oMapEndRing.end() )
+                        {
+                            auto ring = oIterMER->second;
+                            PointList oList;
+                            FillPointList(&oList, poLine);
+                            /* forward, skip first point */
+                            ring->insert(ring->end(), oList.begin()+1, oList.end());
+                            poLineList.erase(oIter);
+                            oMapEndRing.erase(oIterMER);
+                            oMapEndRing[std::pair<double,double>(
+                                oLast.getX(), oLast.getY())] = poList;
+                            bWorkDone = true;
+                            break;
+                        }
+                        oIterMER = oMapEndRing.find(std::pair<double,double>(
+                            oLast.getX(), oLast.getY()));
+                        if( oIterMER != oMapEndRing.end() )
+                        {
+                            auto ring = oIterMER->second;
+                            PointList oList;
+                            FillPointList(&oList, poLine);
+                            /* backward, skip first point */
+                            ring->insert(ring->end(), oList.rbegin()+1, oList.rend());
+                            poLineList.erase(oIter);
+                            oMapEndRing.erase(oIterMER);
+                            oMapEndRing[std::pair<double,double>(
+                                oFirst.getX(), oFirst.getY())] = ring;
+                            bWorkDone = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+#else
         bool bFound = false;
         int nCount = 0;
         const int nCountMax = static_cast<int>(nLines) * 2;
@@ -592,6 +667,7 @@ int VFKDataBlockSQLite::LoadGeometryPolygon()
             }
             nCount++;
         }
+#endif
         CPLDebug("OGR-VFK", "%s: fid = %ld nlines = %d -> nrings = %d", m_pszName,
                  iFID, (int)nLines, (int)poRingList.size());
 

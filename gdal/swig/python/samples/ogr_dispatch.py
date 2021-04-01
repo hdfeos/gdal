@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -6,10 +6,10 @@
 # Project:  GDAL/OGR samples
 # Purpose:  Dispatch features into layers according to the value of some fields
 #           or the geometry type.
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2013, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2013, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -33,9 +33,6 @@
 import sys
 from osgeo import ogr
 from osgeo import osr
-
-###############################################################
-# Usage()
 
 
 def Usage():
@@ -387,10 +384,12 @@ def ogr_dispatch(argv, progress=None, progress_arg=None):
 
     return 0
 
-###############################################################
-# Entry point
+
+def main(argv):
+    argv = ogr.GeneralCmdLineProcessor(argv)
+    return ogr_dispatch(argv[1:])
 
 
 if __name__ == '__main__':
-    argv = ogr.GeneralCmdLineProcessor(sys.argv)
-    sys.exit(ogr_dispatch(argv[1:]))
+    sys.exit(main(sys.argv))
+

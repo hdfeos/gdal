@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (C) 2010 Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -31,7 +31,7 @@
 #ifndef DOXYGEN_SKIP
 
 #include "cpl_port.h"
-#include "swq.h"
+#include "ogr_swq.h"
 
 #include <cctype>
 #include <cstdio>
@@ -110,7 +110,7 @@ swq_expr_node::swq_expr_node( OGRGeometry *poGeomIn ):
 
 swq_expr_node::swq_expr_node( swq_op eOp ):
     eNodeType(SNT_OPERATION),
-    nOperation(static_cast<int>(eOp))
+    nOperation(eOp)
 {
 }
 
@@ -179,9 +179,17 @@ swq_field_type
 swq_expr_node::Check( swq_field_list *poFieldList,
                       int bAllowFieldsInSecondaryTables,
                       int bAllowMismatchTypeOnFieldComparison,
-                      swq_custom_func_registrar* poCustomFuncRegistrar )
+                      swq_custom_func_registrar* poCustomFuncRegistrar,
+                      int nDepth )
 
 {
+    if( nDepth == 32 )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Too many recursion levels in expression");
+        return SWQ_ERROR;
+    }
+
 /* -------------------------------------------------------------------- */
 /*      Otherwise we take constants literally.                          */
 /* -------------------------------------------------------------------- */
@@ -231,7 +239,7 @@ swq_expr_node::Check( swq_field_list *poFieldList,
     const swq_operation *poOp =
         (nOperation == SWQ_CUSTOM_FUNC && poCustomFuncRegistrar != nullptr ) ?
             poCustomFuncRegistrar->GetOperator(string_value) :
-            swq_op_registrar::GetOperator(static_cast<swq_op>(nOperation));
+            swq_op_registrar::GetOperator(nOperation);
 
     if( poOp == nullptr )
     {
@@ -253,7 +261,8 @@ swq_expr_node::Check( swq_field_list *poFieldList,
     {
         if( papoSubExpr[i]->Check(poFieldList, bAllowFieldsInSecondaryTables,
                                   bAllowMismatchTypeOnFieldComparison,
-                                  poCustomFuncRegistrar) == SWQ_ERROR )
+                                  poCustomFuncRegistrar,
+                                  nDepth + 1) == SWQ_ERROR )
             return SWQ_ERROR;
     }
 
@@ -314,7 +323,7 @@ void swq_expr_node::Dump( FILE * fp, int depth )
     CPLAssert( eNodeType == SNT_OPERATION );
 
     const swq_operation *op_def =
-        swq_op_registrar::GetOperator( static_cast<swq_op>(nOperation) );
+        swq_op_registrar::GetOperator( nOperation );
     if( op_def )
         fprintf( fp, "%s%s\n", spaces, op_def->pszName );
     else
@@ -514,7 +523,7 @@ CPLString swq_expr_node::UnparseOperationFromUnparsedSubExpr(char** apszSubExpr)
 /*      Put things together in a fashion depending on the operator.     */
 /* -------------------------------------------------------------------- */
     const swq_operation *poOp =
-        swq_op_registrar::GetOperator( static_cast<swq_op>(nOperation) );
+        swq_op_registrar::GetOperator( nOperation );
 
     if( poOp == nullptr && nOperation != SWQ_CUSTOM_FUNC )
     {
@@ -534,6 +543,7 @@ CPLString swq_expr_node::UnparseOperationFromUnparsedSubExpr(char** apszSubExpr)
       case SWQ_GE:
       case SWQ_LE:
       case SWQ_LIKE:
+      case SWQ_ILIKE:
       case SWQ_ADD:
       case SWQ_SUBTRACT:
       case SWQ_MULTIPLY:
@@ -565,7 +575,7 @@ CPLString swq_expr_node::UnparseOperationFromUnparsedSubExpr(char** apszSubExpr)
             osExpr += apszSubExpr[1];
             osExpr += ")";
         }
-        if( nOperation == SWQ_LIKE && nSubExprCount == 3 )
+        if( (nOperation == SWQ_LIKE || nOperation == SWQ_ILIKE) && nSubExprCount == 3 )
             osExpr += CPLSPrintf( " ESCAPE (%s)", apszSubExpr[2] );
         break;
 
@@ -708,7 +718,7 @@ swq_expr_node *swq_expr_node::Evaluate( swq_field_fetcher pfnFetcher,
     if( nRecLevel == 32 )
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "Too many recursion levels in expression to evaluate");
+                 "Too many recursion levels in expression");
         return nullptr;
     }
 
@@ -764,7 +774,7 @@ swq_expr_node *swq_expr_node::Evaluate( swq_field_fetcher pfnFetcher,
     if( !bError )
     {
         const swq_operation *poOp =
-            swq_op_registrar::GetOperator( static_cast<swq_op>(nOperation) );
+            swq_op_registrar::GetOperator( nOperation );
         if( poOp == nullptr )
         {
             if( nOperation == SWQ_CUSTOM_FUNC )

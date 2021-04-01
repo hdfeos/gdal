@@ -3,10 +3,10 @@
  *
  * Project:  Arc/Info Generate Translator
  * Purpose:  Definition of classes for OGR .arcgen driver.
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,10 +33,10 @@
 #include "ogrsf_frmts.h"
 
 /************************************************************************/
-/*                             OGRARCGENLayer                              */
+/*                          OGRARCGENLayer                              */
 /************************************************************************/
 
-class OGRARCGENLayer : public OGRLayer
+class OGRARCGENLayer final: public OGRLayer, public OGRGetNextFeatureThroughRaw<OGRARCGENLayer>
 {
     OGRFeatureDefn*    poFeatureDefn;
 
@@ -53,7 +53,7 @@ class OGRARCGENLayer : public OGRLayer
                         virtual ~OGRARCGENLayer();
 
     virtual void                ResetReading() override;
-    virtual OGRFeature *        GetNextFeature() override;
+    DEFINE_GET_NEXT_FEATURE_THROUGH_RAW(OGRARCGENLayer)
 
     virtual OGRFeatureDefn *    GetLayerDefn() override { return poFeatureDefn; }
 
@@ -61,10 +61,10 @@ class OGRARCGENLayer : public OGRLayer
 };
 
 /************************************************************************/
-/*                           OGRARCGENDataSource                           */
+/*                        OGRARCGENDataSource                           */
 /************************************************************************/
 
-class OGRARCGENDataSource : public OGRDataSource
+class OGRARCGENDataSource final: public OGRDataSource
 {
     char*               pszName;
 

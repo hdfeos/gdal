@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Mateusz Loskot
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -37,6 +37,7 @@
 
 #include "ogrgeojsonutils.h"
 
+#include <utility>
 #include <set>
 
 /************************************************************************/
@@ -98,6 +99,7 @@ class OGRGeoJSONBaseReader
     void SetFlattenNestedAttributes( bool bFlatten, char chSeparator );
     void SetStoreNativeData( bool bStoreNativeData );
     void SetArrayAsString( bool bArrayAsString );
+    void SetDateAsString( bool bDateAsString );
 
     bool GenerateFeatureDefn( OGRLayer* poLayer, json_object* poObj );
     void FinalizeLayerDefn( OGRLayer* poLayer, CPLString& osFIDColumn );
@@ -112,6 +114,7 @@ class OGRGeoJSONBaseReader
     char chNestedAttributeSeparator_ = 0;
     bool bStoreNativeData_ = false;
     bool bArrayAsString_ = false;
+    bool bDateAsString_ = false;
 
   private:
 
@@ -160,6 +163,7 @@ class OGRGeoJSONReader: public OGRGeoJSONBaseReader
 
     void ResetReading();
     OGRFeature* GetNextFeature(OGRGeoJSONLayer* poLayer);
+    OGRFeature* GetFeature(OGRGeoJSONLayer* poLayer, GIntBig nFID);
     bool IngestAll(OGRGeoJSONLayer* poLayer);
 
     VSILFILE* GetFP() { return fp_; }
@@ -182,6 +186,8 @@ class OGRGeoJSONReader: public OGRGeoJSONBaseReader
 
     GIntBig nTotalFeatureCount_;
     GUIntBig nTotalOGRFeatureMemEstimate_;
+
+    std::map<GIntBig, std::pair<vsi_l_offset, vsi_l_offset>> oMapFIDToOffsetSize_;
     //
     // Copy operations not supported.
     //
@@ -213,6 +219,7 @@ void OGRGeoJSONReaderAddOrUpdateField(
     bool bFlattenNestedAttributes,
     char chNestedAttributeSeparator,
     bool bArrayAsString,
+    bool bDateAsString,
     std::set<int>& aoSetUndeterminedTypeFields );
 
 /************************************************************************/
@@ -233,6 +240,11 @@ json_object CPL_DLL*  CPL_json_object_object_get( struct json_object* obj,
 
 bool CPL_DLL OGRJSonParse( const char* pszText, json_object** ppoObj,
                            bool bVerboseError = true );
+
+bool OGRGeoJSONUpdateLayerGeomType( OGRLayer* poLayer,
+                                    bool& bFirstGeom,
+                                    OGRwkbGeometryType eGeomType,
+                                    OGRwkbGeometryType& eLayerGeomType );
 
 /************************************************************************/
 /*                 GeoJSON Geometry Translators                         */
@@ -283,11 +295,11 @@ private:
     bool ParseField( json_object* poObj );
     bool AddFeature( OGRFeature* poFeature );
 
-    OGRGeometry* ReadGeometry( json_object* poObj );
     OGRFeature* ReadFeature( json_object* poObj );
     OGRGeoJSONLayer* ReadFeatureCollection( json_object* poObj );
 };
 
+OGRGeometry* OGRESRIJSONReadGeometry( json_object* poObj );
 OGRSpatialReference* OGRESRIJSONReadSpatialReference( json_object* poObj );
 OGRwkbGeometryType OGRESRIJSONGetGeometryType( json_object* poObj );
 OGRPoint* OGRESRIJSONReadPoint( json_object* poObj);
@@ -305,7 +317,7 @@ class OGRTopoJSONReader
     OGRTopoJSONReader();
     ~OGRTopoJSONReader();
 
-    OGRErr Parse( const char* pszText );
+    OGRErr Parse( const char* pszText, bool bLooseIdentification );
     void ReadLayers( OGRGeoJSONDataSource* poDS );
 
   private:

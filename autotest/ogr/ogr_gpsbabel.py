@@ -1,13 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR Test Suite
 # Purpose:  Test read functionality for OGR GPSBabel driver.
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2010, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -28,87 +28,55 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 
-sys.path.append('../pymod')
 
 import gdaltest
-import ogrtest
 from osgeo import ogr
 from osgeo import gdal
+import pytest
+
+pytestmark = [ pytest.mark.require_driver('GPSBabel'),
+               pytest.mark.require_driver('GPX') ]
 
 ###############################################################################
-# Check that dependencies are met
-
-
-def ogr_gpsbabel_init():
+@pytest.fixture(autouse=True, scope='module')
+def startup_and_cleanup():
 
     # Test if the gpsbabel is accessible
-    ogrtest.have_gpsbabel = False
-    ogrtest.have_read_gpsbabel = False
     try:
         ret = gdaltest.runexternal('gpsbabel -V')
     except OSError:
         ret = ''
     if ret.find('GPSBabel') == -1:
-        print('Cannot access GPSBabel utility')
-        return 'skip'
-
-    ds = ogr.Open('data/test.gpx')
-
-    if ds is None:
-        print('GPX driver not configured for read support')
-    else:
-        ogrtest.have_read_gpsbabel = True
-
-    ogrtest.have_gpsbabel = True
-
-    return 'success'
+        pytest.skip('Cannot access GPSBabel utility')
 
 ###############################################################################
 # Test reading with explicit subdriver
 
 
-def ogr_gpsbabel_1():
+def test_ogr_gpsbabel_1():
 
-    if not ogrtest.have_read_gpsbabel:
-        return 'skip'
+    ds = ogr.Open('GPSBabel:nmea:data/gpsbabel/nmea.txt')
+    assert ds is not None
 
-    ds = ogr.Open('GPSBabel:nmea:data/nmea.txt')
-    if ds is None:
-        return 'fail'
-
-    if ds.GetLayerCount() != 2:
-        return 'fail'
-
-    return 'success'
+    assert ds.GetLayerCount() == 2
 
 ###############################################################################
 # Test reading with implicit subdriver
 
 
-def ogr_gpsbabel_2():
+def test_ogr_gpsbabel_2():
 
-    if not ogrtest.have_read_gpsbabel:
-        return 'skip'
+    ds = ogr.Open('data/gpsbabel/nmea.txt')
+    assert ds is not None
 
-    ds = ogr.Open('data/nmea.txt')
-    if ds is None:
-        return 'fail'
-
-    if ds.GetLayerCount() != 2:
-        return 'fail'
-
-    return 'success'
+    assert ds.GetLayerCount() == 2
 
 ###############################################################################
 # Test writing
 
 
-def ogr_gpsbabel_3():
-
-    if not ogrtest.have_gpsbabel:
-        return 'skip'
+def test_ogr_gpsbabel_3():
 
     ds = ogr.GetDriverByName('GPSBabel').CreateDataSource('GPSBabel:nmea:tmp/nmea.txt')
     lyr = ds.CreateLayer('track_points', geom_type=ogr.wkbPoint)
@@ -138,27 +106,6 @@ def ogr_gpsbabel_3():
 
     gdal.Unlink('tmp/nmea.txt')
 
-    if res.find('$GPRMC') == -1 or \
+    assert (not (res.find('$GPRMC') == -1 or \
        res.find('$GPGGA') == -1 or \
-       res.find('$GPGSA') == -1:
-        gdaltest.post_reason('did not get expected result')
-        print(res)
-        return 'fail'
-
-    return 'success'
-
-
-gdaltest_list = [
-    ogr_gpsbabel_init,
-    ogr_gpsbabel_1,
-    ogr_gpsbabel_2,
-    ogr_gpsbabel_3]
-
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('ogr_gpsbabel')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())
+       res.find('$GPGSA') == -1)), 'did not get expected result'

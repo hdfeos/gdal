@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2012, Roger Veciana <rveciana@gmail.com>
- * Copyright (c) 2012-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -50,7 +50,7 @@ static double RAD2DEG = 180.0 / M_PI;
 
 class IRISRasterBand;
 
-class IRISDataset : public GDALPamDataset
+class IRISDataset final: public GDALPamDataset
 {
     friend class IRISRasterBand;
 
@@ -83,7 +83,10 @@ public:
     static int Identify( GDALOpenInfo * );
 
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 const char* const IRISDataset::aszProductNames[] = {
@@ -145,7 +148,7 @@ const char* const IRISDataset::aszProjections[] = {
 /* ==================================================================== */
 /************************************************************************/
 
-class IRISRasterBand : public GDALPamRasterBand
+class IRISRasterBand final: public GDALPamRasterBand
 {
     friend class IRISDataset;
 
@@ -482,6 +485,7 @@ void IRISDataset::LoadProjection()
         return;
 
     OGRSpatialReference oSRSOut;
+    oSRSOut.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     // Mercator projection.
     if( EQUAL(aszProjections[nProjectionCode],"Mercator") )
@@ -508,12 +512,14 @@ void IRISDataset::LoadProjection()
             "degree", 0.0174532925199433);
 
         oSRSOut.SetMercator(fProjRefLat, fProjRefLon, 1.0, 0.0, 0.0);
+        oSRSOut.SetLinearUnits("Metre", 1.0);
         oSRSOut.exportToWkt(&pszSRS_WKT);
 
         // The center coordinates are given in LatLon on the defined
         // ellipsoid. Necessary to calculate geotransform.
 
         OGRSpatialReference oSRSLatLon;
+        oSRSLatLon.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         oSRSLatLon.SetGeogCS(
             "unnamed ellipse",
             "unknown",
@@ -686,7 +692,7 @@ CPLErr IRISDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *IRISDataset::GetProjectionRef()
+const char *IRISDataset::_GetProjectionRef()
 {
     if( !bHasLoadedProjection )
         LoadProjection();
@@ -708,11 +714,18 @@ int IRISDataset::Identify( GDALOpenInfo * poOpenInfo )
 
     const short nId1 = CPL_LSBSINT16PTR(poOpenInfo->pabyHeader);
     const short nId2 = CPL_LSBSINT16PTR(poOpenInfo->pabyHeader + 12);
-    unsigned short nType = CPL_LSBUINT16PTR(poOpenInfo->pabyHeader + 24);
+    unsigned short nProductCode = CPL_LSBUINT16PTR(poOpenInfo->pabyHeader + 12 + 12);
+    const short nYear = CPL_LSBSINT16PTR(poOpenInfo->pabyHeader+26+12);
+    const short nMonth = CPL_LSBSINT16PTR(poOpenInfo->pabyHeader+28+12);
+    const short nDay = CPL_LSBSINT16PTR(poOpenInfo->pabyHeader+30+12);
 
     // Check if the two headers are 27 (product hdr) & 26 (product
-    // configuration), and the product type is in the range 1 -> 34.
-    if( !(nId1 == 27 && nId2 == 26 && nType > 0 && nType < 35) )
+    // configuration), and other metadata
+    if( !(nId1 == 27 && nId2 == 26 &&
+          nProductCode > 0 && nProductCode < CPL_ARRAYSIZE(aszProductNames) &&
+          nYear >= 1900 && nYear < 2100 &&
+          nMonth >= 1 && nMonth <= 12 &&
+          nDay >= 1 && nDay <= 31) )
         return FALSE;
 
     return TRUE;
@@ -1008,7 +1021,7 @@ GDALDataset *IRISDataset::Open( GDALOpenInfo * poOpenInfo )
 
         const float fMinZAcum =
             (CPL_LSBUINT32PTR(poDS->abyHeader+164+12) - 32768.0f) / 10000.0f;
-        poDS->SetMetadataItem("MINIMUM_Z_TO_ACUMULATE",
+        poDS->SetMetadataItem("MINIMUM_Z_TO_ACCUMULATE",
                               CPLString().Printf("%f", fMinZAcum));
 
         const unsigned short nSecondsOfAccumulation =
@@ -1147,7 +1160,7 @@ void GDALRegister_IRIS()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "IRIS data (.PPI, .CAPPi etc)" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#IRIS" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/iris.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "ppi" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

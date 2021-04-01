@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -30,13 +30,11 @@
 
 import os
 import shutil
-import sys
 
-sys.path.append('../pymod')
 
 from osgeo import gdal
-import gdaltest
 import test_py_scripts
+import pytest
 
 ###############################################################################
 #
@@ -46,9 +44,9 @@ def test_gdalmove_1():
 
     script_path = test_py_scripts.get_py_script('gdalmove')
     if script_path is None:
-        return 'skip'
+        pytest.skip()
 
-    shutil.copy('../gcore/data/byte.tif', 'tmp/test_gdalmove_1.tif')
+    shutil.copy(test_py_scripts.get_data_path('gcore') + 'byte.tif', 'tmp/test_gdalmove_1.tif')
 
     test_py_scripts.run_py_script(script_path, 'gdalmove', '-s_srs "+proj=utm +zone=11 +ellps=clrk66 +towgs84=0,0,0 +no_defs" -t_srs EPSG:32611 tmp/test_gdalmove_1.tif -et 1')
 
@@ -56,19 +54,10 @@ def test_gdalmove_1():
     got_gt = ds.GetGeoTransform()
     expected_gt = (440719.95870935748, 60.000041745067577, 1.9291142234578728e-05, 3751294.2109841029, 1.9099167548120022e-05, -60.000041705276814)
     for i in range(6):
-        if abs(got_gt[i] - expected_gt[i]) / abs(got_gt[i]) > 1e-5:
-            gdaltest.post_reason('bad gt')
-            print(got_gt)
-            print(expected_gt)
-            return 'fail'
+        assert abs(got_gt[i] - expected_gt[i]) / abs(got_gt[i]) <= 1e-5, 'bad gt'
     wkt = ds.GetProjection()
-    if wkt.find('32611') < 0:
-        gdaltest.post_reason('bad geotransform')
-        print(wkt)
-        return 'fail'
+    assert '32611' in wkt, 'bad geotransform'
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Cleanup
@@ -83,19 +72,3 @@ def test_gdalmove_cleanup():
         except OSError:
             pass
 
-    return 'success'
-
-
-gdaltest_list = [
-    test_gdalmove_1,
-    test_gdalmove_cleanup
-]
-
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('test_gdalmove')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

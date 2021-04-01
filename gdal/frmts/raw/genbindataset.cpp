@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -210,7 +210,10 @@ class GenBinDataset final: public RawDataset
     ~GenBinDataset() override;
 
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef(void) override;
+    const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     char **GetFileList() override;
 
@@ -379,13 +382,13 @@ GenBinDataset::~GenBinDataset()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *GenBinDataset::GetProjectionRef()
+const char *GenBinDataset::_GetProjectionRef()
 
 {
     if (pszProjection && strlen(pszProjection) > 0)
         return pszProjection;
 
-    return GDALPamDataset::GetProjectionRef();
+    return GDALPamDataset::_GetProjectionRef();
 }
 
 /************************************************************************/
@@ -444,14 +447,14 @@ void GenBinDataset::ParseCoordinateSystem( char **papszHdr )
 
 #if 0
     // TODO(schwehr): Why was this being done but not used?
-    double adfProjParms[15] = { 0.0 };
+    double adfProjParams[15] = { 0.0 };
     if( CSLFetchNameValue( papszHdr, "PROJECTION_PARAMETERS" ) )
     {
         char **papszTokens = CSLTokenizeString(
             CSLFetchNameValue( papszHdr, "PROJECTION_PARAMETERS" ) );
 
         for( int i = 0; i < 15 && papszTokens[i] != NULL; i++ )
-            adfProjParms[i] = CPLAtofM( papszTokens[i] );
+            adfProjParams[i] = CPLAtofM( papszTokens[i] );
 
         CSLDestroy( papszTokens );
     }
@@ -777,7 +780,7 @@ GDALDataset *GenBinDataset::Open( GDALOpenInfo * poOpenInfo )
     else if( EQUAL(pszInterleaving,"BIP") )
     {
         nPixelOffset = nItemSize * nBands;
-        if( poDS->nRasterXSize > INT_MAX / nPixelOffset )
+        if( nPixelOffset == 0 || poDS->nRasterXSize > INT_MAX / nPixelOffset )
             bIntOverflow = true;
         else
         {
@@ -793,7 +796,8 @@ GDALDataset *GenBinDataset::Open( GDALOpenInfo * poOpenInfo )
                       pszInterleaving );
 
         nPixelOffset = nItemSize;
-        if( poDS->nRasterXSize > INT_MAX / (nPixelOffset * nBands) )
+        if( nPixelOffset == 0 || nBands == 0 ||
+            poDS->nRasterXSize > INT_MAX / (nPixelOffset * nBands) )
             bIntOverflow = true;
         else
         {
@@ -910,7 +914,7 @@ void GDALRegister_GenBin()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Generic Binary (.hdr Labelled)" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#GenBin" );
+                               "drivers/raster/genbin.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = GenBinDataset::Open;

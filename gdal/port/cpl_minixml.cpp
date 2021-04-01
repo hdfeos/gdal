@@ -6,7 +6,7 @@
  *
  **********************************************************************
  * Copyright (c) 2001, Frank Warmerdam
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -358,6 +358,7 @@ static XMLTokenType ReadToken( ParseContext *psContext, CPLErr& eLastErrorType )
              && psContext->pszInput[psContext->nInputOffset] == '>' )
     {
         chNext = ReadChar( psContext );
+        (void)chNext;
         CPLAssert( chNext == '>' );
 
         psContext->eTokenType = TSlashClose;
@@ -370,7 +371,7 @@ static XMLTokenType ReadToken( ParseContext *psContext, CPLErr& eLastErrorType )
              && psContext->pszInput[psContext->nInputOffset] == '>' )
     {
         chNext = ReadChar( psContext );
-
+        (void)chNext;
         CPLAssert( chNext == '>' );
 
         psContext->eTokenType = TQuestionClose;
@@ -1298,47 +1299,12 @@ CPLXMLNode *CPLCreateXMLNode( CPLXMLNode *poParent, CPLXMLNodeType eType,
                               const char *pszText )
 
 {
-
-/* -------------------------------------------------------------------- */
-/*      Create new node.                                                */
-/* -------------------------------------------------------------------- */
-    CPLXMLNode *psNode =
-        static_cast<CPLXMLNode *>(CPLCalloc(sizeof(CPLXMLNode), 1));
-
-    psNode->eType = eType;
-    psNode->pszValue = CPLStrdup( pszText );
-
-/* -------------------------------------------------------------------- */
-/*      Attach to parent, if provided.                                  */
-/* -------------------------------------------------------------------- */
-    if( poParent != nullptr )
+    auto ret = _CPLCreateXMLNode(poParent, eType, pszText);
+    if( !ret )
     {
-        if( poParent->psChild == nullptr )
-        {
-            poParent->psChild = psNode;
-        }
-        else
-        {
-            CPLXMLNode *psLink = poParent->psChild;
-
-            while( psLink->psNext != nullptr )
-                psLink = psLink->psNext;
-
-            psLink->psNext = psNode;
-        }
+        CPLError(CE_Fatal, CPLE_OutOfMemory, "CPLCreateXMLNode() failed");
     }
-#ifdef DEBUG
-    else
-    {
-        // Coverity sometimes doesn't realize that this function is passed
-        // with a non NULL parent and thinks that this branch is taken, leading
-        // to creating object being leak by caller. This ugly hack hopefully
-        // makes it believe that someone will reference it.
-        psDummyStaticNode = psNode;
-    }
-#endif
-
-    return psNode;
+    return ret;
 }
 
 /************************************************************************/
@@ -1366,7 +1332,7 @@ static CPLXMLNode *_CPLCreateXMLNode( CPLXMLNode *poParent,
     }
 
     psNode->eType = eType;
-    psNode->pszValue = VSIStrdup( pszText );
+    psNode->pszValue = VSIStrdup( pszText ? pszText : "" );
     if( psNode->pszValue == nullptr )
     {
         CPLError(CE_Failure, CPLE_OutOfMemory,
@@ -1385,13 +1351,41 @@ static CPLXMLNode *_CPLCreateXMLNode( CPLXMLNode *poParent,
         else
         {
             CPLXMLNode *psLink = poParent->psChild;
+            if( psLink->psNext == nullptr &&
+                eType == CXT_Attribute &&
+                psLink->eType == CXT_Text )
+            {
+                psNode->psNext = psLink;
+                poParent->psChild = psNode;
+            }
+            else
+            {
+                while( psLink->psNext != nullptr )
+                {
+                    if( eType == CXT_Attribute &&
+                        psLink->psNext->eType == CXT_Text )
+                    {
+                        psNode->psNext = psLink->psNext;
+                        break;
+                    }
 
-            while( psLink->psNext != nullptr )
-                psLink = psLink->psNext;
+                    psLink = psLink->psNext;
+                }
 
-            psLink->psNext = psNode;
+                psLink->psNext = psNode;
+            }
         }
     }
+#ifdef DEBUG
+    else
+    {
+        // Coverity sometimes doesn't realize that this function is passed
+        // with a non NULL parent and thinks that this branch is taken, leading
+        // to creating object being leak by caller. This ugly hack hopefully
+        // makes it believe that someone will reference it.
+        psDummyStaticNode = psNode;
+    }
+#endif
 
     return psNode;
 }
@@ -1770,7 +1764,7 @@ int CPLRemoveXMLChild( CPLXMLNode *psParent, CPLXMLNode *psChild )
     CPLXMLNode *psThis = nullptr;
     for( psThis = psParent->psChild;
          psThis != nullptr;
-         psLast = psThis, psThis = psThis->psNext )
+         psThis = psThis->psNext )
     {
         if( psThis == psChild )
         {
@@ -1782,6 +1776,7 @@ int CPLRemoveXMLChild( CPLXMLNode *psParent, CPLXMLNode *psChild )
             psThis->psNext = nullptr;
             return TRUE;
         }
+        psLast = psThis;
     }
 
     return FALSE;

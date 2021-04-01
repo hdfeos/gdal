@@ -2,10 +2,10 @@
  *
  * Project:  CPL - Common Portability Library
  * Purpose:  Implement CPLSystem().
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  **********************************************************************
- * Copyright (c) 2012-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -40,6 +40,7 @@
 #if defined(WIN32)
 #include <windows.h>
 #else
+#include <cassert>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -592,7 +593,7 @@ struct _CPLSpawnedProcess
  * output stream.
  * @param bCreateErrorPipe set to TRUE to create a pipe for the child
  * error stream.
-
+ * @param papszOptions unused. should be set to NULL.
  *
  * @return a handle, that must be freed with CPLSpawnAsyncFinish()
  *
@@ -604,7 +605,7 @@ CPLSpawnedProcess* CPLSpawnAsync( int (*pfnMain)(CPL_FILE_HANDLE,
                                   int bCreateInputPipe,
                                   int bCreateOutputPipe,
                                   int bCreateErrorPipe,
-                                  char** /* papszOptions */ )
+                                  CPL_UNUSED char** papszOptions )
 {
     int pipe_in[2] = { -1, -1 };
     int pipe_out[2] = { -1, -1 };
@@ -666,7 +667,7 @@ CPLSpawnedProcess* CPLSpawnAsync( int (*pfnMain)(CPL_FILE_HANDLE,
 
         if( bDup2In )
         {
-            if( !bHasActions ) posix_spawn_file_actions_init(&actions);
+            /*if( !bHasActions )*/ posix_spawn_file_actions_init(&actions);
             posix_spawn_file_actions_adddup2(&actions, pipe_in[IN_FOR_PARENT],
                                              fileno(stdin));
             posix_spawn_file_actions_addclose(&actions,
@@ -695,6 +696,7 @@ CPLSpawnedProcess* CPLSpawnAsync( int (*pfnMain)(CPL_FILE_HANDLE,
         }
 
         pid_t pid = 0;
+        assert( papszArgvDup[0] != nullptr );
         if( posix_spawnp(&pid, papszArgvDup[0],
                          bHasActions ? &actions : nullptr,
                          nullptr,

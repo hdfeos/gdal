@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2007, Waypoint Information Technology
- * Copyright (c) 2009-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -46,7 +46,7 @@ CPL_CVSID("$Id$")
 /************************************************************************/
 class NWT_GRCRasterBand;
 
-class NWT_GRCDataset : public GDALPamDataset
+class NWT_GRCDataset final : public GDALPamDataset
 {
   friend class NWT_GRCRasterBand;
 
@@ -56,6 +56,9 @@ class NWT_GRCDataset : public GDALPamDataset
     NWT_GRID *pGrd;
     char **papszCategories;
     char *pszProjection;
+
+    NWT_GRCDataset(const NWT_GRCDataset&) = delete;
+    NWT_GRCDataset& operator= (const NWT_GRCDataset&) = delete;
 
   protected:
     GDALColorTable * poColorTable;
@@ -68,7 +71,10 @@ class NWT_GRCDataset : public GDALPamDataset
     static int Identify( GDALOpenInfo * poOpenInfo );
 
     CPLErr GetGeoTransform( double *padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 /************************************************************************/
@@ -77,7 +83,7 @@ class NWT_GRCDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class NWT_GRCRasterBand : public GDALPamRasterBand
+class NWT_GRCRasterBand final : public GDALPamRasterBand
 {
   friend class NWT_GRCDataset;
 
@@ -102,7 +108,7 @@ NWT_GRCRasterBand::NWT_GRCRasterBand( NWT_GRCDataset * poDSIn, int nBandIn )
 {
     poDS = poDSIn;
     nBand = nBandIn;
-    NWT_GRCDataset *poGDS = reinterpret_cast<NWT_GRCDataset *>( poDS );
+    NWT_GRCDataset *poGDS = cpl::down_cast<NWT_GRCDataset *>( poDS );
 
     if( poGDS->pGrd->nBitsPerPixel == 8 )
         eDataType = GDT_Byte;
@@ -127,13 +133,13 @@ NWT_GRCRasterBand::NWT_GRCRasterBand( NWT_GRCDataset * poDSIn, int nBandIn )
          i < static_cast<int>( poGDS->pGrd->stClassDict->nNumClassifiedItems );
          i++ )
     {
-        oEntry.c1 = poGDS->pGrd->stClassDict->stClassifedItem[i]->r;
-        oEntry.c2 = poGDS->pGrd->stClassDict->stClassifedItem[i]->g;
-        oEntry.c3 = poGDS->pGrd->stClassDict->stClassifedItem[i]->b;
+        oEntry.c1 = poGDS->pGrd->stClassDict->stClassifiedItem[i]->r;
+        oEntry.c2 = poGDS->pGrd->stClassDict->stClassifiedItem[i]->g;
+        oEntry.c3 = poGDS->pGrd->stClassDict->stClassifiedItem[i]->b;
         oEntry.c4 = 255;            // alpha 255 = solid
 
         poGDS->poColorTable->SetColorEntry( poGDS->pGrd->
-                                          stClassDict->stClassifedItem[i]->
+                                          stClassDict->stClassifiedItem[i]->
                                           usPixVal, &oEntry );
     }
 
@@ -141,8 +147,8 @@ NWT_GRCRasterBand::NWT_GRCRasterBand( NWT_GRCDataset * poDSIn, int nBandIn )
     int maxValue = 0;
     for( int i=0; i < static_cast<int>( poGDS->pGrd->stClassDict->nNumClassifiedItems ); i++ )
     {
-        if( poGDS->pGrd->stClassDict->stClassifedItem[i]->usPixVal > maxValue )
-            maxValue = poGDS->pGrd->stClassDict->stClassifedItem[i]->usPixVal;
+        if( poGDS->pGrd->stClassDict->stClassifiedItem[i]->usPixVal > maxValue )
+            maxValue = poGDS->pGrd->stClassDict->stClassifiedItem[i]->usPixVal;
     }
 
     // load a value for the null value
@@ -158,13 +164,13 @@ NWT_GRCRasterBand::NWT_GRCRasterBand( NWT_GRCDataset * poDSIn, int nBandIn )
              i < static_cast<int>( poGDS->pGrd->stClassDict->nNumClassifiedItems );
              i++ )
         {
-            if( static_cast<int>( poGDS->pGrd->stClassDict->stClassifedItem[i]->usPixVal ) ==
+            if( static_cast<int>( poGDS->pGrd->stClassDict->stClassifiedItem[i]->usPixVal ) ==
                 val )
             {
                 poGDS->papszCategories =
                     CSLAddString( poGDS->papszCategories,
                                     poGDS->pGrd->stClassDict->
-                                    stClassifedItem[i]->szClassName );
+                                    stClassifiedItem[i]->szClassName );
                 break;
             }
         }
@@ -186,7 +192,7 @@ double NWT_GRCRasterBand::GetNoDataValue( int *pbSuccess )
 // return an array of null terminated strings for the class names
 char **NWT_GRCRasterBand::GetCategoryNames()
 {
-    NWT_GRCDataset *poGDS = reinterpret_cast<NWT_GRCDataset *>( poDS );
+    NWT_GRCDataset *poGDS = cpl::down_cast<NWT_GRCDataset *>( poDS );
 
     return poGDS->papszCategories;
 }
@@ -194,7 +200,7 @@ char **NWT_GRCRasterBand::GetCategoryNames()
 // return the color table
 GDALColorTable *NWT_GRCRasterBand::GetColorTable()
 {
-    NWT_GRCDataset *poGDS = reinterpret_cast<NWT_GRCDataset *>( poDS );
+    NWT_GRCDataset *poGDS = cpl::down_cast<NWT_GRCDataset *>( poDS );
 
     return poGDS->poColorTable;
 }
@@ -214,7 +220,7 @@ CPLErr NWT_GRCRasterBand::IReadBlock( CPL_UNUSED int nBlockXOff,
                                       int nBlockYOff,
                                       void *pImage )
 {
-    NWT_GRCDataset *poGDS = reinterpret_cast<NWT_GRCDataset *>( poDS );
+    NWT_GRCDataset *poGDS = cpl::down_cast<NWT_GRCDataset *>( poDS );
     const int nBytesPerPixel = poGDS->pGrd->nBitsPerPixel / 8;
     if( nBytesPerPixel <= 0 || nBlockXSize > INT_MAX / nBytesPerPixel )
         return CE_Failure;
@@ -222,8 +228,8 @@ CPLErr NWT_GRCRasterBand::IReadBlock( CPL_UNUSED int nBlockXOff,
 
     if( nBand == 1 )
     {                            //grc's are just one band of indices
-        VSIFSeekL( poGDS->fp, 1024 + nRecordSize * (vsi_l_offset)nBlockYOff, SEEK_SET );
-        if( (int)VSIFReadL( pImage, 1, nRecordSize, poGDS->fp ) != nRecordSize )
+        VSIFSeekL( poGDS->fp, 1024 + nRecordSize * static_cast<vsi_l_offset>(nBlockYOff), SEEK_SET );
+        if( static_cast<int>(VSIFReadL( pImage, 1, nRecordSize, poGDS->fp )) != nRecordSize )
             return CE_Failure;
     }
     else
@@ -259,7 +265,7 @@ NWT_GRCDataset::~NWT_GRCDataset()
     delete poColorTable;
     CSLDestroy( papszCategories );
 
-    FlushCache();
+    NWT_GRCDataset::FlushCache();
     pGrd->fp = nullptr;       // this prevents nwtCloseGrid from closing the fp
     nwtCloseGrid( pGrd );
 
@@ -288,7 +294,7 @@ CPLErr NWT_GRCDataset::GetGeoTransform( double *padfTransform )
 /************************************************************************/
 /*                          GetProjectionRef()                          */
 /************************************************************************/
-const char *NWT_GRCDataset::GetProjectionRef()
+const char *NWT_GRCDataset::_GetProjectionRef()
 {
     if (pszProjection == nullptr)
     {
@@ -300,7 +306,7 @@ const char *NWT_GRCDataset::GetProjectionRef()
             poSpatialRef->Release();
         }
     }
-    return (const char *) pszProjection;
+    return pszProjection;
 }
 
 /************************************************************************/
@@ -347,11 +353,11 @@ GDALDataset *NWT_GRCDataset::Open( GDALOpenInfo * poOpenInfo )
 /* -------------------------------------------------------------------- */
     VSIFSeekL( poDS->fp, 0, SEEK_SET );
     VSIFReadL( poDS->abyHeader, 1, 1024, poDS->fp );
-    poDS->pGrd = reinterpret_cast<NWT_GRID *>( malloc( sizeof (NWT_GRID) ) );
+    poDS->pGrd = static_cast<NWT_GRID *>( malloc( sizeof (NWT_GRID) ) );
 
     poDS->pGrd->fp = poDS->fp;
 
-    if (!nwt_ParseHeader( poDS->pGrd, reinterpret_cast<char *>( poDS->abyHeader ) ) ||
+    if (!nwt_ParseHeader( poDS->pGrd, poDS->abyHeader ) ||
         !GDALCheckDatasetDimensions(poDS->pGrd->nXSide, poDS->pGrd->nYSide) ||
         poDS->pGrd->stClassDict == nullptr)
     {
@@ -408,7 +414,7 @@ void GDALRegister_NWT_GRC()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Northwood Classified Grid Format .grc/.tab");
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#northwood_grc" );
+                               "drivers/raster/nwtgrd.html#driver-capabilities-nwt-grc" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "grc" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

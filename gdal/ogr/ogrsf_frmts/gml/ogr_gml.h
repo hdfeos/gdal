@@ -8,7 +8,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -35,6 +35,8 @@
 #include "ogrsf_frmts.h"
 #include "gmlreader.h"
 #include "gmlutils.h"
+
+#include <memory>
 
 class OGRGMLDataSource;
 
@@ -103,7 +105,7 @@ class OGRGMLLayer final: public OGRLayer
 
 class OGRGMLDataSource final: public OGRDataSource
 {
-    OGRGMLLayer     **papoLayers;
+    OGRLayer          **papoLayers;
     int                 nLayers;
 
     char                *pszName;
@@ -155,6 +157,9 @@ class OGRGMLDataSource final: public OGRDataSource
     OGRGMLLayer        *poLastReadLayer;
 
     bool                bEmptyAsNull;
+
+    OGRSpatialReference m_oStandaloneGeomSRS{};
+    std::unique_ptr<OGRGeometry> m_poStandaloneGeom{};
 
     void                FindAndParseTopElements(VSILFILE* fp);
     void                SetExtents(double dfMinX, double dfMinY, double dfMaxX, double dfMaxY);

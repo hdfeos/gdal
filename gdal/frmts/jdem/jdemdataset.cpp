@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2009-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -79,7 +79,7 @@ static double JDEMGetAngle( const char *pszField )
 
 class JDEMRasterBand;
 
-class JDEMDataset : public GDALPamDataset
+class JDEMDataset final: public GDALPamDataset
 {
     friend class JDEMRasterBand;
 
@@ -94,7 +94,10 @@ class JDEMDataset : public GDALPamDataset
     static int Identify( GDALOpenInfo * );
 
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 /************************************************************************/
@@ -103,7 +106,7 @@ class JDEMDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class JDEMRasterBand : public GDALPamRasterBand
+class JDEMRasterBand final: public GDALPamRasterBand
 {
     friend class JDEMDataset;
 
@@ -252,7 +255,7 @@ CPLErr JDEMDataset::GetGeoTransform( double *padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *JDEMDataset::GetProjectionRef()
+const char *JDEMDataset::_GetProjectionRef()
 
 {
     return
@@ -367,7 +370,7 @@ void GDALRegister_JDEM()
     poDriver->SetDescription("JDEM");
     poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "Japanese DEM (.mem)");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "frmt_various.html#JDEM");
+    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/jdem.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "mem");
     poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
 

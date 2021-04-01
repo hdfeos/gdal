@@ -37,6 +37,7 @@
 #include "cpl_json.h"
 #include "cpl_vsil_curl_priv.h"
 #include "gpkgmbtilescommon.h"
+#include "gdal_utils.h"
 #include "gdalwarper.h"
 #include "mvtutils.h"
 
@@ -103,8 +104,14 @@ class MBTilesDataset final: public GDALPamDataset, public GDALGPKGMBTilesLikePse
 
     virtual CPLErr GetGeoTransform(double* padfGeoTransform) override;
     virtual CPLErr SetGeoTransform( double* padfGeoTransform ) override;
-    virtual const char* GetProjectionRef() override;
-    virtual CPLErr SetProjection( const char* pszProjection ) override;
+    virtual const char* _GetProjectionRef() override;
+    virtual CPLErr _SetProjection( const char* pszProjection ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
     virtual char      **GetMetadataDomainList() override;
     virtual char      **GetMetadata( const char * pszDomain = "" ) override;
@@ -495,7 +502,13 @@ char* MBTilesDataset::FindKey(int iPixel, int iLine)
 
     z_stream sStream;
     memset(&sStream, 0, sizeof(sStream));
-    inflateInit(&sStream);
+    if( inflateInit(&sStream) != Z_OK )
+    {
+        OGR_F_Destroy(hFeat);
+        OGR_DS_ReleaseResultSet(hDS, hSQLLyr);
+        CPLFree(pabyUncompressed);
+        return nullptr;
+    }
     sStream.next_in   = pabyData;
     sStream.avail_in  = nDataSize;
     sStream.next_out  = pabyUncompressed;
@@ -534,12 +547,11 @@ char* MBTilesDataset::FindKey(int iPixel, int iLine)
     }
     if (poGrid != nullptr && json_object_is_type(poGrid, json_type_array))
     {
-        int nLines;
         int nFactor;
         json_object* poRow;
         char* pszRow = nullptr;
 
-        nLines = json_object_array_length(poGrid);
+        const auto nLines = json_object_array_length(poGrid);
         if (nLines == 0)
             goto end;
 
@@ -1157,6 +1169,7 @@ CPLErr MBTilesDataset::FinalizeRasterRegistration()
     for(int i=0; i<m_nOverviewCount; i++)
     {
         MBTilesDataset* poOvrDS = new MBTilesDataset();
+        poOvrDS->ShareLockWithParentDataset(this);
         int nBlockSize;
         GetRasterBand(1)->GetBlockSize(&nBlockSize, &nBlockSize);
         poOvrDS->InitRaster ( this, i, nBands,
@@ -1210,6 +1223,11 @@ bool MBTilesDataset::InitRaster ( MBTilesDataset* poParentDS,
         return false;
     }
 
+    if( poParentDS )
+    {
+        eAccess = poParentDS->eAccess;
+    }
+
     for(int i = 1; i <= nBandCount; i ++)
         SetBand( i, new MBTilesBand(this, nTileSize) );
 
@@ -1222,7 +1240,6 @@ bool MBTilesDataset::InitRaster ( MBTilesDataset* poParentDS,
     {
         m_poParentDS = poParentDS;
         poMainDS = poParentDS;
-        eAccess = poParentDS->eAccess;
         hDS = poParentDS->hDS;
         hDB = poParentDS->hDB;
         m_eTF = poParentDS->m_eTF;
@@ -1241,7 +1258,7 @@ bool MBTilesDataset::InitRaster ( MBTilesDataset* poParentDS,
 /*                         GetProjectionRef()                           */
 /************************************************************************/
 
-const char* MBTilesDataset::GetProjectionRef()
+const char* MBTilesDataset::_GetProjectionRef()
 {
     return SRS_EPSG_3857;
 }
@@ -1250,7 +1267,7 @@ const char* MBTilesDataset::GetProjectionRef()
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr MBTilesDataset::SetProjection( const char* pszProjection )
+CPLErr MBTilesDataset::_SetProjection( const char* pszProjection )
 {
     if( eAccess != GA_Update )
     {
@@ -1282,7 +1299,7 @@ char **MBTilesDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "", NULL);
+                                   "", nullptr);
 }
 
 /************************************************************************/
@@ -1922,7 +1939,7 @@ void MBTilesDataset::InitVector(double dfMinX, double dfMinY,
     {
         CPLJSONObject oId = oVectorLayers[i].GetObj("id");
         if( oId.IsValid() && oId.GetType() ==
-                CPLJSONObject::String )
+                CPLJSONObject::Type::String )
         {
             OGRwkbGeometryType eGeomType = wkbUnknown;
             if( oTileStatLayers.IsValid() )
@@ -2069,7 +2086,7 @@ int MBTilesGetMinMaxZoomLevel(OGRDataSourceH hDS, int bHasMap,
 #else
         pszSQL = "SELECT min(zoom_level), max(zoom_level) FROM tiles";
         CPLDebug("MBTILES", "%s", pszSQL);
-        hSQLLyr = OGR_DS_ExecuteSQL(hDS, pszSQL, NULL, NULL);
+        hSQLLyr = OGR_DS_ExecuteSQL(hDS, pszSQL, NULL, nullptr);
         if (hSQLLyr == NULL)
         {
             return FALSE;
@@ -2823,6 +2840,7 @@ GDALDataset* MBTilesDataset::Open(GDALOpenInfo* poOpenInfo)
         for( int iLevel = nMaxLevel - 1; iLevel >= nMinLevel; iLevel-- )
         {
             MBTilesDataset* poOvrDS = new MBTilesDataset();
+            poOvrDS->ShareLockWithParentDataset(poDS);
             poOvrDS->InitRaster ( poDS, iLevel, nBands, nTileSize,
                                   dfMinX, dfMinY, dfMaxX, dfMaxY );
 
@@ -3043,6 +3061,7 @@ static const WarpResamplingAlg asResamplingAlg[] =
     { "LANCZOS", GRA_Lanczos },
     { "MODE", GRA_Mode },
     { "AVERAGE", GRA_Average },
+    { "RMS", GRA_RMS },
 };
 
 GDALDataset* MBTilesDataset::CreateCopy( const char *pszFilename,
@@ -3062,8 +3081,67 @@ GDALDataset* MBTilesDataset::CreateCopy( const char *pszFilename,
     }
 
     char** papszTO = CSLSetNameValue( nullptr, "DST_SRS", SRS_EPSG_3857 );
-    void* hTransformArg =
+
+    void* hTransformArg = nullptr;
+
+    // Hack to compensate for GDALSuggestedWarpOutput2() failure (or not
+    // ideal suggestion with PROJ 8) when reprojecting latitude = +/- 90 to
+    // EPSG:3857.
+    double adfSrcGeoTransform[6] = {0,0,0,0,0,0};
+    std::unique_ptr<GDALDataset> poTmpDS;
+    bool bModifiedMaxLat = false;
+    bool bModifiedMinLat = false;
+    const auto poSrcSRS = poSrcDS->GetSpatialRef();
+    if( poSrcDS->GetGeoTransform(adfSrcGeoTransform) == CE_None &&
+        adfSrcGeoTransform[2] == 0 &&
+        adfSrcGeoTransform[4] == 0 &&
+        adfSrcGeoTransform[5] < 0 )
+    {
+        if( poSrcSRS && poSrcSRS->IsGeographic() )
+        {
+            double maxLat = adfSrcGeoTransform[3];
+            double minLat = adfSrcGeoTransform[3] +
+                                    poSrcDS->GetRasterYSize() *
+                                    adfSrcGeoTransform[5];
+            // Corresponds to the latitude of MAX_GM
+            constexpr double MAX_LAT = 85.0511287798066;
+            if( maxLat > MAX_LAT )
+            {
+                maxLat = MAX_LAT;
+                bModifiedMaxLat = true;
+            }
+            if( minLat < -MAX_LAT )
+            {
+                minLat = -MAX_LAT;
+                bModifiedMinLat = true;
+            }
+            if( bModifiedMaxLat || bModifiedMinLat )
+            {
+                CPLStringList aosOptions;
+                aosOptions.AddString("-of");
+                aosOptions.AddString("VRT");
+                aosOptions.AddString("-projwin");
+                aosOptions.AddString(CPLSPrintf("%.18g", adfSrcGeoTransform[0]));
+                aosOptions.AddString(CPLSPrintf("%.18g", maxLat));
+                aosOptions.AddString(CPLSPrintf("%.18g", adfSrcGeoTransform[0] + poSrcDS->GetRasterXSize() * adfSrcGeoTransform[1]));
+                aosOptions.AddString(CPLSPrintf("%.18g", minLat));
+                auto psOptions = GDALTranslateOptionsNew(aosOptions.List(), nullptr);
+                poTmpDS.reset(GDALDataset::FromHandle(
+                    GDALTranslate("", GDALDataset::ToHandle(poSrcDS), psOptions, nullptr)));
+                GDALTranslateOptionsFree(psOptions);
+                if( poTmpDS )
+                {
+                    hTransformArg = GDALCreateGenImgProjTransformer2(
+                        GDALDataset::FromHandle(poTmpDS.get()), nullptr, papszTO );
+                }
+            }
+        }
+    }
+    if( hTransformArg == nullptr )
+    {
+        hTransformArg =
             GDALCreateGenImgProjTransformer2( poSrcDS, nullptr, papszTO );
+    }
     if( hTransformArg == nullptr )
     {
         CSLDestroy(papszTO);
@@ -3088,49 +3166,27 @@ GDALDataset* MBTilesDataset::CreateCopy( const char *pszFilename,
 
     GDALDestroyGenImgProjTransformer( hTransformArg );
     hTransformArg = nullptr;
+    poTmpDS.reset();
 
-    // Hack to compensate for  GDALSuggestedWarpOutput2() failure when
-    // reprojection latitude = +/- 90 to EPSG:3857
-    double adfSrcGeoTransform[6];
-    if( poSrcDS->GetGeoTransform(adfSrcGeoTransform) == CE_None )
+    if( bModifiedMaxLat || bModifiedMinLat )
     {
-        const char* pszSrcWKT = poSrcDS->GetProjectionRef();
-        if( pszSrcWKT != nullptr && pszSrcWKT[0] != '\0' )
+        if( bModifiedMaxLat )
         {
-            OGRSpatialReference oSRS;
-            if( oSRS.SetFromUserInput( pszSrcWKT ) == OGRERR_NONE &&
-                oSRS.IsGeographic() )
+            const double maxNorthing = MAX_GM;
+            adfGeoTransform[3] = maxNorthing;
+            adfExtent[3] = maxNorthing;
+        }
+        if( bModifiedMinLat )
+        {
+            const double minNorthing = -MAX_GM;
+            adfExtent[1] = minNorthing;
+        }
+
+        if( poSrcSRS && poSrcSRS->IsGeographic() )
+        {
+            if( adfSrcGeoTransform[0] + poSrcDS->GetRasterXSize() * adfSrcGeoTransform[1] == 180 )
             {
-                const double minLat =
-                    std::min(
-                        adfSrcGeoTransform[3],
-                        adfSrcGeoTransform[3] +
-                        poSrcDS->GetRasterYSize() * adfSrcGeoTransform[5]);
-                const double maxLat =
-                    std::max(
-                         adfSrcGeoTransform[3],
-                         adfSrcGeoTransform[3] +
-                         poSrcDS->GetRasterYSize() * adfSrcGeoTransform[5]);
-                double maxNorthing = adfGeoTransform[3];
-                double minNorthing = adfGeoTransform[3] + adfGeoTransform[5] * nYSize;
-                bool bChanged = false;
-                if( maxLat > 89.9999999 )
-                {
-                    bChanged = true;
-                    maxNorthing = MAX_GM;
-                }
-                if( minLat <= -89.9999999 )
-                {
-                    bChanged = true;
-                    minNorthing = -MAX_GM;
-                }
-                if( bChanged )
-                {
-                    adfGeoTransform[3] = maxNorthing;
-                    nYSize = int((maxNorthing - minNorthing) / (-adfGeoTransform[5]) + 0.5);
-                    adfExtent[1] = maxNorthing + nYSize * adfGeoTransform[5];
-                    adfExtent[3] = maxNorthing;
-                }
+                adfExtent[2] = MAX_GM;
             }
         }
     }
@@ -3532,7 +3588,7 @@ void GDALRegister_MBTiles()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "MBTiles" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_mbtiles.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/mbtiles.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "mbtiles" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES, "Byte" );
 

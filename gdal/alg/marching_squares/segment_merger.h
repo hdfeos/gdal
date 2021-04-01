@@ -109,9 +109,15 @@ struct SegmentMerger
 
         for ( auto& l : lines_ ) {
             const int levelIdx = l.first;
-            for ( auto it = l.second.begin(); it != l.second.end(); it++ ) {
+            auto it = l.second.begin();
+            while ( it != l.second.end() ) {
                 if ( ! it->isMerged ) {
+                    // Note that emitLine_ erases `it` and returns an iterator advanced
+                    // to the next element.
                     it = emitLine_( levelIdx, it, /* closed */ false );
+                }
+                else {
+                    ++it;
                 }
             }
         }
@@ -178,7 +184,7 @@ private:
         }
         else
         {
-            // try to perfom linemerge with another line
+            // try to perform linemerge with another line
             // since we got out of the previous loop on the first match
             // there is no need to test previous elements
             // also: a segment merges at most two lines, no need to stall here ;)

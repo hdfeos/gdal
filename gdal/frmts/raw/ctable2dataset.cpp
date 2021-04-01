@@ -54,7 +54,10 @@ class CTable2Dataset final: public RawDataset
 
     CPLErr SetGeoTransform( double * padfTransform ) override;
     CPLErr GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     void   FlushCache(void) override;
 
     static GDALDataset *Open( GDALOpenInfo * );
@@ -215,6 +218,7 @@ GDALDataset *CTable2Dataset::Open( GDALOpenInfo * poOpenInfo )
 /* -------------------------------------------------------------------- */
 /*      Setup the bands.                                                */
 /* -------------------------------------------------------------------- */
+    CPLErrorReset();
     RawRasterBand *poBand =
         new RawRasterBand( poDS, 1, poDS->fpImage,
                            160 + 4 + static_cast<vsi_l_offset>(nRasterXSize) *
@@ -231,8 +235,13 @@ GDALDataset *CTable2Dataset::Open( GDALOpenInfo * poOpenInfo )
                            8, -8 * nRasterXSize,
                            GDT_Float32, CPL_IS_LSB, RawRasterBand::OwnFP::NO );
     poBand->SetDescription( "Longitude Offset (radians)" );
+    poBand->SetMetadataItem("positive_value", "west");
     poDS->SetBand( 2, poBand );
-
+    if( CPLGetLastErrorType() != CE_None )
+    {
+        delete poDS;
+        return nullptr;
+    }
 /* -------------------------------------------------------------------- */
 /*      Initialize any PAM information.                                 */
 /* -------------------------------------------------------------------- */
@@ -316,7 +325,7 @@ CPLErr CTable2Dataset::SetGeoTransform( double * padfTransform )
 
     // write grid header.
     CPL_IGNORE_RET_VAL(VSIFSeekL( fpImage, 0, SEEK_SET ));
-    CPL_IGNORE_RET_VAL(VSIFWriteL( achHeader, 11, 16, fpImage ));
+    CPL_IGNORE_RET_VAL(VSIFWriteL( achHeader, 1, sizeof(achHeader), fpImage ));
 
     return CE_None;
 }
@@ -325,10 +334,10 @@ CPLErr CTable2Dataset::SetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *CTable2Dataset::GetProjectionRef()
+const char *CTable2Dataset::_GetProjectionRef()
 
 {
-    return SRS_WKT_WGS84;
+    return SRS_WKT_WGS84_LAT_LONG;
 }
 
 /************************************************************************/

@@ -99,7 +99,7 @@ void GDALRegister_SIGDEM() {
         poDriver->SetMetadataItem(GDAL_DMD_LONGNAME,
                 "Scaled Integer Gridded DEM .sigdem");
         poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC,
-                "frmt_various.html#SIGDEM");
+                "drivers/raster/sigdem.html");
         poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "sigdem");
 
         poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES");
@@ -290,7 +290,7 @@ CPLErr SIGDEMDataset::GetGeoTransform(double * padfTransform) {
     return CE_None;
 }
 
-const char* SIGDEMDataset::GetProjectionRef() {
+const char* SIGDEMDataset::_GetProjectionRef() {
     return pszProjection;
 }
 
@@ -520,14 +520,14 @@ CPLErr SIGDEMRasterBand::IReadBlock(
     const int32_t* pnSourceValues = pBlockBuffer;
     double* padfDestValues = static_cast<double*>(pImage);
     double dfOffset = this->dfOffsetZ;
-    double dfScaleFactor = this->dfScaleFactorZ;
+    const double dfInvScaleFactor = dfScaleFactorZ != 0.0 ? 1.0 / dfScaleFactorZ : 0.0;
     int nCellCount = this->nRasterXSize;
     for (int i = 0; i < nCellCount; i++) {
         int32_t nValue = CPL_MSBWORD32(*pnSourceValues);
         if (nValue == NO_DATA) {
             *padfDestValues = -9999;
         } else {
-            *padfDestValues = dfOffset + nValue / dfScaleFactor;
+            *padfDestValues = dfOffset + nValue * dfInvScaleFactor;
         }
 
         pnSourceValues++;

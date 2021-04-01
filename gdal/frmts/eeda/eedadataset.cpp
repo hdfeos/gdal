@@ -31,7 +31,7 @@
 #include "cpl_conv.h"
 #include "ogrgeojsonreader.h"
 #include "ogrgeojsonwriter.h"
-#include "swq.h"
+#include "ogr_swq.h"
 #include "eeda.h"
 
 #include <algorithm>
@@ -82,7 +82,7 @@ static CPLString CPLEscapeURLQueryParameter( const char *pszInput )
 
 class GDALEEDALayer;
 
-class GDALEEDADataset: public GDALEEDABaseDataset
+class GDALEEDADataset final: public GDALEEDABaseDataset
 {
             CPL_DISALLOW_COPY_ASSIGN(GDALEEDADataset)
 
@@ -104,12 +104,13 @@ class GDALEEDADataset: public GDALEEDABaseDataset
 /*                          GDALEEDALayer                               */
 /************************************************************************/
 
-class GDALEEDALayer: public OGRLayer
+class GDALEEDALayer final: public OGRLayer
 {
                 CPL_DISALLOW_COPY_ASSIGN(GDALEEDALayer)
 
                 GDALEEDADataset* m_poDS;
                 CPLString        m_osCollection{};
+                CPLString        m_osCollectionName{};
                 OGRFeatureDefn*  m_poFeatureDefn;
                 json_object*     m_poCurPageObj;
                 json_object*     m_poCurPageAssets;
@@ -119,7 +120,7 @@ class GDALEEDALayer: public OGRLayer
                 CPLString        m_osStartTime{};
                 CPLString        m_osEndTime{};
                 bool             m_bFilterMustBeClientSideEvaluated;
-                std::set<int>    m_oSetQueriableFields{};
+                std::set<int>    m_oSetQueryableFields{};
                 std::map<CPLString, CPLString> m_oMapCodeToWKT{};
 
                 OGRFeature*      GetNextRawFeature();
@@ -129,6 +130,7 @@ class GDALEEDALayer: public OGRLayer
     public:
         GDALEEDALayer(GDALEEDADataset* poDS,
                       const CPLString& osCollection,
+                      const CPLString& osCollectionName,
                       json_object* poAsset,
                       json_object* poLayerConf);
         virtual ~GDALEEDALayer();
@@ -159,10 +161,12 @@ class GDALEEDALayer: public OGRLayer
 
 GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
                              const CPLString& osCollection,
+                             const CPLString& osCollectionName,
                              json_object* poAsset,
                              json_object* poLayerConf) :
     m_poDS(poDS),
     m_osCollection(osCollection),
+    m_osCollectionName(osCollectionName),
     m_poFeatureDefn(nullptr),
     m_poCurPageObj(nullptr),
     m_poCurPageAssets(nullptr),
@@ -183,12 +187,16 @@ GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
     m_poFeatureDefn->Reference();
     m_poFeatureDefn->SetGeomType(wkbMultiPolygon);
     OGRSpatialReference* poSRS = new OGRSpatialReference();
-    poSRS->SetFromUserInput(SRS_WKT_WGS84);
+    poSRS->SetFromUserInput(SRS_WKT_WGS84_LAT_LONG);
     m_poFeatureDefn->GetGeomFieldDefn(0)->SetSpatialRef(poSRS);
     poSRS->Release();
 
     {
-        OGRFieldDefn oFieldDefn("path", OFTString);
+        OGRFieldDefn oFieldDefn("name", OFTString);
+        m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
+    }
+    {
+        OGRFieldDefn oFieldDefn("id", OFTString);
         m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
     }
     {
@@ -196,11 +204,15 @@ GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
         m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
     }
     {
-        OGRFieldDefn oFieldDefn("time", OFTDateTime);
+        OGRFieldDefn oFieldDefn("updateTime", OFTDateTime);
         m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
     }
     {
-        OGRFieldDefn oFieldDefn("updateTime", OFTDateTime);
+        OGRFieldDefn oFieldDefn("startTime", OFTDateTime);
+        m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
+    }
+    {
+        OGRFieldDefn oFieldDefn("endTime", OFTDateTime);
         m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
     }
     {
@@ -248,8 +260,8 @@ GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
             return;
         }
 
-        const int nFields = json_object_array_length(poFields);
-        for( int i=0; i<nFields; i++ )
+        const auto nFields = json_object_array_length(poFields);
+        for( auto i=decltype(nFields){0}; i<nFields; i++ )
         {
             json_object* poField = json_object_array_get_idx(poFields, i);
             if( poField && json_object_get_type(poField) == json_type_object )
@@ -280,7 +292,7 @@ GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
                     }
                     OGRFieldDefn oFieldDefn(pszName, eType);
                     m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
-                    m_oSetQueriableFields.insert( m_poFeatureDefn->GetFieldCount() - 1 );
+                    m_oSetQueryableFields.insert( m_poFeatureDefn->GetFieldCount() - 1 );
                 }
             }
         }
@@ -325,7 +337,7 @@ GDALEEDALayer::GDALEEDALayer(GDALEEDADataset* poDS,
                 }
                 OGRFieldDefn oFieldDefn(it.key, eType);
                 m_poFeatureDefn->AddFieldDefn(&oFieldDefn);
-                m_oSetQueriableFields.insert( m_poFeatureDefn->GetFieldCount() - 1 );
+                m_oSetQueryableFields.insert( m_poFeatureDefn->GetFieldCount() - 1 );
             }
         }
         {
@@ -369,7 +381,7 @@ OGRFeature* GDALEEDALayer::GetNextRawFeature()
 {
     CPLString osNextPageToken;
     if( m_poCurPageAssets != nullptr &&
-        m_nIndexInPage >= json_object_array_length(m_poCurPageAssets) )
+        m_nIndexInPage >= static_cast<int>(json_object_array_length(m_poCurPageAssets)) )
     {
         json_object* poToken =
             CPL_json_object_object_get(m_poCurPageObj, "nextPageToken");
@@ -385,48 +397,52 @@ OGRFeature* GDALEEDALayer::GetNextRawFeature()
 
     if( m_poCurPageObj == nullptr )
     {
-        CPLString osURL(m_poDS->GetBaseURL() + "assets:listImages?parentPath=" +
-                       CPLEscapeURLQueryParameter(m_osCollection));
+        CPLString osURL(m_poDS->GetBaseURL() + m_osCollectionName +
+                    ":listImages");
+        CPLString query = "";
         if( !osNextPageToken.empty() )
         {
-            osURL += "&pageToken=" +
+            query += "&pageToken=" +
                         CPLEscapeURLQueryParameter(osNextPageToken);
         }
         const char *pszPageSize = CPLGetConfigOption("EEDA_PAGE_SIZE", nullptr);
         if( pszPageSize )
         {
-            osURL += "&pageSize=";
-            osURL += pszPageSize;
+            query += "&pageSize=";
+            query += pszPageSize;
         }
         if( m_poFilterGeom != nullptr )
         {
             char* pszGeoJSON = OGR_G_ExportToJson(
                 reinterpret_cast<OGRGeometryH>(m_poFilterGeom) );
-            osURL += "&region=";
-            osURL += CPLEscapeURLQueryParameter(pszGeoJSON);
+            query += "&region=";
+            query += CPLEscapeURLQueryParameter(pszGeoJSON);
             CPLFree(pszGeoJSON);
         }
         if( !m_osAttributeFilter.empty() )
         {
-            osURL += "&filter=";
-            osURL += CPLEscapeURLQueryParameter(m_osAttributeFilter);
+            query += "&filter=";
+            query += CPLEscapeURLQueryParameter(m_osAttributeFilter);
         }
         if( !m_osStartTime.empty() )
         {
-            osURL += "&startTime=";
-            osURL += CPLEscapeURLQueryParameter(m_osStartTime);
+            query += "&startTime=";
+            query += CPLEscapeURLQueryParameter(m_osStartTime);
         }
         if( !m_osEndTime.empty() )
         {
-            osURL += "&endTime=";
-            osURL += CPLEscapeURLQueryParameter(m_osEndTime);
+            query += "&endTime=";
+            query += CPLEscapeURLQueryParameter(m_osEndTime);
+        }
+        if (query.size() > 0) {
+          osURL = osURL + "?" + query.substr(1);
         }
         m_poCurPageObj = m_poDS->RunRequest(osURL);
         if( m_poCurPageObj == nullptr )
             return nullptr;
 
         m_poCurPageAssets = CPL_json_object_object_get(
-                                                m_poCurPageObj, "assets");
+                                                m_poCurPageObj, "images");
     }
 
     if( m_poCurPageAssets == nullptr ||
@@ -471,17 +487,24 @@ OGRFeature* GDALEEDALayer::GetNextRawFeature()
         }
     }
 
-    const char* pszPath =
-        json_object_get_string(CPL_json_object_object_get(poAsset, "path"));
-    if( pszPath )
+    const char* pszName =
+        json_object_get_string(CPL_json_object_object_get(poAsset, "name"));
+    if( pszName )
     {
-        poFeature->SetField("path", pszPath);
+        poFeature->SetField("name", pszName);
         poFeature->SetField("gdal_dataset",
-                    ("EEDAI:" + CPLString(pszPath)).c_str());
+                    ("EEDAI:" + CPLString(pszName)).c_str());
+    }
+
+    const char* pszId =
+        json_object_get_string(CPL_json_object_object_get(poAsset, "id"));
+    if ( pszId )
+    {
+        poFeature->SetField("id", pszId);
     }
 
     const char* const apszBaseProps[] =
-        { "time", "updateTime", "sizeBytes" };
+        { "updateTime", "startTime", "endTime", "sizeBytes" };
     for( size_t i = 0; i < CPL_ARRAYSIZE(apszBaseProps); i++ )
     {
         const char* pszVal = json_object_get_string(
@@ -669,16 +692,16 @@ bool GDALEEDALayer::IsSimpleComparison(const swq_expr_node* poNode)
              poNode->nSubExprCount == 2 &&
              poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
              poNode->papoSubExpr[1]->eNodeType == SNT_CONSTANT &&
-             m_oSetQueriableFields.find(
+             m_oSetQueryableFields.find(
                                     poNode->papoSubExpr[0]->field_index) !=
-                                m_oSetQueriableFields.end();
+                                m_oSetQueryableFields.end();
 }
 
 /************************************************************************/
 /*                             GetOperatorText()                        */
 /************************************************************************/
 
-static const char* GetOperatorText(int nOp)
+static const char* GetOperatorText(swq_op nOp)
 {
     if( nOp == SWQ_LT )
         return "<";
@@ -770,55 +793,61 @@ CPLString GDALEEDALayer::BuildFilter(swq_expr_node* poNode, bool bIsAndTopLevel)
     else if( bIsAndTopLevel &&
              poNode->eNodeType == SNT_OPERATION &&
              (poNode->nOperation == SWQ_EQ ||
-              poNode->nOperation == SWQ_GE ||
+              poNode->nOperation == SWQ_GE) &&
+             poNode->nSubExprCount == 2 &&
+             poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
+             poNode->papoSubExpr[1]->eNodeType == SNT_CONSTANT &&
+             poNode->papoSubExpr[0]->field_index ==
+                    m_poFeatureDefn->GetFieldIndex("startTime") &&
+             poNode->papoSubExpr[1]->field_type == SWQ_TIMESTAMP )
+    {
+        int nTerms = GDALEEDALayerParseDateTime(poNode->papoSubExpr[1]->string_value,
+                SWQ_GE,
+                nYear, nMonth, nDay, nHour, nMinute, nSecond);
+        if( nTerms >= 3 )
+        {
+            m_osStartTime = CPLSPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ",
+                                nYear, nMonth, nDay, nHour, nMinute, nSecond);
+        }
+        else
+        {
+            m_bFilterMustBeClientSideEvaluated = true;
+        }
+        return "";
+    }
+    else if( bIsAndTopLevel &&
+             poNode->eNodeType == SNT_OPERATION &&
+             (poNode->nOperation == SWQ_EQ ||
               poNode->nOperation == SWQ_LE) &&
              poNode->nSubExprCount == 2 &&
              poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
              poNode->papoSubExpr[1]->eNodeType == SNT_CONSTANT &&
              poNode->papoSubExpr[0]->field_index ==
-                    m_poFeatureDefn->GetFieldIndex("time") &&
+                    m_poFeatureDefn->GetFieldIndex("endTime") &&
              poNode->papoSubExpr[1]->field_type == SWQ_TIMESTAMP )
     {
-        if( poNode->nOperation == SWQ_GE || poNode->nOperation == SWQ_EQ )
+        int nTerms = GDALEEDALayerParseDateTime(poNode->papoSubExpr[1]->string_value,
+                SWQ_LE,
+                nYear, nMonth, nDay, nHour, nMinute, nSecond);
+        if( nTerms >= 3 )
         {
-            int nTerms = GDALEEDALayerParseDateTime(poNode->papoSubExpr[1]->string_value,
-                    SWQ_GE,
-                    nYear, nMonth, nDay, nHour, nMinute, nSecond);
-            if( nTerms >= 3 )
+            if( poNode->nOperation == SWQ_EQ && nTerms == 6 )
             {
-                m_osStartTime = CPLSPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ",
-                                    nYear, nMonth, nDay, nHour, nMinute, nSecond);
+                if( nSecond < 59 )
+                    nSecond ++;
+                else if( nMinute < 59 )
+                    nMinute ++;
+                else if( nHour < 23 )
+                    nHour ++;
+                else
+                    nDay ++;
             }
-            else
-            {
-                m_bFilterMustBeClientSideEvaluated = true;
-            }
+            m_osEndTime = CPLSPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ",
+                                nYear, nMonth, nDay, nHour, nMinute, nSecond);
         }
-        if( poNode->nOperation == SWQ_LE || poNode->nOperation == SWQ_EQ )
+        else
         {
-            int nTerms = GDALEEDALayerParseDateTime(poNode->papoSubExpr[1]->string_value,
-                    SWQ_LE,
-                    nYear, nMonth, nDay, nHour, nMinute, nSecond);
-            if( nTerms >= 3 )
-            {
-                if( poNode->nOperation == SWQ_EQ && nTerms == 6 )
-                {
-                    if( nSecond < 59 )
-                        nSecond ++;
-                    else if( nMinute < 59 )
-                        nMinute ++;
-                    else if( nHour < 23 )
-                        nHour ++;
-                    else
-                        nDay ++;
-                }
-                m_osEndTime = CPLSPrintf("%04d-%02d-%02dT%02d:%02d:%02dZ",
-                                    nYear, nMonth, nDay, nHour, nMinute, nSecond);
-            }
-            else
-            {
-                m_bFilterMustBeClientSideEvaluated = true;
-            }
+            m_bFilterMustBeClientSideEvaluated = true;
         }
         return "";
     }
@@ -826,9 +855,9 @@ CPLString GDALEEDALayer::BuildFilter(swq_expr_node* poNode, bool bIsAndTopLevel)
               poNode->nOperation == SWQ_IN &&
               poNode->nSubExprCount >= 2 &&
               poNode->papoSubExpr[0]->eNodeType == SNT_COLUMN &&
-              m_oSetQueriableFields.find(
+              m_oSetQueryableFields.find(
                                     poNode->papoSubExpr[0]->field_index) !=
-                                m_oSetQueriableFields.end() )
+                                m_oSetQueryableFields.end() )
     {
         const int nFieldIdx = poNode->papoSubExpr[0]->field_index;
         CPLString osFilter;
@@ -1090,7 +1119,7 @@ static json_object* GDALEEDADatasetGetConf()
 bool GDALEEDADataset::Open(GDALOpenInfo* poOpenInfo)
 {
     m_osBaseURL = CPLGetConfigOption("EEDA_URL",
-                            "https://earthengine.googleapis.com/v1/");
+                            "https://earthengine.googleapis.com/v1alpha/");
 
     CPLString osCollection =
             CSLFetchNameValueDef(poOpenInfo->papszOpenOptions, "COLLECTION", "");
@@ -1109,6 +1138,7 @@ bool GDALEEDADataset::Open(GDALOpenInfo* poOpenInfo)
         osCollection = papszTokens[1];
         CSLDestroy(papszTokens);
     }
+    CPLString osCollectionName = ConvertPathToName(osCollection);
 
     json_object* poRootConf = GDALEEDADatasetGetConf();
     if( poRootConf )
@@ -1118,7 +1148,7 @@ bool GDALEEDADataset::Open(GDALOpenInfo* poOpenInfo)
         if( poLayerConf != nullptr &&
             json_object_get_type(poLayerConf) == json_type_object )
         {
-            m_poLayer = new GDALEEDALayer(this, osCollection,
+            m_poLayer = new GDALEEDALayer(this, osCollection, osCollectionName,
                                           nullptr, poLayerConf);
             json_object_put(poRootConf);
             return true;
@@ -1127,13 +1157,12 @@ bool GDALEEDADataset::Open(GDALOpenInfo* poOpenInfo)
     }
 
     // Issue request to get layer schema
-    json_object* poRootAsset = RunRequest(m_osBaseURL + "assets:listImages?parentPath=" +
-                CPLEscapeURLQueryParameter(osCollection) +
-                "&pageSize=1");
+    json_object* poRootAsset = RunRequest(m_osBaseURL + osCollectionName +
+                ":listImages?pageSize=1");
     if( poRootAsset == nullptr )
         return false;
 
-    json_object* poAssets = CPL_json_object_object_get(poRootAsset, "assets");
+    json_object* poAssets = CPL_json_object_object_get(poRootAsset, "images");
     if( poAssets == nullptr ||
         json_object_get_type(poAssets) != json_type_array ||
         json_object_array_length(poAssets) != 1 )
@@ -1150,7 +1179,8 @@ bool GDALEEDADataset::Open(GDALOpenInfo* poOpenInfo)
         return false;
     }
 
-    m_poLayer = new GDALEEDALayer(this, osCollection, poAsset, nullptr);
+    m_poLayer = new GDALEEDALayer(this, osCollection, osCollectionName, poAsset,
+                                  nullptr);
     json_object_put(poRootAsset);
 
     return true;
@@ -1200,11 +1230,11 @@ void GDALRegister_EEDA()
     poDriver->SetMetadataItem( GDAL_DCAP_VECTOR, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Earth Engine Data API" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_eeda.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/eeda.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CONNECTION_PREFIX, "EEDA:" );
     poDriver->SetMetadataItem( GDAL_DMD_OPENOPTIONLIST,
 "<OpenOptionList>"
-"  <Option name='COLLECTION' type='string' description='Collection path'/>"
+"  <Option name='COLLECTION' type='string' description='Collection name'/>"
 "</OpenOptionList>");
 
     poDriver->pfnOpen = GDALEEDAOpen;

@@ -2,10 +2,10 @@
  *
  * Project:  EDIGEO Translator
  * Purpose:  Implements OGREDIGEODriver.
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -85,7 +85,7 @@ void RegisterOGREDIGEO()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "French EDIGEO exchange format" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "thf" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_edigeo.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/edigeo.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_FEATURE_STYLES, "YES" );

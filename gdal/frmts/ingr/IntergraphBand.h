@@ -7,7 +7,7 @@
 *
 ******************************************************************************
 * Copyright (c) 2007, Ivan Lucena
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files ( the "Software" ),
@@ -34,16 +34,16 @@
 //     Intergraph IntergraphRasterBand
 //  ----------------------------------------------------------------------------
 
-class IntergraphRasterBand : public GDALPamRasterBand
+class IntergraphRasterBand CPL_NON_FINAL: public GDALPamRasterBand
 {
     friend class IntergraphDataset;
 
 protected:
     GDALColorTable *poColorTable;
-    uint32          nDataOffset;
-    uint32          nBlockBufSize;
-    uint32          nBandStart;
-    uint8           nRGBIndex;
+    uint32_t          nDataOffset;
+    uint32_t          nBlockBufSize;
+    uint32_t          nBandStart;
+    uint8_t           nRGBIndex;
 
     INGR_Format     eFormat;
     bool            bTiled;
@@ -51,7 +51,7 @@ protected:
     int             nFullBlocksY;
 
     GByte          *pabyBlockBuf;
-    uint32          nTiles;
+    uint32_t          nTiles;
 
     INGR_TileItem  *pahTiles;
 
@@ -89,7 +89,7 @@ protected:
 //     Intergraph IntergraphRGBBand
 //  ----------------------------------------------------------------------------
 
-class IntergraphRGBBand : public IntergraphRasterBand
+class IntergraphRGBBand final: public IntergraphRasterBand
 {
 public:
     IntergraphRGBBand( IntergraphDataset *poDS,
@@ -104,13 +104,13 @@ public:
 //     Intergraph IntergraphBitmapBand
 //  ----------------------------------------------------------------------------
 
-class IntergraphBitmapBand : public IntergraphRasterBand
+class IntergraphBitmapBand final: public IntergraphRasterBand
 {
     friend class IntergraphDataset;
 
 private:
     GByte          *pabyBMPBlock;
-    uint32          nBMPSize;
+    uint32_t          nBMPSize;
     int             nQuality;
     int             nRGBBand;
 
@@ -129,15 +129,15 @@ public:
 //     Intergraph IntergraphRLEBand
 //  ----------------------------------------------------------------------------
 
-class IntergraphRLEBand : public IntergraphRasterBand
+class IntergraphRLEBand final: public IntergraphRasterBand
 {
     friend class IntergraphDataset;
 
 private:
     GByte          *pabyRLEBlock;
-    uint32          nRLESize;
+    uint32_t          nRLESize;
     int             bRLEBlockLoaded;
-    uint32         *panRLELineOffset;
+    uint32_t         *panRLELineOffset;
 
 public:
     IntergraphRLEBand( IntergraphDataset *poDS,

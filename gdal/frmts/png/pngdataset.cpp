@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -349,7 +349,7 @@ CPLErr PNGDataset::IRasterIO( GDALRWFlag eRWFlag,
        (eBufType == GDT_Byte) &&
        (eBufType == GetRasterBand(1)->GetRasterDataType()) &&
        (pData != nullptr) &&
-       (panBandMap != nullptr) && IsFullBandMap(panBandMap, nBands))
+       IsFullBandMap(panBandMap, nBands))
     {
         // Pixel interleaved case.
         if( nBandSpace == 1 )
@@ -909,7 +909,7 @@ char **PNGDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "xml:XMP", "COLOR_PROFILE", NULL);
+                                   "xml:XMP", "COLOR_PROFILE", nullptr);
 }
 
 /************************************************************************/
@@ -2071,7 +2071,7 @@ void GDALRegister_PNG()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "Portable Network Graphics" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#PNG" );
+                               "drivers/raster/png.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "png" );
     poDriver->SetMetadataItem( GDAL_DMD_MIMETYPE, "image/png" );
 

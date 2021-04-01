@@ -7,7 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2003, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2003, Applied Coherent Technology Corporation, www.actgate.com
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2018, Oslandia <infos at oslandia dot com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -501,17 +501,17 @@ an averaged value from the two nearby points (in this case (12+3+5)/3).
  *   ELEV_FIELD=d
  *
  * This will be used as a field index to indicate where the elevation value
- * of the contour should be written.
+ * of the contour should be written. Only used in line contouring mode.
  *
  *   ELEV_FIELD_MIN=d
  *
  * This will be used as a field index to indicate where the minimum elevation value
- * of the polygon contour should be written.
+ * of the polygon contour should be written. Only used in polygonal contouring mode.
  *
  *   ELEV_FIELD_MAX=d
  *
  * This will be used as a field index to indicate where the maximum elevation value
- * of the polygon contour should be written.
+ * of the polygon contour should be written. Only used in polygonal contouring mode.
  *
  *   POLYGONIZE=YES|NO
  *
@@ -564,6 +564,14 @@ CPLErr GDALContourGenerateEx( GDALRasterBandH hBand, void *hLayer,
     if ( opt ) {
         useNoData = true;
         noDataValue = CPLAtof( opt );
+        if( GDALGetRasterDataType(hBand) == GDT_Float32 )
+        {
+            int bClamped = FALSE;
+            int bRounded = FALSE;
+            noDataValue = GDALAdjustValueToDataType(GDT_Float32,
+                                                    noDataValue,
+                                                    &bClamped, &bRounded );
+        }
     }
 
     int idField = -1;
@@ -611,6 +619,7 @@ CPLErr GDALContourGenerateEx( GDALRasterBandH hBand, void *hLayer,
         GDALGetGeoTransform( hSrcDS, oCWI.adfGeoTransform );
     oCWI.nNextID = 0;
 
+    bool ok = false;
     try
     {
         if ( polygonize )
@@ -623,19 +632,19 @@ CPLErr GDALContourGenerateEx( GDALRasterBandH hBand, void *hLayer,
                 FixedLevelRangeIterator levels( &fixedLevels[0], fixedLevels.size(), GDALGetRasterMaximum( hBand, &bSuccess ) );
                 SegmentMerger<RingAppender, FixedLevelRangeIterator> writer(appender, levels, /* polygonize */ true);
                 ContourGeneratorFromRaster<decltype(writer), FixedLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
             else if ( expBase > 0.0 ) {
                 ExponentialLevelRangeIterator levels( expBase );
                 SegmentMerger<RingAppender, ExponentialLevelRangeIterator> writer(appender, levels, /* polygonize */ true);
                 ContourGeneratorFromRaster<decltype(writer), ExponentialLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
             else {
                 IntervalLevelRangeIterator levels( contourBase, contourInterval );
                 SegmentMerger<RingAppender, IntervalLevelRangeIterator> writer(appender, levels, /* polygonize */ true);
                 ContourGeneratorFromRaster<decltype(writer), IntervalLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
         }
         else
@@ -645,19 +654,19 @@ CPLErr GDALContourGenerateEx( GDALRasterBandH hBand, void *hLayer,
                 FixedLevelRangeIterator levels( &fixedLevels[0], fixedLevels.size() );
                 SegmentMerger<GDALRingAppender, FixedLevelRangeIterator> writer(appender, levels, /* polygonize */ false);
                 ContourGeneratorFromRaster<decltype(writer), FixedLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
             else if ( expBase > 0.0 ) {
                 ExponentialLevelRangeIterator levels( expBase );
                 SegmentMerger<GDALRingAppender, ExponentialLevelRangeIterator> writer(appender, levels, /* polygonize */ false);
                 ContourGeneratorFromRaster<decltype(writer), ExponentialLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
             else {
                 IntervalLevelRangeIterator levels( contourBase, contourInterval );
                 SegmentMerger<GDALRingAppender, IntervalLevelRangeIterator> writer(appender, levels, /* polygonize */ false);
                 ContourGeneratorFromRaster<decltype(writer), IntervalLevelRangeIterator> cg( hBand, useNoData, noDataValue, writer, levels );
-                cg.process( pfnProgress, pProgressArg );
+                ok = cg.process( pfnProgress, pProgressArg );
             }
         }
     }
@@ -666,7 +675,7 @@ CPLErr GDALContourGenerateEx( GDALRasterBandH hBand, void *hLayer,
         CPLError(CE_Failure, CPLE_AppDefined, "%s", e.what());
         return CE_Failure;
     }
-    return CE_None;
+    return ok ? CE_None : CE_Failure;
 }
 
 /************************************************************************/

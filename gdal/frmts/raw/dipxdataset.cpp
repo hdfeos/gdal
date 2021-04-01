@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2006, Frank Warmerdam
- * Copyright (c) 2008-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -88,7 +88,10 @@ class DIPExDataset final: public GDALPamDataset
 
     CPLErr GetGeoTransform( double * ) override;
 
-    const char *GetProjectionRef( void ) override;
+    const char *_GetProjectionRef( void ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     static GDALDataset *Open( GDALOpenInfo * );
 };
 
@@ -357,7 +360,7 @@ GDALDataset *DIPExDataset::Open( GDALOpenInfo * poOpenInfo )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *DIPExDataset::GetProjectionRef()
+const char *DIPExDataset::_GetProjectionRef()
 
 {
     return osSRS.c_str();

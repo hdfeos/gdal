@@ -154,7 +154,6 @@ bool OGRAmigoCloudDataSource::ListDatasets()
         return false;
     }
 
-    if( result != nullptr )
     {
         auto type = json_object_get_type(result);
         if(type == json_type_object)
@@ -166,8 +165,8 @@ bool OGRAmigoCloudDataSource::ListDatasets()
                 CPLprintf("List of available datasets for project id: %s\n", GetProjectId());
                 CPLprintf("| id \t | name\n");
                 CPLprintf("|--------|-------------------\n");
-                const int nSize = json_object_array_length(poResults);
-                for(int i = 0; i < nSize; ++i) {
+                const auto nSize = json_object_array_length(poResults);
+                for(auto i = decltype(nSize){0}; i < nSize; ++i) {
                     json_object *ds = json_object_array_get_idx(poResults, i);
                     if(ds!=nullptr) {
                         const char *name = nullptr;
@@ -289,9 +288,9 @@ const char* OGRAmigoCloudDataSource::GetAPIURL() const
         return pszAPIURL;
 
     else if( bUseHTTPS )
-        return CPLSPrintf("https://www.amigocloud.com/api/v1");
+        return CPLSPrintf("https://app.amigocloud.com/api/v1");
     else
-        return CPLSPrintf("http://www.amigocloud.com/api/v1");
+        return CPLSPrintf("http://app.amigocloud.com/api/v1");
 }
 
 /************************************************************************/
@@ -366,7 +365,15 @@ OGRLayer   *OGRAmigoCloudDataSource::ICreateLayer( const char *pszNameIn,
     OGRAmigoCloudTableLayer* poLayer = new OGRAmigoCloudTableLayer(this, osName);
     const bool bGeomNullable =
         CPLFetchBool(papszOptions, "GEOMETRY_NULLABLE", true);
-    poLayer->SetDeferredCreation(eGType, poSpatialRef, bGeomNullable);
+    OGRSpatialReference* poSRSClone = poSpatialRef;
+    if( poSRSClone )
+    {
+        poSRSClone = poSRSClone->Clone();
+        poSRSClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    poLayer->SetDeferredCreation(eGType, poSRSClone, bGeomNullable);
+    if( poSRSClone )
+        poSRSClone->Release();
     papoLayers = (OGRAmigoCloudTableLayer**) CPLRealloc(
                     papoLayers, (nLayers + 1) * sizeof(OGRAmigoCloudTableLayer*));
     papoLayers[nLayers ++] = poLayer;
@@ -551,7 +558,7 @@ bool OGRAmigoCloudDataSource::waitForJobToFinish(const char* jobId)
             return false;
         }
 
-        if (result != nullptr) {
+        {
             int type = json_object_get_type(result);
             if (type == json_type_object) {
                 json_object *poStatus = CPL_json_object_object_get(result, "status");
@@ -741,104 +748,22 @@ json_object* OGRAmigoCloudDataSource::RunGET(const char*pszURL)
 json_object* OGRAmigoCloudDataSource::RunSQL(const char* pszUnescapedSQL)
 {
     CPLString osSQL;
-    osSQL = "/users/0/projects/" + CPLString(pszProjectId) + "/sql";
-
-    /* -------------------------------------------------------------------- */
-    /*      Provide the API Key                                             */
-    /* -------------------------------------------------------------------- */
-    if( !osAPIKey.empty() )
-    {
-        osSQL += "?token=" + osAPIKey;
-    }
-
-    osSQL += "&query=";
-
-    char * pszEscaped = CPLEscapeString( pszUnescapedSQL, -1, CPLES_URL );
-    std::string escaped = pszEscaped;
-    CPLFree( pszEscaped );
-    osSQL += escaped;
-
-/* -------------------------------------------------------------------- */
-/*      Collection the header options and execute request.              */
-/* -------------------------------------------------------------------- */
-
     std::string pszAPIURL = GetAPIURL();
-    char** papszOptions = nullptr;
-    papszOptions = CSLAddString(papszOptions, GetUserAgentOption().c_str());
-
-    pszAPIURL += osSQL;
-
-    CPLHTTPResult * psResult = CPLHTTPFetch( pszAPIURL.c_str(), papszOptions);
-    CSLDestroy(papszOptions);
-    if( psResult == nullptr )
-        return nullptr;
-
-/* -------------------------------------------------------------------- */
-/*      Check for some error conditions and report.  HTML Messages      */
-/*      are transformed info failure.                                   */
-/* -------------------------------------------------------------------- */
-    if (psResult->pszContentType &&
-        strncmp(psResult->pszContentType, "text/html", 9) == 0)
-    {
-        CPLDebug( "AMIGOCLOUD", "RunSQL HTML Response:%s", psResult->pabyData );
-        CPLError(CE_Failure, CPLE_AppDefined,
-                 "HTML error page returned by server");
-        CPLHTTPDestroyResult(psResult);
-        return nullptr;
+    osSQL = pszAPIURL + "/users/0/projects/" + CPLString(pszProjectId) + "/sql";
+    std::string sql = pszUnescapedSQL;
+    if (sql.find("DELETE") != std::string::npos || sql.find("delete") != std::string::npos ||
+        sql.find("INSERT") != std::string::npos || sql.find("insert") != std::string::npos ||
+        sql.find("UPDATE") != std::string::npos || sql.find("update") != std::string::npos) {
+        std::stringstream query;
+        query << "{\"query\": \"" << OGRAMIGOCLOUDJsonEncode(pszUnescapedSQL) << "\"}";
+        return RunPOST(osSQL.c_str(), query.str().c_str());
+    } else {
+        osSQL += "?query=";
+        char * pszEscaped = CPLEscapeString( pszUnescapedSQL, -1, CPLES_URL );
+        osSQL += pszEscaped;
+        CPLFree(pszEscaped);
+        return RunGET(osSQL.c_str());
     }
-    if (psResult->pszErrBuf != nullptr && psResult->pabyData != nullptr )
-    {
-        CPLError( CE_Failure, CPLE_AppDefined, "GET Response: %s", psResult->pabyData );
-    }
-    else if (psResult->nStatus != 0)
-    {
-        CPLDebug( "AMIGOCLOUD", "RunGET Error Status:%d", psResult->nStatus );
-    }
-
-    if( psResult->pabyData == nullptr )
-    {
-        CPLHTTPDestroyResult(psResult);
-        return nullptr;
-    }
-
-    CPLDebug( "AMIGOCLOUD", "RunSQL Response:%s", psResult->pabyData );
-
-    json_object* poObj = nullptr;
-    const char* pszText = reinterpret_cast<const char*>(psResult->pabyData);
-    if( !OGRJSonParse(pszText, &poObj, true) )
-    {
-        CPLHTTPDestroyResult(psResult);
-        return nullptr;
-    }
-
-    CPLHTTPDestroyResult(psResult);
-
-    if( poObj != nullptr )
-    {
-        if( json_object_get_type(poObj) == json_type_object )
-        {
-            json_object* poError = CPL_json_object_object_get(poObj, "error");
-            if( poError != nullptr && json_object_get_type(poError) == json_type_array &&
-                json_object_array_length(poError) > 0 )
-            {
-                poError = json_object_array_get_idx(poError, 0);
-                if( poError != nullptr && json_object_get_type(poError) == json_type_string )
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                            "Error returned by server : %s", json_object_get_string(poError));
-                    json_object_put(poObj);
-                    return nullptr;
-                }
-            }
-        }
-        else
-        {
-            json_object_put(poObj);
-            return nullptr;
-        }
-    }
-
-    return poObj;
 }
 
 /************************************************************************/

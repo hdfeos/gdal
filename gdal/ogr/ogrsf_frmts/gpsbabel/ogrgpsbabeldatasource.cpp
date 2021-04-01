@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements OGRGPSBabelDataSource class.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -41,15 +41,8 @@ CPL_CVSID("$Id$")
 /*                      OGRGPSBabelDataSource()                         */
 /************************************************************************/
 
-OGRGPSBabelDataSource::OGRGPSBabelDataSource() :
-    nLayers(0),
-    pszName(nullptr),
-    pszGPSBabelDriverName(nullptr),
-    pszFilename(nullptr),
-    poGPXDS(nullptr)
+OGRGPSBabelDataSource::OGRGPSBabelDataSource()
 {
-  std::fill_n(apoLayers, CPL_ARRAYSIZE(apoLayers),
-              static_cast<OGRLayer*>(nullptr));
 }
 
 /************************************************************************/

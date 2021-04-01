@@ -5,7 +5,7 @@
  * Author:   Mateusz Loskot, mateusz@loskot.net
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2007, Mateusz Loskot
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -72,6 +72,8 @@ OGRGeoJSONWriteLayer::OGRGeoJSONWriteLayer( const char* pszName,
         oWriteOptions_.SetRFC7946Settings();
     }
     oWriteOptions_.SetIDOptions(papszOptions);
+    oWriteOptions_.bAllowNonFiniteValues = CPLTestBool(
+        CSLFetchNameValueDef(papszOptions, "WRITE_NON_FINITE_VALUES", "FALSE"));
 }
 
 /************************************************************************/
@@ -89,14 +91,25 @@ OGRGeoJSONWriteLayer::~OGRGeoJSONWriteLayer()
         CPLString osBBOX = "[ ";
         if( bRFC7946_ )
         {
-            osBBOX += CPLSPrintf("%.*f, ", nCoordPrecision_, sEnvelopeLayer.MinX);
-            osBBOX += CPLSPrintf("%.*f, ", nCoordPrecision_, sEnvelopeLayer.MinY);
+            char szFormat[32];
+            snprintf(szFormat, sizeof(szFormat), "%%.%df", nCoordPrecision_);
+            osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MinX);
+            osBBOX += ", ";
+            osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MinY);
+            osBBOX += ", ";
             if( bBBOX3D )
-                osBBOX += CPLSPrintf("%.*f, ", nCoordPrecision_, sEnvelopeLayer.MinZ);
-            osBBOX += CPLSPrintf("%.*f, ", nCoordPrecision_, sEnvelopeLayer.MaxX);
-            osBBOX += CPLSPrintf("%.*f", nCoordPrecision_, sEnvelopeLayer.MaxY);
+            {
+                osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MinZ);
+                osBBOX += ", ";
+            }
+            osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MaxX);
+            osBBOX += ", ";
+            osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MaxY);
             if( bBBOX3D )
-                osBBOX += CPLSPrintf(", %.*f", nCoordPrecision_, sEnvelopeLayer.MaxZ);
+            {
+                osBBOX += ", ";
+                osBBOX += CPLSPrintf(szFormat, sEnvelopeLayer.MaxZ);
+            }
         }
         else
         {
@@ -154,7 +167,8 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature( OGRFeature* poFeature )
             const char* const apszOptions[] = { "WRAPDATELINE=YES", nullptr };
             OGRGeometry* poNewGeom =
                 OGRGeometryFactory::transformWithOptions(
-                    poGeometry, poCT_, const_cast<char**>(apszOptions));
+                    poGeometry, poCT_, const_cast<char**>(apszOptions),
+                    oTransformCache_);
             if( poNewGeom == nullptr )
             {
                 delete poFeatureToWrite;
@@ -180,6 +194,9 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature( OGRFeature* poFeature )
         poFeatureToWrite = poFeature;
     }
 
+    if (oWriteOptions_.bGenerateID && poFeatureToWrite->GetFID() == OGRNullFID) {
+        poFeatureToWrite->SetFID(nOutCounter_);
+    }
     json_object* poObj =
         OGRGeoJSONWriteFeature( poFeatureToWrite, oWriteOptions_ );
     CPLAssert( nullptr != poObj );
@@ -189,14 +206,19 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature( OGRFeature* poFeature )
         /* Separate "Feature" entries in "FeatureCollection" object. */
         VSIFPrintfL( fp, ",\n" );
     }
-    VSIFPrintfL( fp, "%s", json_object_to_json_string( poObj ) );
+    VSIFPrintfL( fp, "%s", json_object_to_json_string_ext( poObj,
+        JSON_C_TO_STRING_SPACED
+#ifdef JSON_C_TO_STRING_NOSLASHESCAPE
+        | JSON_C_TO_STRING_NOSLASHESCAPE
+#endif
+    ) );
 
     json_object_put( poObj );
 
     ++nOutCounter_;
 
     OGRGeometry* poGeometry = poFeatureToWrite->GetGeometryRef();
-    if( bWriteFC_BBOX && poGeometry != nullptr && !poGeometry->IsEmpty() )
+    if( poGeometry != nullptr && !poGeometry->IsEmpty() )
     {
         OGREnvelope3D sEnvelope = OGRGeoJSONGetBBox( poGeometry,
                                                      oWriteOptions_ );
@@ -290,7 +312,7 @@ OGRErr OGRGeoJSONWriteLayer::ICreateFeature( OGRFeature* poFeature )
 OGRErr OGRGeoJSONWriteLayer::CreateField( OGRFieldDefn* poField,
                                           int /* bApproxOK */  )
 {
-    if( poFeatureDefn_->GetFieldIndex(poField->GetNameRef()) >= 0 )
+    if( poFeatureDefn_->GetFieldIndexCaseSensitive(poField->GetNameRef()) >= 0 )
     {
         CPLDebug( "GeoJSON", "Field '%s' already present in schema",
                     poField->GetNameRef() );
@@ -314,6 +336,21 @@ int OGRGeoJSONWriteLayer::TestCapability( const char* pszCap )
         return TRUE;
     else if( EQUAL(pszCap, OLCSequentialWrite) )
         return TRUE;
-
+    else if( EQUAL(pszCap, OLCStringsAsUTF8) )
+        return TRUE;
     return FALSE;
+}
+
+/************************************************************************/
+/*                            GetExtent()                               */
+/************************************************************************/
+
+OGRErr OGRGeoJSONWriteLayer::GetExtent(OGREnvelope *psExtent, int)
+{
+    if( sEnvelopeLayer.IsInit() )
+    {
+        *psExtent = sEnvelopeLayer;
+        return OGRERR_NONE;
+    }
+    return OGRERR_FAILURE;
 }

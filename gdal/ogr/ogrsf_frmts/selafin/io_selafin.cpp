@@ -617,6 +617,11 @@ namespace Selafin {
                 delete poHeader;
                 return nullptr;
             }
+            if( poHeader->nPoints != 0 && poHeader->paadfCoords[i] == nullptr )
+            {
+                delete poHeader;
+                return nullptr;
+            }
             for (int j=0;j<poHeader->nPoints;++j) poHeader->paadfCoords[i][j]+=poHeader->adfOrigin[i];
         }
         // Update the boundinx box
@@ -624,6 +629,11 @@ namespace Selafin {
         // Update the size of the header and calculate the number of time steps
         poHeader->setUpdated();
         int nPos=poHeader->getPosition(0);
+        if( static_cast<vsi_l_offset>(nPos) > poHeader->nFileSize )
+        {
+            delete poHeader;
+            return nullptr;
+        }
         vsi_l_offset nStepsBig = (poHeader->nFileSize-nPos)/(poHeader->getPosition(1)-nPos);
         if( nStepsBig > INT_MAX )
             poHeader->nSteps=INT_MAX;

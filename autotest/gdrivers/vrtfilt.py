@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -8,7 +8,7 @@
 #
 ###############################################################################
 # Copyright (c) 2003, Frank Warmerdam <warmerdam@pobox.com>
-# Copyright (c) 2008-2010, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2008-2010, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -29,35 +29,34 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 from osgeo import gdal
 
-sys.path.append('../pymod')
 
 import gdaltest
+import pytest
 
 ###############################################################################
 # Verify simple 3x3 averaging filter.
 
 
-def vrtfilt_1():
+def test_vrtfilt_1():
 
-    tst = gdaltest.GDALTest('VRT', 'avfilt.vrt', 1, 21890)
+    tst = gdaltest.GDALTest('VRT', 'vrt/avfilt.vrt', 1, 21890)
     return tst.testOpen()
 
 ###############################################################################
 # Verify simple 3x3 averaging filter (normalized) on a dataset with nodata
 
 
-def vrtfilt_2():
+def test_vrtfilt_2():
 
-    ds = gdal.Open('data/test_vrt_filter_nodata.tif')
+    ds = gdal.Open('data/vrt/test_vrt_filter_nodata.tif')
     checksum = ds.GetRasterBand(1).Checksum()
     ds = None
 
     # This is a black&white checkboard, where black = nodata
     # Thus averaging it and taking nodata into account will not change it
-    tst = gdaltest.GDALTest('VRT', 'avfilt_nodata.vrt', 1, checksum)
+    tst = gdaltest.GDALTest('VRT', 'vrt/avfilt_nodata.vrt', 1, checksum)
     return tst.testOpen()
 
 ###############################################################################
@@ -65,7 +64,7 @@ def vrtfilt_2():
 # Same result expected as for vrtfilt_1
 
 
-def vrtfilt_3():
+def test_vrtfilt_3():
 
     ds = gdal.OpenShared('data/rgbsmall.tif')
     vrt_ds = gdal.GetDriverByName('VRT').CreateCopy('', ds)
@@ -85,19 +84,16 @@ def vrtfilt_3():
     try:
         vrt_ds.GetRasterBand(1).SetMetadataItem
     except:
-        return 'skip'
+        pytest.skip()
 
     vrt_ds.GetRasterBand(1).SetMetadataItem('source_0', filterSourceXML, 'vrt_sources')
-    if vrt_ds.GetRasterBand(1).Checksum() != 21890:
-        return 'fail'
-
-    return 'success'
+    assert vrt_ds.GetRasterBand(1).Checksum() == 21890
 
 ###############################################################################
 # Variant for SetMetadataItem('source_0', xml, 'vrt_sources')
 
 
-def vrtfilt_4():
+def test_vrtfilt_4():
 
     vrt_ds = gdal.GetDriverByName('VRT').Create('', 50, 50, 1)
 
@@ -115,19 +111,16 @@ def vrtfilt_4():
     try:
         vrt_ds.GetRasterBand(1).SetMetadataItem
     except:
-        return 'skip'
+        pytest.skip()
 
     vrt_ds.GetRasterBand(1).SetMetadataItem('source_0', filterSourceXML, 'new_vrt_sources')
-    if vrt_ds.GetRasterBand(1).Checksum() != 21890:
-        return 'fail'
-
-    return 'success'
+    assert vrt_ds.GetRasterBand(1).Checksum() == 21890
 
 ###############################################################################
 # Variant for SetMetadata(md, 'vrt_sources')
 
 
-def vrtfilt_5():
+def test_vrtfilt_5():
 
     vrt_ds = gdal.GetDriverByName('VRT').Create('', 50, 50, 1)
 
@@ -146,41 +139,60 @@ def vrtfilt_5():
     md['source_0'] = filterSourceXML
 
     vrt_ds.GetRasterBand(1).SetMetadata(md, 'vrt_sources')
-    if vrt_ds.GetRasterBand(1).Checksum() != 21890:
-        return 'fail'
-
-    return 'success'
+    assert vrt_ds.GetRasterBand(1).Checksum() == 21890
 
 ###############################################################################
 # Verify separable Gaussian blur filter.
 
 
-def vrtfilt_6():
+def test_vrtfilt_6():
 
-    tst = gdaltest.GDALTest('VRT', 'avfilt_1d.vrt', 1, 22377)
+    tst = gdaltest.GDALTest('VRT', 'vrt/avfilt_1d.vrt', 1, 22377)
     return tst.testOpen()
+
+###############################################################################
+# Test block access
+
+
+def test_vrtfilt_7():
+
+    gdal.Translate('/vsimem/src.tif', 'data/rgbsmall.tif', options='-outsize 500 500 -r bilinear')
+
+    vrt_ds = gdal.GetDriverByName('VRT').Create('/vsimem/src.vrt', 500, 500, 1)
+
+    filterSourceXML = """    <KernelFilteredSource>
+      <SourceFilename>/vsimem/src.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="500" ySize="500"/>
+      <DstRect xOff="0" yOff="0" xSize="500" ySize="500"/>
+      <Kernel>
+        <Size>3</Size>
+        <Coefs>0.111111 0.111111 0.111111 0.111111 0.111111 0.111111 0.111111 0.111111 0.111111</Coefs>
+      </Kernel>
+    </KernelFilteredSource>"""
+
+    md = {}
+    md['source_0'] = filterSourceXML
+
+    vrt_ds.GetRasterBand(1).SetMetadata(md, 'vrt_sources')
+
+    ref_checksum = vrt_ds.GetRasterBand(1).Checksum()
+    vrt_ds = None
+
+    # Wrap our above VRT in a VRT that will use 128x128 blocks
+    # (use of -mo FOO=BAR forces a non trivial copy to be made)
+    out_ds = gdal.Translate('', '/vsimem/src.vrt', options='-of VRT -mo FOO=BAR')
+    assert ref_checksum == out_ds.GetRasterBand(1).Checksum()
+    out_ds = None
+
+    gdal.GetDriverByName('GTiff').Delete('/vsimem/src.tif')
+    gdal.GetDriverByName('VRT').Delete('/vsimem/src.vrt')
 
 ###############################################################################
 # Cleanup.
 
 
-def vrtfilt_cleanup():
-    return 'success'
+def test_vrtfilt_cleanup():
+    pass
 
 
-gdaltest_list = [
-    vrtfilt_1,
-    vrtfilt_2,
-    vrtfilt_3,
-    vrtfilt_4,
-    vrtfilt_5,
-    vrtfilt_6,
-    vrtfilt_cleanup]
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('vrtfilt')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

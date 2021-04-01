@@ -2,10 +2,10 @@
  *
  * Project:  Idrisi Translator
  * Purpose:  Implements OGRIdrisiDataSource class
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2011-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -91,8 +91,6 @@ int OGRIdrisiDataSource::Open( const char * pszFilename )
     if (fpVCT == nullptr)
         return FALSE;
 
-    char* pszWTKString = nullptr;
-
 // --------------------------------------------------------------------
 //      Look for .vdc file
 // --------------------------------------------------------------------
@@ -118,6 +116,7 @@ int OGRIdrisiDataSource::Open( const char * pszFilename )
 
     OGRwkbGeometryType eType = wkbUnknown;
 
+    char* pszWTKString = nullptr;
     if (papszVDC != nullptr)
     {
         CSLSetNameValueSeparator( papszVDC, ":" );
@@ -145,6 +144,7 @@ int OGRIdrisiDataSource::Open( const char * pszFilename )
     {
         VSIFCloseL(fpVCT);
         CSLDestroy( papszVDC );
+        CPLFree(pszWTKString);
         return FALSE;
     }
 
@@ -160,6 +160,7 @@ int OGRIdrisiDataSource::Open( const char * pszFilename )
                   static_cast<int>(chType) );
         VSIFCloseL(fpVCT);
         CSLDestroy( papszVDC );
+        CPLFree(pszWTKString);
         return FALSE;
     }
 

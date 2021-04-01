@@ -19,7 +19,7 @@ OBJ	= \
 
 O_OBJ	=	$(foreach file,$(OBJ),../../o/$(file))
 
-ALL_C_FLAGS	=	$(CPPFLAGS) $(CFLAGS) -DDONT_DEPRECATE_SPRINTF
+ALL_C_FLAGS	=	$(CPPFLAGS) $(CFLAGS) -DDONT_DEPRECATE_SPRINTF $(PROJ_INCLUDE) $(PROJ_FLAGS)
 
 ifeq ($(TIFF_SETTING),internal)
 ALL_C_FLAGS	:=	-I../libtiff $(ALL_C_FLAGS)
@@ -39,7 +39,7 @@ clean:
 install-obj:	$(O_OBJ:.o=.$(OBJ_EXT))
 
 ../../o/%.$(OBJ_EXT):	%.c
-	$(CC) -c -I../../port $(ALL_C_FLAGS) $< -o $@
+	$(CC) -c $(ALL_C_FLAGS) $< -o $@
 
 #
 # Updating to the latest libgeotiff involves copying all matching source

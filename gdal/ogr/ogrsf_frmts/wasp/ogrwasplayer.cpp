@@ -58,7 +58,6 @@ OGRWAsPLayer::OGRWAsPLayer( const char * pszName,
 {
     SetDescription( poLayerDefn->GetName() );
     poLayerDefn->Reference();
-    poLayerDefn->SetGeomType( wkbLineString25D );
     poLayerDefn->GetGeomFieldDefn(0)->SetType( wkbLineString25D );
     poLayerDefn->GetGeomFieldDefn(0)->SetSpatialRef( poSpatialReference );
     if( poSpatialReference ) poSpatialReference->Reference();
@@ -92,7 +91,10 @@ OGRWAsPLayer::OGRWAsPLayer( const char * pszName,
     pdfAdjacentPointTolerance(pdfAdjacentPointToleranceParam),
     pdfPointToCircleRadius(pdfPointToCircleRadiusParam)
 {
+    SetDescription( poLayerDefn->GetName() );
     poLayerDefn->Reference();
+    poLayerDefn->GetGeomFieldDefn(0)->SetType( wkbLineString25D );
+    poLayerDefn->GetGeomFieldDefn(0)->SetSpatialRef( poSpatialReference );
     if (poSpatialReference) poSpatialReference->Reference();
 }
 
@@ -268,13 +270,13 @@ OGRWAsPLayer::~OGRWAsPLayer()
 OGRLineString * OGRWAsPLayer::Simplify( const OGRLineString & line ) const
 {
     if ( !line.getNumPoints() )
-        return  line.clone()->toLineString();
+        return  line.clone();
 
     std::unique_ptr< OGRLineString > poLine(
         (
             pdfTolerance.get() && *pdfTolerance > 0
-            ? line.Simplify( *pdfTolerance )
-            : line.clone() )->toLineString() );
+            ? line.Simplify( *pdfTolerance )->toLineString()
+            : line.clone() ) );
 
     OGRPoint startPt, endPt;
     poLine->StartPoint( &startPt );
@@ -447,7 +449,7 @@ OGRErr OGRWAsPLayer::WriteRoughness( OGRPolygon * poGeom, const double & dfZ )
                 case wkbLineString:
                 case wkbLineString25D:
                 {
-                    Boundary oB = { poIntersection->clone()->toLineString(), dfZ, oZones[i].dfZ };
+                    Boundary oB = { poIntersection->toLineString()->clone(), dfZ, oZones[i].dfZ };
                     oBoundaries.push_back( oB );
                 }
                 break;
@@ -464,7 +466,7 @@ OGRErr OGRWAsPLayer::WriteRoughness( OGRPolygon * poGeom, const double & dfZ )
 
                         if( poLine == nullptr )
                         {
-                            poLine = poSubLine->clone()->toLineString();
+                            poLine = poSubLine->clone();
                         }
                         else if ( poLine->getNumPoints() == 0 || poStart->Equals( poEnd ) )
                         {
@@ -474,7 +476,7 @@ OGRErr OGRWAsPLayer::WriteRoughness( OGRPolygon * poGeom, const double & dfZ )
                         {
                             Boundary oB = {poLine, dfZ, oZones[i].dfZ};
                             oBoundaries.push_back( oB );
-                            poLine = poSubLine->clone()->toLineString();
+                            poLine = poSubLine->clone();
                         }
                         poLine->EndPoint( poEnd );
                     }
@@ -534,7 +536,7 @@ OGRErr OGRWAsPLayer::WriteRoughness( OGRPolygon * poGeom, const double & dfZ )
         }
     }
 
-    Zone oZ =  { oEnvelope, poGeom->clone()->toPolygon(), dfZ };
+    Zone oZ =  { oEnvelope, poGeom->clone(), dfZ };
     oZones.push_back( oZ );
     return err;
 }
@@ -702,7 +704,12 @@ OGRErr OGRWAsPLayer::CreateField( OGRFieldDefn *poField,
 OGRErr OGRWAsPLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
                                       CPL_UNUSED int bApproxOK )
 {
-    poLayerDefn->AddGeomFieldDefn( poGeomFieldIn, FALSE );
+    OGRGeomFieldDefn oFieldDefn(poGeomFieldIn);
+    if( oFieldDefn.GetSpatialRef() )
+    {
+        oFieldDefn.GetSpatialRef()->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    poLayerDefn->AddGeomFieldDefn( &oFieldDefn, FALSE );
 
     /* Update geom field index */
     if ( -1 == iGeomFieldIdx )
@@ -714,10 +721,11 @@ OGRErr OGRWAsPLayer::CreateGeomField( OGRGeomFieldDefn *poGeomFieldIn,
 }
 
 /************************************************************************/
-/*                           GetNextFeature()                           */
+/*                           GetNextRawFeature()                        */
 /************************************************************************/
 
-OGRFeature *OGRWAsPLayer::GetNextFeature()
+OGRFeature *OGRWAsPLayer::GetNextRawFeature()
+
 {
     if ( READ_ONLY != eMode)
     {
@@ -725,33 +733,6 @@ OGRFeature *OGRWAsPLayer::GetNextFeature()
         return nullptr;
     }
 
-    GetLayerDefn();
-
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if (poFeature == nullptr)
-            return nullptr;
-
-        if((m_poFilterGeom == nullptr
-            || FilterGeometry( poFeature->GetGeometryRef() ) )
-        && (m_poAttrQuery == nullptr
-            || m_poAttrQuery->Evaluate( poFeature )) )
-        {
-            return poFeature;
-        }
-        else
-            delete poFeature;
-    }
-}
-
-/************************************************************************/
-/*                           GetNextRawFeature()                        */
-/************************************************************************/
-
-OGRFeature *OGRWAsPLayer::GetNextRawFeature()
-
-{
     const char * pszLine = CPLReadLineL( hFile );
     if ( !pszLine ) return nullptr;
 

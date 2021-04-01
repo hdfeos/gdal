@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1998, Frank Warmerdam
- * Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -72,6 +72,7 @@ void CPL_STDCALL GDALAllRegister()
 
 #ifdef FRMT_gtiff
     GDALRegister_GTiff();
+    GDALRegister_COG();
 #endif
 
 #ifdef FRMT_nitf
@@ -104,6 +105,10 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_ELAS();
 #endif
 
+#ifdef FRMT_esric
+    GDALRegister_ESRIC();
+#endif
+
 #ifdef FRMT_aigrid
 //    GDALRegister_AIGrid2();
     GDALRegister_AIGrid();
@@ -112,6 +117,7 @@ void CPL_STDCALL GDALAllRegister()
 #ifdef FRMT_aaigrid
     GDALRegister_AAIGrid();
     GDALRegister_GRASSASCIIGrid();
+    GDALRegister_ISG();
 #endif
 
 #ifdef FRMT_sdts
@@ -309,10 +315,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_WMS();
 #endif
 
-#ifdef FRMT_sde
-    GDALRegister_SDE();
-#endif
-
 #ifdef FRMT_msgn
     GDALRegister_MSGN();
 #endif
@@ -399,6 +401,13 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_mrf();
 #endif
 
+#ifdef FRMT_tiledb
+    GDALRegister_TileDB();
+#endif
+
+#ifdef FRMT_rdb
+    GDALRegister_RDB();
+#endif
 /* -------------------------------------------------------------------- */
 /*      Put raw formats at the end of the list. These drivers support   */
 /*      various ASCII-header labeled formats, so the driver could be    */
@@ -426,7 +435,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_LCP();
     GDALRegister_GTX();
     GDALRegister_LOSLAS();
-    GDALRegister_NTv1();
     GDALRegister_NTv2();
     GDALRegister_CTable2();
     GDALRegister_ACE2();
@@ -495,10 +503,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_GEOR();
 #endif
 
-#ifdef FRMT_epsilon
-    GDALRegister_EPSILON();
-#endif
-
 #ifdef FRMT_postgisraster
     GDALRegister_PostGISRaster();
 #endif
@@ -527,10 +531,6 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_CTG();
 #endif
 
-#ifdef FRMT_e00grid
-    GDALRegister_E00GRID();
-#endif
-
 #ifdef FRMT_zmap
     GDALRegister_ZMap();
 #endif
@@ -556,31 +556,70 @@ void CPL_STDCALL GDALAllRegister()
     GDALRegister_EEDA();
 #endif
 
+#ifdef FRMT_daas
+    GDALRegister_DAAS();
+#endif
+
 #ifdef FRMT_null
     GDALRegister_NULL();
-#endif
-
-#ifdef GNM_ENABLED
-    GNMRegisterAllInternal();
-#endif
-
-    OGRRegisterAllInternal();
-
-#ifdef FRMT_raw
-    // Those ones need to look for side car files so put them at end
-    GDALRegister_GenBin();
-    GDALRegister_ENVI();
-    GDALRegister_EHdr();
-    GDALRegister_ISCE();
 #endif
 
 #ifdef FRMT_sigdem
     GDALRegister_SIGDEM();
 #endif
 
+#ifdef FRMT_exr
+    GDALRegister_EXR();
+#endif
+
+#ifdef FRMT_heif
+    GDALRegister_HEIF();
+#endif
+
+#ifdef FRMT_tga
+    GDALRegister_TGA();
+#endif
+
+#ifdef FRMT_ogcapi
+    GDALRegister_OGCAPI();
+#endif
+
+#ifdef FRMT_stacta
+    GDALRegister_STACTA();
+#endif
+
+    // NOTE: you need to generally your own driver before that line.
+
+/* -------------------------------------------------------------------- */
+/*     GNM and OGR drivers                                              */
+/* -------------------------------------------------------------------- */
+#ifdef GNM_ENABLED
+    GNMRegisterAllInternal();
+#endif
+
+    OGRRegisterAllInternal();
+
+/* -------------------------------------------------------------------- */
+/*      Put here drivers that absolutely need to look for side car      */
+/*      files in their Identify()/Open() procedure.                     */
+/* -------------------------------------------------------------------- */
+
+#ifdef FRMT_raw
+    GDALRegister_GenBin();
+    GDALRegister_ENVI();
+    GDALRegister_EHdr();
+    GDALRegister_ISCE();
+#endif
+
+/* -------------------------------------------------------------------- */
+/*      Register GDAL HTTP last, to let a chance to other drivers       */
+/*      accepting URL to handle them before.                            */
+/* -------------------------------------------------------------------- */
 #ifdef FRMT_wcs
     GDALRegister_HTTP();
 #endif
+
+    GetGDALDriverManager()->AutoLoadPythonDrivers();
 
 /* -------------------------------------------------------------------- */
 /*      Deregister any drivers explicitly marked as suppressed by the   */

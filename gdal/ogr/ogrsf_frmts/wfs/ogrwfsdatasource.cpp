@@ -2,10 +2,10 @@
  *
  * Project:  WFS Translator
  * Purpose:  Implements OGRWFSDataSource class
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,7 +33,7 @@
 #include "cpl_http.h"
 #include "gmlutils.h"
 #include "parsexsd.h"
-#include "swq.h"
+#include "ogr_swq.h"
 #include "ogr_p.h"
 
 #include <algorithm>
@@ -104,7 +104,7 @@ CPLXMLNode* WFSFindNode( CPLXMLNode* psXML, const char* pszRootName )
 /*                       OGRWFSWrappedResultLayer                       */
 /************************************************************************/
 
-class OGRWFSWrappedResultLayer : public OGRLayer
+class OGRWFSWrappedResultLayer final: public OGRLayer
 {
     GDALDataset *poDS;
     OGRLayer    *poLayer;
@@ -305,7 +305,7 @@ char** OGRWFSDataSource::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "", "xml:capabilities", NULL);
+                                   "", "xml:capabilities", nullptr);
 }
 
 /************************************************************************/
@@ -971,49 +971,49 @@ int OGRWFSDataSource::Open( const char * pszFilename, int bUpdateIn,
 /* -------------------------------------------------------------------- */
 /*      Capture other parameters.                                       */
 /* -------------------------------------------------------------------- */
-        const char *pszParm = CPLGetXMLValue( psRoot, "Timeout", nullptr );
-        if( pszParm )
+        const char *pszParam = CPLGetXMLValue( psRoot, "Timeout", nullptr );
+        if( pszParam )
             papszHttpOptions =
                 CSLSetNameValue(papszHttpOptions,
-                                "TIMEOUT", pszParm );
+                                "TIMEOUT", pszParam );
 
-        pszParm = CPLGetXMLValue( psRoot, "HTTPAUTH", nullptr );
-        if( pszParm )
+        pszParam = CPLGetXMLValue( psRoot, "HTTPAUTH", nullptr );
+        if( pszParam )
             papszHttpOptions =
                 CSLSetNameValue( papszHttpOptions,
-                                "HTTPAUTH", pszParm );
+                                "HTTPAUTH", pszParam );
 
-        pszParm = CPLGetXMLValue( psRoot, "USERPWD", nullptr );
-        if( pszParm )
+        pszParam = CPLGetXMLValue( psRoot, "USERPWD", nullptr );
+        if( pszParam )
             papszHttpOptions =
                 CSLSetNameValue( papszHttpOptions,
-                                "USERPWD", pszParm );
+                                "USERPWD", pszParam );
 
-        pszParm = CPLGetXMLValue( psRoot, "COOKIE", nullptr );
-        if( pszParm )
+        pszParam = CPLGetXMLValue( psRoot, "COOKIE", nullptr );
+        if( pszParam )
             papszHttpOptions =
                 CSLSetNameValue( papszHttpOptions,
-                                "COOKIE", pszParm );
+                                "COOKIE", pszParam );
 
-        pszParm = CPLGetXMLValue( psRoot, "Version", nullptr );
-        if( pszParm )
-            osVersion = pszParm;
+        pszParam = CPLGetXMLValue( psRoot, "Version", nullptr );
+        if( pszParam )
+            osVersion = pszParam;
 
-        pszParm = CPLGetXMLValue( psRoot, "PagingAllowed", nullptr );
-        if( pszParm )
-            bPagingAllowed = CPLTestBool(pszParm);
+        pszParam = CPLGetXMLValue( psRoot, "PagingAllowed", nullptr );
+        if( pszParam )
+            bPagingAllowed = CPLTestBool(pszParam);
 
-        pszParm = CPLGetXMLValue( psRoot, "PageSize", nullptr );
-        if( pszParm )
+        pszParam = CPLGetXMLValue( psRoot, "PageSize", nullptr );
+        if( pszParam )
         {
-            nPageSize = atoi(pszParm);
+            nPageSize = atoi(pszParam);
             if (nPageSize <= 0)
                 nPageSize = DEFAULT_PAGE_SIZE;
         }
 
-        pszParm = CPLGetXMLValue( psRoot, "BaseStartIndex", nullptr );
-        if( pszParm )
-            nBaseStartIndex = atoi(pszParm);
+        pszParam = CPLGetXMLValue( psRoot, "BaseStartIndex", nullptr );
+        if( pszParam )
+            nBaseStartIndex = atoi(pszParam);
 
         CPLString strOriginalTypeName = CPLURLGetValue(pszBaseURL, "TYPENAME");
         if( strOriginalTypeName.empty() )
@@ -1024,8 +1024,6 @@ int OGRWFSDataSource::Open( const char * pszFilename, int bUpdateIn,
         if (psWFSCapabilities == nullptr)
         {
             CPLHTTPResult* psResult = SendGetCapabilities(pszBaseURL, strOriginalTypeName);
-            osTypeName = WFS_DecodeURL(strOriginalTypeName);
-
             if (psResult == nullptr)
             {
                 CPLDestroyXMLNode( psXML );
@@ -1358,25 +1356,22 @@ int OGRWFSDataSource::Open( const char * pszFilename, int bUpdateIn,
                     pszDefaultSRS = osSRSName.c_str();
                 }
 
-                if (pszDefaultSRS)
+                // EPSG:404000 is a GeoServer joke to indicate a unknown SRS
+                // https://osgeo-org.atlassian.net/browse/GEOS-8993
+                if (pszDefaultSRS &&
+                    !EQUAL(pszDefaultSRS, "EPSG:404000") &&
+                    !EQUAL(pszDefaultSRS, "urn:ogc:def:crs:EPSG::404000"))
                 {
                     OGRSpatialReference oSRS;
                     if (oSRS.SetFromUserInput(pszDefaultSRS) == OGRERR_NONE)
                     {
                         poSRS = oSRS.Clone();
-                        if( bInvertAxisOrderIfLatLong &&
-                            GML_IsSRSLatLongOrder(pszDefaultSRS) )
+                        poSRS->SetAxisMappingStrategy(
+                            bInvertAxisOrderIfLatLong ? OAMS_TRADITIONAL_GIS_ORDER : OAMS_AUTHORITY_COMPLIANT);
+                        if( GML_IsSRSLatLongOrder(pszDefaultSRS) &&
+                            bInvertAxisOrderIfLatLong )
                         {
                             bAxisOrderAlreadyInverted = true;
-
-                            OGR_SRSNode *poGEOGCS =
-                                            poSRS->GetAttrNode( "GEOGCS" );
-                            if( poGEOGCS != nullptr )
-                                poGEOGCS->StripNodes( "AXIS" );
-
-                            OGR_SRSNode *poPROJCS = poSRS->GetAttrNode( "PROJCS" );
-                            if (poPROJCS != nullptr && poSRS->EPSGTreatsAsNorthingEasting())
-                                poPROJCS->StripNodes( "AXIS" );
                         }
                     }
                 }
@@ -1498,8 +1493,7 @@ int OGRWFSDataSource::Open( const char * pszFilename, int bUpdateIn,
                                     "FALSE")));
 
                         if (((bTrustBounds || (dfMinX == -180 && dfMinY == -90 && dfMaxX == 180 && dfMaxY == 90)) &&
-                            (strcmp(pszProj4, "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ") == 0 ||
-                             strcmp(pszProj4, "+proj=longlat +datum=WGS84 +no_defs ") == 0)) ||
+                            strcmp(pszProj4, "+proj=longlat +datum=WGS84 +no_defs") == 0) ||
                             strcmp(pszDefaultSRS, "urn:ogc:def:crs:OGC:1.3:CRS84") == 0)
                         {
                             poLayer->SetExtents(dfMinX, dfMinY, dfMaxX, dfMaxY);
@@ -1509,6 +1503,7 @@ int OGRWFSDataSource::Open( const char * pszFilename, int bUpdateIn,
                         {
                             OGRSpatialReference oWGS84;
                             oWGS84.SetWellKnownGeogCS("WGS84");
+                            oWGS84.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                             CPLPushErrorHandler(CPLQuietErrorHandler);
                             OGRCoordinateTransformation* poCT =
                                 OGRCreateCoordinateTransformation(&oWGS84,

@@ -2,10 +2,10 @@
  *
  * Project:  GPX Translator
  * Purpose:  Implements OGRGPXLayer class.
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -327,16 +327,9 @@ OGRGPXLayer::OGRGPXLayer( const char* pszFilename,
     pszSubElementValue = nullptr;
     nSubElementValueLen = 0;
 
-    poSRS = new OGRSpatialReference("GEOGCS[\"WGS 84\", "
-        "   DATUM[\"WGS_1984\","
-        "       SPHEROID[\"WGS 84\",6378137,298.257223563,"
-        "           AUTHORITY[\"EPSG\",\"7030\"]],"
-        "           AUTHORITY[\"EPSG\",\"6326\"]],"
-        "       PRIMEM[\"Greenwich\",0,"
-        "           AUTHORITY[\"EPSG\",\"8901\"]],"
-        "       UNIT[\"degree\",0.01745329251994328,"
-        "           AUTHORITY[\"EPSG\",\"9122\"]],"
-        "           AUTHORITY[\"EPSG\",\"4326\"]]");
+    poSRS = new OGRSpatialReference(SRS_WKT_WGS84_LAT_LONG);
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
     if( poFeatureDefn->GetGeomFieldCount() != 0 )
         poFeatureDefn->GetGeomFieldDefn(0)->SetSpatialRef(poSRS);
 
@@ -364,7 +357,7 @@ OGRGPXLayer::OGRGPXLayer( const char* pszFilename,
     else
         fpGPX = nullptr;
 
-    ResetReading();
+    OGRGPXLayer::ResetReading();
 }
 
 /************************************************************************/
@@ -1367,7 +1360,7 @@ void OGRGPXLayer::WriteFeatureAttributes( OGRFeature *poFeatureIn, int nIdentLev
                     }
 
                     /* Remove leading spaces for a numeric field */
-                    if (poFieldDefn->GetType() == OFTInteger || poFieldDefn->GetType() == OFTReal)
+                    if (poFieldDefn->GetType() == OFTInteger)
                     {
                         while( *pszRaw == ' ' )
                             pszRaw++;
@@ -1542,7 +1535,7 @@ OGRErr OGRGPXLayer::ICreateFeature( OGRFeature *poFeatureIn )
                 }
                 else if (nGeometries == 1)
                 {
-                    line = poGeom->toMultiLineString()->getGeometryRef(0)->toLineString();
+                    line = poGeom->toMultiLineString()->getGeometryRef(0);
                 }
                 else
                 {

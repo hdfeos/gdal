@@ -2,10 +2,10 @@
  *
  * Project:  CTG driver
  * Purpose:  GDALDataset driver for CTG dataset.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -108,7 +108,7 @@ static const char* const apszBandDescription[] =
 
 class CTGRasterBand;
 
-class CTGDataset : public GDALPamDataset
+class CTGDataset final: public GDALPamDataset
 {
     friend class CTGRasterBand;
 
@@ -130,7 +130,10 @@ class CTGDataset : public GDALPamDataset
     ~CTGDataset() override;
 
     CPLErr GetGeoTransform( double * ) override;
-    const char* GetProjectionRef() override;
+    const char* _GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     static GDALDataset *Open( GDALOpenInfo * );
     static int          Identify( GDALOpenInfo * );
@@ -142,7 +145,7 @@ class CTGDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class CTGRasterBand : public GDALPamRasterBand
+class CTGRasterBand final: public GDALPamRasterBand
 {
     friend class CTGDataset;
 
@@ -351,7 +354,7 @@ int CTGDataset::ReadImagery()
 
 int CTGDataset::Identify( GDALOpenInfo * poOpenInfo )
 {
-    CPLString osFilename(poOpenInfo->pszFilename);
+    CPLString osFilename; // let in that scope
 
     GDALOpenInfo* poOpenInfoToDelete = nullptr;
     /*  GZipped grid_cell.gz files are common, so automagically open them */
@@ -560,7 +563,7 @@ CPLErr CTGDataset::GetGeoTransform( double * padfTransform )
 /*                         GetProjectionRef()                           */
 /************************************************************************/
 
-const char* CTGDataset::GetProjectionRef()
+const char* CTGDataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -583,7 +586,7 @@ void GDALRegister_CTG()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "USGS LULC Composite Theme Grid" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#CTG" );
+                               "drivers/raster/ctg.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

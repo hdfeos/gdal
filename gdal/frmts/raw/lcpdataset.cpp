@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2008, Chris Toney
- * Copyright (c) 2008-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2011, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2013, Kyle Shannon <kyle at pobox dot com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -79,7 +79,10 @@ class LCPDataset final: public RawDataset
                                     int bStrict, char ** papszOptions,
                                     GDALProgressFunc pfnProgress,
                                     void * pProgressData );
-    const char *GetProjectionRef(void) override;
+    const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 /************************************************************************/
@@ -172,6 +175,17 @@ int LCPDataset::Identify( GDALOpenInfo * poOpenInfo )
     {
         return FALSE;
     }
+
+/* -------------------------------------------------------------------- */
+/*      Check file extension                                            */
+/* -------------------------------------------------------------------- */
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    const char* pszFileExtension = CPLGetExtension( poOpenInfo->pszFilename );
+    if( ! EQUAL( pszFileExtension, "lcp" ) )
+    {
+        return FALSE;
+    }
+#endif
 
     return TRUE;
 }
@@ -1196,8 +1210,7 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
     // we fail.
     double adfSrcGeoTransform[6] = { 0.0 };
     poSrcDS->GetGeoTransform( adfSrcGeoTransform );
-    OGRSpatialReference oSrcSRS;
-    const char *pszWkt = poSrcDS->GetProjectionRef();
+    const OGRSpatialReference* poSrcSRS = poSrcDS->GetSpatialRef();
     double dfLongitude = 0.0;
     double dfLatitude = 0.0;
 
@@ -1207,14 +1220,14 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
     {
         dfLatitude = nLatitude;
     }
-    else if( !EQUAL( pszWkt, "" ) )
+    else if( poSrcSRS )
     {
-        oSrcSRS.importFromWkt( pszWkt );
         OGRSpatialReference oDstSRS;
         oDstSRS.importFromEPSG( 4269 );
+        oDstSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         OGRCoordinateTransformation *poCT
             = reinterpret_cast<OGRCoordinateTransformation *>(
-                OGRCreateCoordinateTransformation( &oSrcSRS, &oDstSRS ) );
+                OGRCreateCoordinateTransformation( poSrcSRS, &oDstSRS ) );
         if( poCT != nullptr )
         {
             dfLatitude =
@@ -1245,9 +1258,9 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
     }
     // Set the linear units if the metadata item was not already set, and we
     // have an SRS.
-    if( bSetLinearUnits && !EQUAL( pszWkt, "" ) )
+    if( bSetLinearUnits && poSrcSRS )
     {
-        const char *pszUnit = oSrcSRS.GetAttrValue( "UNIT", 0 );
+        const char *pszUnit = poSrcSRS->GetAttrValue( "UNIT", 0 );
         if( pszUnit == nullptr )
         {
             if( bStrict )
@@ -1283,7 +1296,7 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
                 if( bStrict )
                 nLinearUnits = 0;
             }
-            pszUnit = oSrcSRS.GetAttrValue( "UNIT", 1 );
+            pszUnit = poSrcSRS->GetAttrValue( "UNIT", 1 );
             if( pszUnit != nullptr )
             {
                 const double dfScale = CPLAtof( pszUnit );
@@ -1351,7 +1364,6 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
             VSIMalloc3( sizeof( GInt32 ), nBands, LCP_MAX_CLASSES ) );
     memset( panClasses, 0, sizeof( GInt32 ) * nBands * LCP_MAX_CLASSES );
 
-    CPLErr eErr = CE_None;
     if( bCalculateStats )
     {
 
@@ -1359,7 +1371,7 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
         {
             GDALRasterBand *poBand = poSrcDS->GetRasterBand( i + 1 );
             double dfDummy = 0.0;
-            eErr = poBand->GetStatistics( FALSE, TRUE, &padfMin[i],
+            CPLErr eErr = poBand->GetStatistics( FALSE, TRUE, &padfMin[i],
                                           &padfMax[i], &dfDummy, &dfDummy );
             if( eErr != CE_None )
             {
@@ -1583,7 +1595,7 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
         for( int iBand = 0; iBand < nBands; iBand++ )
         {
             GDALRasterBand * poBand = poSrcDS->GetRasterBand( iBand+1 );
-            eErr = poBand->RasterIO( GF_Read, 0, iLine, nXSize, 1,
+            CPLErr eErr = poBand->RasterIO( GF_Read, 0, iLine, nXSize, 1,
                                      panScanline + iBand, nXSize, 1, GDT_Int16,
                                      nBands * 2, nBands * nXSize * 2, nullptr );
             // Not sure what to do here.
@@ -1655,7 +1667,7 @@ GDALDataset *LCPDataset::CreateCopy( const char * pszFilename,
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *LCPDataset::GetProjectionRef()
+const char *LCPDataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -1678,7 +1690,7 @@ void GDALRegister_LCP()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "FARSITE v.4 Landscape File (.lcp)" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "lcp" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_lcp.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/lcp.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

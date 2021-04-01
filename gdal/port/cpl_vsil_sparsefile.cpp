@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -121,7 +121,8 @@ public:
 
     VSIVirtualHandle *Open( const char *pszFilename,
                             const char *pszAccess,
-                            bool bSetError ) override;
+                            bool bSetError,
+                            CSLConstList /* papszOptions */ ) override;
     int Stat( const char *pszFilename, VSIStatBufL *pStatBuf,
               int nFlags ) override;
     int Unlink( const char *pszFilename ) override;
@@ -361,7 +362,8 @@ int VSISparseFileHandle::Eof()
 VSIVirtualHandle *
 VSISparseFileFilesystemHandler::Open( const char *pszFilename,
                                       const char *pszAccess,
-                                      bool /* bSetError */ )
+                                      bool /* bSetError */,
+                                      CSLConstList /* papszOptions */ )
 
 {
     if( !STARTS_WITH_CI(pszFilename, "/vsisparse/") )

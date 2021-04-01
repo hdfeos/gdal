@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -32,11 +32,10 @@
 import os
 import sys
 from osgeo import gdal
-
-sys.path.append('../pymod')
-sys.path.append('../../gdal/swig/python/samples')
+import pytest
 
 import gdaltest
+from test_py_scripts import samples_path
 
 ###############################################################################
 # Verify we have the JP2OpenJPEG driver.
@@ -47,7 +46,12 @@ def test_validate_jp2_1():
     gdaltest.has_validate_jp2_and_build_jp2 = False
     gdaltest.jp2openjpeg_drv = gdal.GetDriverByName('JP2OpenJPEG')
     if gdaltest.jp2openjpeg_drv is None:
-        return 'skip'
+        pytest.skip()
+
+
+    path = samples_path
+    if path not in sys.path:
+        sys.path.append(path)
 
     try:
         import validate_jp2
@@ -55,12 +59,10 @@ def test_validate_jp2_1():
         validate_jp2.validate
         build_jp2_from_xml.build_file
     except (ImportError, AttributeError):
-        return 'skip'
+        pytest.skip()
 
     gdaltest.has_validate_jp2_and_build_jp2 = True
     gdaltest.deregister_all_jpeg2000_drivers_but('JP2OpenJPEG')
-
-    return 'success'
 
 ###############################################################################
 
@@ -80,6 +82,10 @@ def validate(filename, inspire_tg=True, expected_gmljp2=True, oidoc=None):
         except (ImportError, AttributeError):
             ogc_schemas_location = 'disabled'
 
+    path = samples_path
+    if path not in sys.path:
+        sys.path.append(path)
+
     import validate_jp2
     error_report = validate_jp2.ErrorReport(collect_internally=True)
     return validate_jp2.validate(filename, oidoc, inspire_tg, expected_gmljp2, ogc_schemas_location, error_report=error_report)
@@ -91,7 +97,7 @@ def validate(filename, inspire_tg=True, expected_gmljp2=True, oidoc=None):
 def test_validate_jp2_2():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     import build_jp2_from_xml
 
@@ -103,11 +109,11 @@ def test_validate_jp2_2():
                        'ERROR[GeoJP2]: GeoTIFF should have width of 1 pixel, not 2',
                        'ERROR[GeoJP2]: GeoTIFF should have height of 1 pixel, not 2',
                        'ERROR[GENERAL]: Inconsistent geotransform between GeoJP2 ((440720.0, 60.0, 0.0, 3751320.0, 0.0, -60.0)) and GMLJP2 ((-440780.0, 60.0, 0.0, -3751260.0, 0.0, -60.0))',
-                       'ERROR[GENERAL]: Inconsistent SRS between GeoJP2 (wkt=PROJCS["NAD27 / UTM zone 11N",GEOGCS["NAD27",DATUM["North_American_Datum_1927",SPHEROID["Clarke 1866",6378206.4,294.9786982138982,AUTHORITY["EPSG","7008"]],AUTHORITY["EPSG","6267"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4267"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-117],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","26711"]], proj4=+proj=utm +zone=11 +datum=NAD27 +units=m +no_defs ) and GMLJP2 (wkt=PROJCS["WGS 84 / UTM zone 31N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",3],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32631"]], proj4=+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs )',
+                       'ERROR[GENERAL]: Inconsistent SRS between GeoJP2 (wkt=PROJCS["NAD27 / UTM zone 11N",GEOGCS["NAD27",DATUM["North_American_Datum_1927",SPHEROID["Clarke 1866",6378206.4,294.978698213898,AUTHORITY["EPSG","7008"]],AUTHORITY["EPSG","6267"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4267"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-117],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","26711"]], proj4=+proj=utm +zone=11 +datum=NAD27 +units=m +no_defs) and GMLJP2 (wkt=PROJCS["WGS 84 / UTM zone 31N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",3],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32631"]], proj4=+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs)',
                        'ERROR[GENERAL]: ftyp.BR = "XXXX" instead of "jp2 "',
                        'ERROR[GENERAL]: ftyp.MinV = "1" instead of 0',
                        'ERROR[INSPIRE_TG]: "jpx " not found in compatibility list of ftyp, but GMLJP2 box present',
-                       'ERROR[INSPIRE_TG]: "rreq" box does not advertize standard flag 67 whereas GMLJP2 box is present',
+                       'ERROR[INSPIRE_TG]: "rreq" box does not advertise standard flag 67 whereas GMLJP2 box is present',
                        'ERROR[GENERAL]: ihdr.C = 6 instead of 7',
                        'ERROR[GENERAL]: ihdr.UnkC = 2 instead of 0 or 1',
                        'ERROR[GENERAL]: "ihdr" box expected to be found zero or one time, but present 2 times',
@@ -127,12 +133,11 @@ def test_validate_jp2_2():
                        'ERROR[INSPIRE_TG, Conformance class A.8.6]: count(OrthoImageryCoverage.rangeType.field)(=1) != Csiz(=2) ',
                        'ERROR[PROFILE_1, Conformance class A.8.14]: SPcod_xcb_minus_2 = 5, whereas max allowed for Profile 1 is 4']
 
-    if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
+    if set(error_report.error_array) != set(expected_errors):
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = [
         'WARNING[GENERAL]: Unknown value 1 for colr.PREC',
@@ -143,14 +148,12 @@ def test_validate_jp2_2():
         'WARNING[INSPIRE_TG]: "uuid" box not at expected index',
         'WARNING[INSPIRE_TG, Recommendation 39]: No user-defined precincts 0 defined'
     ]
-    if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
+    if set(error_report.warning_array) != set(expected_warnings):
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Another highly corrupted file
@@ -159,7 +162,7 @@ def test_validate_jp2_2():
 def test_validate_jp2_3():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     import build_jp2_from_xml
 
@@ -190,24 +193,21 @@ def test_validate_jp2_3():
                        'ERROR[PROFILE_1, Conformance class A.8.14]: Not enough decomposition levels = 0 (max_dim=162, 128 * 2**SPcod_NumDecompositions=128)']
 
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = [
         'WARNING[INSPIRE_TG, Recommendation 38]: Bit depth of alpha channel should be 1 (BPCC 0), but its BPCC is 7',
         'WARNING[INSPIRE_TG, Recommendation 38]: Bit depth of alpha channel should be 1 (BPCC 0), but its BPCC is 7'
     ]
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Another highly corrupted file
@@ -216,7 +216,7 @@ def test_validate_jp2_3():
 def test_validate_jp2_4():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     import build_jp2_from_xml
 
@@ -236,22 +236,19 @@ def test_validate_jp2_4():
         'ERROR[GENERAL]: No EOC marker found']
 
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = [
     ]
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Slightly less corrupted file. Test mainly issues with JP2boxes and color table
@@ -261,7 +258,7 @@ def test_validate_jp2_4():
 def test_validate_jp2_5():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     import build_jp2_from_xml
 
@@ -284,22 +281,19 @@ def test_validate_jp2_5():
         'ERROR[INSPIRE_TG, Requirement 26, Conformance class A.8.16]: RGN marker found, which is not allowed']
 
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = [
     ]
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Nominal case with single band data
@@ -308,28 +302,25 @@ def test_validate_jp2_5():
 def test_validate_jp2_6():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     error_report = validate('data/test_validate_jp2/byte.jp2', oidoc='data/test_validate_jp2/byte_oi.xml')
     gdal.Unlink('/vsimem/out.jp2')
 
     expected_errors = []
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = []
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Nominal case with RGBA data
@@ -338,28 +329,25 @@ def test_validate_jp2_6():
 def test_validate_jp2_7():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     error_report = validate('data/test_validate_jp2/stefan_full_rgba.jp2', oidoc='data/test_validate_jp2/stefan_full_rgba_oi.xml', expected_gmljp2=False)
     gdal.Unlink('/vsimem/out.jp2')
 
     expected_errors = []
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = []
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 # Nominal case with color table data
@@ -368,28 +356,25 @@ def test_validate_jp2_7():
 def test_validate_jp2_8():
 
     if not gdaltest.has_validate_jp2_and_build_jp2:
-        return 'skip'
+        pytest.skip()
 
     error_report = validate('data/test_validate_jp2/utmsmall_pct.jp2', oidoc='data/test_validate_jp2/utmsmall_pct_oi.xml')
     gdal.Unlink('/vsimem/out.jp2')
 
     expected_errors = []
     if error_report.error_array != expected_errors:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.error_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
     expected_warnings = []
     if error_report.warning_array != expected_warnings:
-        gdaltest.post_reason('did not get expected errors')
         import pprint
         pp = pprint.PrettyPrinter()
         pp.pprint(error_report.warning_array)
-        return 'fail'
+        pytest.fail('did not get expected errors')
 
-    return 'success'
 
 ###############################################################################
 
@@ -399,24 +384,6 @@ def test_validate_jp2_cleanup():
     if gdaltest.has_validate_jp2_and_build_jp2:
         gdaltest.reregister_all_jpeg2000_drivers()
 
-    return 'success'
 
 
-gdaltest_list = [
-    test_validate_jp2_1,
-    test_validate_jp2_2,
-    test_validate_jp2_3,
-    test_validate_jp2_4,
-    test_validate_jp2_5,
-    test_validate_jp2_6,
-    test_validate_jp2_7,
-    test_validate_jp2_cleanup,
-]
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('test_validate_jp2')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

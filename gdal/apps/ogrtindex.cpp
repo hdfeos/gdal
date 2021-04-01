@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2007-2010, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2010, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -226,6 +226,7 @@ MAIN_START(nArgc, papszArgv)
                     "when -t_srs is requested.\n");
         }
         poTargetSRS = new OGRSpatialReference();
+        poTargetSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         // coverity[tainted_data]
         if( poTargetSRS->SetFromUserInput( pszTargetSRS ) != CE_None )
         {
@@ -622,7 +623,7 @@ MAIN_START(nArgc, papszArgv)
                     {
                         fprintf(
                             stderr, "Note : you can override this "
-                            "behaviour with -accept_different_schemas option\n"
+                            "behavior with -accept_different_schemas option\n"
                             "but this may result in a tileindex incompatible "
                             "with MapServer\n");
                         bFirstWarningForNonMatchingAttributes = false;
@@ -656,7 +657,7 @@ MAIN_START(nArgc, papszArgv)
                         {
                             fprintf(
                                 stderr, "Note : you can override this "
-                                "behaviour with -accept_different_schemas "
+                                "behavior with -accept_different_schemas "
                                 "option,\nbut this may result in a tileindex "
                                 "incompatible with MapServer\n");
                             bFirstWarningForNonMatchingAttributes = false;

@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements OGROSMLayer class
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2012-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -99,6 +99,8 @@ OGROSMLayer::OGROSMLayer( OGROSMDataSource* poDSIn, int nIdxLayerIn,
     poFeatureDefn->Reference();
 
     poSRS->SetWellKnownGeogCS("WGS84");
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
     if( poFeatureDefn->GetGeomFieldCount() != 0 )
         poFeatureDefn->GetGeomFieldDefn(0)->SetSpatialRef(poSRS);
 }
@@ -123,8 +125,8 @@ OGROSMLayer::~OGROSMLayer()
     for( int i=0; i<static_cast<int>(apszNames.size()); i++ )
         CPLFree(apszNames[i]);
 
-    for( int i=0; i<static_cast<int>(apszUnsignificantKeys.size()); i++ )
-        CPLFree(apszUnsignificantKeys[i]);
+    for( int i=0; i<static_cast<int>(apszInsignificantKeys.size()); i++ )
+        CPLFree(apszInsignificantKeys[i]);
 
     for( int i=0; i<static_cast<int>(apszIgnoreKeys.size()); i++ )
         CPLFree(apszIgnoreKeys[i]);
@@ -344,7 +346,9 @@ bool OGROSMLayer::AddToArray( OGRFeature* poFeature,
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                     "Too many features have accumulated in %s layer. "
-                    "Use OGR_INTERLEAVED_READING=YES mode",
+                    "Use the OGR_INTERLEAVED_READING=YES configuration option, "
+                    "or the INTERLEAVED_READING=YES open option, or the "
+                    "GDALDataset::GetNextFeature() / GDALDatasetGetNextFeature() API.",
                     GetName());
         }
         bHasWarnedTooManyFeatures = true;
@@ -948,14 +952,14 @@ const OGREnvelope* OGROSMLayer::GetSpatialFilterEnvelope()
 }
 
 /************************************************************************/
-/*                        AddUnsignificantKey()                         */
+/*                        AddInsignificantKey()                         */
 /************************************************************************/
 
-void OGROSMLayer::AddUnsignificantKey( const char* pszK )
+void OGROSMLayer::AddInsignificantKey( const char* pszK )
 {
     char* pszKDup = CPLStrdup(pszK);
-    apszUnsignificantKeys.push_back(pszKDup);
-    aoSetUnsignificantKeys[pszKDup] = 1;
+    apszInsignificantKeys.push_back(pszKDup);
+    aoSetInsignificantKeys[pszKDup] = 1;
 }
 
 /************************************************************************/

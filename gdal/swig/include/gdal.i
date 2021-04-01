@@ -54,6 +54,7 @@
 
 %{
 #include <iostream>
+#include <vector>
 using namespace std;
 
 #define CPL_SUPRESS_CPLUSPLUS
@@ -66,6 +67,7 @@ using namespace std;
 #include "gdal.h"
 #include "gdal_alg.h"
 #include "gdalwarper.h"
+#include "ogr_srs_api.h"
 
 typedef void GDALMajorObjectShadow;
 typedef void GDALDriverShadow;
@@ -75,9 +77,17 @@ typedef void GDALColorTableShadow;
 typedef void GDALRasterAttributeTableShadow;
 typedef void GDALTransformerInfoShadow;
 typedef void GDALAsyncReaderShadow;
+
+typedef GDALExtendedDataTypeHS GDALExtendedDataTypeHS;
+typedef GDALEDTComponentHS GDALEDTComponentHS;
+typedef GDALGroupHS GDALGroupHS;
+typedef GDALMDArrayHS GDALMDArrayHS;
+typedef GDALAttributeHS GDALAttributeHS;
+typedef GDALDimensionHS GDALDimensionHS;
+
 %}
 
-#if defined(SWIGPYTHON) || defined(SWIGJAVA) || defined(SWIGPERL)
+#if defined(SWIGPYTHON) || defined(SWIGJAVA) || defined(SWIGPERL) || defined(SWIGCSHARP)
 %{
 #ifdef DEBUG
 typedef struct OGRSpatialReferenceHS OSRSpatialReferenceShadow;
@@ -159,7 +169,7 @@ typedef enum
     /*! Cyan band of CMYK image */                        GCI_CyanBand=10,
     /*! Magenta band of CMYK image */                     GCI_MagentaBand=11,
     /*! Yellow band of CMYK image */                      GCI_YellowBand=12,
-    /*! Black band of CMLY image */                       GCI_BlackBand=13,
+    /*! Black band of CMYK image */                       GCI_BlackBand=13,
     /*! Y Luminance */                                    GCI_YCbCr_YBand=14,
     /*! Cb Chroma */                                      GCI_YCbCr_CbBand=15,
     /*! Cr Chroma */                                      GCI_YCbCr_CrBand=16,
@@ -199,9 +209,11 @@ typedef enum
     /*! Cubic B-Spline Approximation */     GRIORA_CubicSpline = 3,
     /*! Lanczos windowed sinc interpolation (6x6 kernel) */ GRIORA_Lanczos = 4,
     /*! Average */                          GRIORA_Average = 5,
+    /*! Root Mean Square (quadratic mean) */GRIORA_RMS = 14,
     /*! Mode (selects the value which appears most often of all the sampled points) */
                                             GRIORA_Mode = 6,
     /*! Gauss blurring */                   GRIORA_Gauss = 7
+    /*! NOTE: values 8 to 13 are reserved for max,min,med,Q1,Q3,sum */
 } GDALRIOResampleAlg;
 
 /*! Warp Resampling Algorithm */
@@ -213,6 +225,7 @@ typedef enum {
   /*! Cubic B-Spline Approximation (4x4 kernel) */     GRA_CubicSpline=3,
   /*! Lanczos windowed sinc interpolation (6x6 kernel) */ GRA_Lanczos=4,
   /*! Average (computes the average of all non-NODATA contributing pixels) */ GRA_Average=5,
+  /*! Root Mean Square (computes the RMS (Quadratic Mean) of all non-NODATA contributing pixels) */ GRA_RMS=14,
   /*! Mode (selects the value which appears most often of all the sampled points) */ GRA_Mode=6,
   /*  GRA_Gauss=7 reserved. */
   /*! Max (selects maximum of all non-NODATA contributing pixels) */ GRA_Max=8,
@@ -220,6 +233,8 @@ typedef enum {
   /*! Med (selects median of all non-NODATA contributing pixels) */ GRA_Med=10,
   /*! Q1 (selects first quartile of all non-NODATA contributing pixels) */ GRA_Q1=11,
   /*! Q3 (selects third quartile of all non-NODATA contributing pixels) */ GRA_Q3=12
+  /*! NOTE: values 13 is reserved for sum */
+
 } GDALResampleAlg;
 
 %rename (AsyncStatusType) GDALAsyncStatusType;
@@ -536,6 +551,8 @@ RETURN_NONE GDALGCPsToGeoTransform( int nGCPs, GDAL_GCP const * pGCPs,
 //
 //************************************************************************
 %include "Dataset.i"
+
+%include "MultiDimensional.i"
 
 //************************************************************************
 //
@@ -1081,6 +1098,34 @@ struct GDALInfoOptions {
 #endif
 retStringAndCPLFree *GDALInfo( GDALDatasetShadow *hDataset, GDALInfoOptions *infoOptions );
 
+//************************************************************************
+// gdal.MultiDimInfo()
+//************************************************************************
+
+#ifdef SWIGJAVA
+%rename (MultiDimInfoOptions) GDALMultiDimInfoOptions;
+#endif
+struct GDALMultiDimInfoOptions {
+%extend {
+    GDALMultiDimInfoOptions(char** options) {
+        return GDALMultiDimInfoOptionsNew(options, NULL);
+    }
+
+    ~GDALMultiDimInfoOptions() {
+        GDALMultiDimInfoOptionsFree( self );
+    }
+}
+};
+
+#ifdef SWIGPYTHON
+%rename (MultiDimInfoInternal) GDALMultiDimInfo;
+#endif
+retStringAndCPLFree *GDALMultiDimInfo( GDALDatasetShadow *hDataset, GDALMultiDimInfoOptions *infoOptions );
+
+//************************************************************************
+// gdal.Translate()
+//************************************************************************
+
 #ifdef SWIGJAVA
 %rename (TranslateOptions) GDALTranslateOptions;
 #endif
@@ -1095,10 +1140,6 @@ struct GDALTranslateOptions {
     }
 }
 };
-
-//************************************************************************
-// gdal.Translate()
-//************************************************************************
 
 #ifdef SWIGPYTHON
 %rename (TranslateInternal) wrapper_GDALTranslate;
@@ -1812,6 +1853,69 @@ GDALDatasetShadow* wrapper_GDALBuildVRT_names( const char* dest,
 }
 %}
 %clear char** source_filenames;
+
+//************************************************************************
+// gdal.MultiDimTranslate()
+//************************************************************************
+
+#ifdef SWIGJAVA
+%rename (MultiDimTranslateOptions) GDALMultiDimTranslateOptions;
+#endif
+struct GDALMultiDimTranslateOptions {
+%extend {
+    GDALMultiDimTranslateOptions(char** options) {
+        return GDALMultiDimTranslateOptionsNew(options, NULL);
+    }
+
+    ~GDALMultiDimTranslateOptions() {
+        GDALMultiDimTranslateOptionsFree( self );
+    }
+}
+};
+
+#ifdef SWIGJAVA
+%rename (MultiDimTranslate) wrapper_GDALMultiDimTranslateDestName;
+#endif
+
+%newobject wrapper_GDALMultiDimTranslateDestName;
+
+%inline %{
+GDALDatasetShadow* wrapper_GDALMultiDimTranslateDestName( const char* dest,
+                                             int object_list_count, GDALDatasetShadow** poObjects,
+                                             GDALMultiDimTranslateOptions* multiDimTranslateOptions,
+                                             GDALProgressFunc callback=NULL,
+                                             void* callback_data=NULL)
+{
+    int usageError; /* ignored */
+    bool bFreeOptions = false;
+    if( callback )
+    {
+        if( multiDimTranslateOptions == NULL )
+        {
+            bFreeOptions = true;
+            multiDimTranslateOptions = GDALMultiDimTranslateOptionsNew(NULL, NULL);
+        }
+        GDALMultiDimTranslateOptionsSetProgress(multiDimTranslateOptions, callback, callback_data);
+    }
+#ifdef SWIGPYTHON
+    std::vector<ErrorStruct> aoErrors;
+    if( bUseExceptions )
+    {
+        PushStackingErrorHandler(&aoErrors);
+    }
+#endif
+    GDALDatasetH hDSRet = GDALMultiDimTranslate(dest, NULL, object_list_count, poObjects, multiDimTranslateOptions, &usageError);
+    if( bFreeOptions )
+        GDALMultiDimTranslateOptionsFree(multiDimTranslateOptions);
+#ifdef SWIGPYTHON
+    if( bUseExceptions )
+    {
+        PopStackingErrorHandler(&aoErrors, hDSRet != NULL);
+    }
+#endif
+    return hDSRet;
+}
+%}
 
 
 %clear (const char* dest);

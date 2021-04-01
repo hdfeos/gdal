@@ -6,6 +6,8 @@ OBJ := $(HFAOBJ) hfadataset.o hfa_overviews.o
 
 ALL_C_FLAGS = $(CFLAGS)
 
+CPPFLAGS        :=      $(PROJ_INCLUDE) $(CPPFLAGS)
+
 default: $(OBJ:.o=.$(OBJ_EXT))
 
 clean:
@@ -14,6 +16,6 @@ clean:
 $(O_OBJ): hfa.h hfa_p.h
 
 hfatest: hfatest.$(OBJ_EXT) $(HFAOBJ:.o=.$(OBJ_EXT))
-	$(LD) hfatest.$(OBJ_EXT) $(HFAOBJ:.o=.$(OBJ_EXT)) ../../port/*.$(OBJ_EXT) $(LIBS) -o hfatest
+	$(LD) hfatest.$(OBJ_EXT) $(HFAOBJ:.o=.$(OBJ_EXT)) ../../port/*.$(OBJ_EXT)  ../../ogr/ogrsf_frmts/o/json_*.o  ../../ogr/ogrsf_frmts/o/printbuf.o  ../../ogr/ogrsf_frmts/o/arraylist.o  ../../ogr/ogrsf_frmts/o/linkhash.o ../../ogr/ograpispy.o  -L../.. -lgdal $(LIBS) -o hfatest
 
 install-obj: $(O_OBJ:.o=.$(OBJ_EXT))

@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2011, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2011-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -97,7 +97,7 @@ class VSICachedFile final : public VSIVirtualHandle
     VSICachedFile( VSIVirtualHandle *poBaseHandle,
                    size_t nChunkSize,
                    size_t nCacheSize );
-    ~VSICachedFile() override { Close(); }
+    ~VSICachedFile() override { VSICachedFile::Close(); }
 
     void          FlushLRU();
     int           LoadBlocks( vsi_l_offset nStartBlock, size_t nBlockCount,
@@ -412,7 +412,12 @@ int VSICachedFile::LoadBlocks( vsi_l_offset nStartBlock, size_t nBlockCount,
 size_t VSICachedFile::Read( void * pBuffer, size_t nSize, size_t nCount )
 
 {
-    if( nOffset >= nFileSize )
+    if( nSize == 0 || nCount == 0 )
+        return 0;
+
+    // nFileSize might be set wrongly to 0 by underlying layers, such as
+    // /vsicurl_streaming/https://query.data.world/s/jgsghstpphjhicstradhy5kpjwrnfy
+    if( nFileSize > 0 && nOffset >= nFileSize )
     {
         bEOF = true;
         return 0;

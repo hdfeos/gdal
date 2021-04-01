@@ -949,26 +949,22 @@ int GDALJP2Metadata::ParseGMLCoverageDesc()
 /*      Extract origin location.                                        */
 /* -------------------------------------------------------------------- */
     OGRPoint *poOriginGeometry = nullptr;
-    const char *pszSRSName = nullptr;
 
-    if( psOriginPoint != nullptr )
+    OGRGeometry* poGeom = reinterpret_cast<OGRGeometry*>(
+        OGR_G_CreateFromGMLTree( psOriginPoint ));
+
+    if( poGeom != nullptr
+        && wkbFlatten(poGeom->getGeometryType()) == wkbPoint )
     {
-        OGRGeometry* poGeom = reinterpret_cast<OGRGeometry*>(
-            OGR_G_CreateFromGMLTree( psOriginPoint ));
-
-        if( poGeom != nullptr
-            && wkbFlatten(poGeom->getGeometryType()) == wkbPoint )
-        {
-            poOriginGeometry = poGeom->toPoint();
-        }
-        else
-        {
-            delete poGeom;
-        }
-
-        // SRS?
-        pszSRSName = CPLGetXMLValue( psOriginPoint, "srsName", nullptr );
+        poOriginGeometry = poGeom->toPoint();
     }
+    else
+    {
+        delete poGeom;
+    }
+
+    // SRS?
+    const char* pszSRSName = CPLGetXMLValue( psOriginPoint, "srsName", nullptr );
 
 /* -------------------------------------------------------------------- */
 /*      Extract offset(s)                                               */
@@ -1083,22 +1079,6 @@ int GDALJP2Metadata::ParseGMLCoverageDesc()
     {
         bNeedAxisFlip = false;
         CPLDebug( "GMLJP2", "Suppressed axis flipping based on GDAL_IGNORE_AXIS_ORIENTATION." );
-    }
-
-    if( pszSRSName && bNeedAxisFlip )
-    {
-        // Suppress explicit axis order in SRS definition
-
-        OGR_SRSNode *poGEOGCS = oSRS.GetAttrNode( "GEOGCS" );
-        if( poGEOGCS != nullptr )
-            poGEOGCS->StripNodes( "AXIS" );
-
-        OGR_SRSNode *poPROJCS = oSRS.GetAttrNode( "PROJCS" );
-        if (poPROJCS != nullptr && oSRS.EPSGTreatsAsNorthingEasting())
-            poPROJCS->StripNodes( "AXIS" );
-
-        CPLFree(pszProjection);
-        oSRS.exportToWkt( &pszProjection );
     }
 
     /* Some Pleiades files have explicit <gml:axisName>Easting</gml:axisName> */

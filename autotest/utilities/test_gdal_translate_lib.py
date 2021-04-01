@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -29,13 +29,13 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 import os
+import struct
 
-sys.path.append('../pymod')
 
 from osgeo import gdal
 import gdaltest
+import pytest
 
 ###############################################################################
 # Simple test
@@ -46,27 +46,18 @@ def test_gdal_translate_lib_1():
     ds = gdal.Open('../gcore/data/byte.tif')
 
     ds = gdal.Translate('tmp/test1.tif', ds)
-    if ds is None:
-        gdaltest.post_reason('got error/warning')
-        return 'fail'
+    assert ds is not None, 'got error/warning'
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
     ds = None
 
     ds = gdal.Open('tmp/test1.tif')
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test format option and callback
@@ -83,20 +74,13 @@ def test_gdal_translate_lib_2():
     src_ds = gdal.Open('../gcore/data/byte.tif')
     tab = [0]
     ds = gdal.Translate('tmp/test2.tif', src_ds, format='GTiff', callback=mycallback, callback_data=tab)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
-    if tab[0] != 1.0:
-        gdaltest.post_reason('Bad percentage')
-        return 'fail'
+    assert tab[0] == 1.0, 'Bad percentage'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test outputType option
@@ -106,20 +90,13 @@ def test_gdal_translate_lib_3():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test3.tif', ds, outputType=gdal.GDT_Int16)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).DataType != gdal.GDT_Int16:
-        gdaltest.post_reason('Bad data type')
-        return 'fail'
+    assert ds.GetRasterBand(1).DataType == gdal.GDT_Int16, 'Bad data type'
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test bandList option
@@ -130,25 +107,15 @@ def test_gdal_translate_lib_4():
     ds = gdal.Open('../gcore/data/rgbsmall.tif')
 
     ds = gdal.Translate('tmp/test4.tif', ds, bandList=[3, 2, 1])
-    if ds is None:
-        gdaltest.post_reason('got error/warning')
-        return 'fail'
+    assert ds is not None, 'got error/warning'
 
-    if ds.GetRasterBand(1).Checksum() != 21349:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 21349, 'Bad checksum'
 
-    if ds.GetRasterBand(2).Checksum() != 21053:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(2).Checksum() == 21053, 'Bad checksum'
 
-    if ds.GetRasterBand(3).Checksum() != 21212:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(3).Checksum() == 21212, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test rgbExpand option
@@ -156,38 +123,26 @@ def test_gdal_translate_lib_4():
 
 def test_gdal_translate_lib_5():
 
-    ds = gdal.Open('../gdrivers/data/bug407.gif')
+    ds = gdal.Open('../gdrivers/data/gif/bug407.gif')
     ds = gdal.Translate('tmp/test5.tif', ds, rgbExpand='rgb')
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).GetRasterColorInterpretation() != gdal.GCI_RedBand:
-        gdaltest.post_reason('Bad color interpretation')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetRasterColorInterpretation() == gdal.GCI_RedBand, \
+        'Bad color interpretation'
 
-    if ds.GetRasterBand(2).GetRasterColorInterpretation() != gdal.GCI_GreenBand:
-        gdaltest.post_reason('Bad color interpretation')
-        return 'fail'
+    assert ds.GetRasterBand(2).GetRasterColorInterpretation() == gdal.GCI_GreenBand, \
+        'Bad color interpretation'
 
-    if ds.GetRasterBand(3).GetRasterColorInterpretation() != gdal.GCI_BlueBand:
-        gdaltest.post_reason('Bad color interpretation')
-        return 'fail'
+    assert ds.GetRasterBand(3).GetRasterColorInterpretation() == gdal.GCI_BlueBand, \
+        'Bad color interpretation'
 
-    if ds.GetRasterBand(1).Checksum() != 20615:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 20615, 'Bad checksum'
 
-    if ds.GetRasterBand(2).Checksum() != 59147:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(2).Checksum() == 59147, 'Bad checksum'
 
-    if ds.GetRasterBand(3).Checksum() != 63052:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(3).Checksum() == 63052, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test oXSizePixel and oYSizePixel option
@@ -197,16 +152,11 @@ def test_gdal_translate_lib_6():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test6.tif', ds, width=40, height=40)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 18784:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 18784, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test oXSizePct and oYSizePct option
@@ -216,16 +166,11 @@ def test_gdal_translate_lib_7():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test7.tif', ds, widthPct=200.0, heightPct=200.0)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 18784:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 18784, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test outputSRS and GCPs options
@@ -236,25 +181,16 @@ def test_gdal_translate_lib_8():
     gcpList = [gdal.GCP(440720.000, 3751320.000, 0, 0, 0), gdal.GCP(441920.000, 3751320.000, 0, 20, 0), gdal.GCP(441920.000, 3750120.000, 0, 20, 20), gdal.GCP(440720.000, 3750120.000, 0, 0, 20)]
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test8.tif', ds, outputSRS='EPSG:26711', GCPs=gcpList)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
     gcps = ds.GetGCPs()
-    if len(gcps) != 4:
-        gdaltest.post_reason('GCP count wrong.')
-        return 'fail'
+    assert len(gcps) == 4, 'GCP count wrong.'
 
-    if ds.GetGCPProjection().find('26711') == -1:
-        gdaltest.post_reason('Bad GCP projection.')
-        return 'fail'
+    assert ds.GetGCPProjection().find('26711') != -1, 'Bad GCP projection.'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test nodata option
@@ -264,16 +200,11 @@ def test_gdal_translate_lib_9():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test9.tif', ds, noData=1)
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).GetNoDataValue() != 1:
-        gdaltest.post_reason('Bad nodata value')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetNoDataValue() == 1, 'Bad nodata value'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test srcWin option
@@ -283,16 +214,11 @@ def test_gdal_translate_lib_10():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test10.tif', ds, srcWin=[0, 0, 1, 1])
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 2:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 2, 'Bad checksum'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test projWin option
@@ -302,20 +228,14 @@ def test_gdal_translate_lib_11():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test11.tif', ds, projWin=[440720.000, 3751320.000, 441920.000, 3750120.000])
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
-    if not gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9):
-        gdaltest.post_reason('Bad geotransform')
-        return 'fail'
+    assert gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9), \
+        'Bad geotransform'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test outputBounds option
@@ -325,20 +245,14 @@ def test_gdal_translate_lib_12():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test12.tif', ds, outputBounds=[440720.000, 3751320.000, 441920.000, 3750120.000])
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
-    if not gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9):
-        gdaltest.post_reason('Bad geotransform')
-        return 'fail'
+    assert gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9), \
+        'Bad geotransform'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test metadataOptions
@@ -346,19 +260,23 @@ def test_gdal_translate_lib_12():
 
 def test_gdal_translate_lib_13():
 
-    ds = gdal.Open('../gcore/data/byte.tif')
-    ds = gdal.Translate('tmp/test13.tif', ds, metadataOptions=['TIFFTAG_DOCUMENTNAME=test13'])
-    if ds is None:
-        return 'fail'
+    src_ds = gdal.Open('../gcore/data/byte.tif')
+
+    ds = gdal.Translate('/vsimem/test13.tif', src_ds, metadataOptions=['TIFFTAG_DOCUMENTNAME=test13'])
+    assert ds is not None
 
     md = ds.GetMetadata()
-    if 'TIFFTAG_DOCUMENTNAME' not in md:
-        gdaltest.post_reason('Did not get TIFFTAG_DOCUMENTNAME')
-        return 'fail'
-
+    assert 'TIFFTAG_DOCUMENTNAME' in md, 'Did not get TIFFTAG_DOCUMENTNAME'
     ds = None
+    gdal.Unlink('/vsimem/test13.tif')
 
-    return 'success'
+    ds = gdal.Translate('/vsimem/test13.tif', src_ds, metadataOptions='TIFFTAG_DOCUMENTNAME=test13')
+    assert ds is not None
+
+    md = ds.GetMetadata()
+    assert 'TIFFTAG_DOCUMENTNAME' in md, 'Did not get TIFFTAG_DOCUMENTNAME'
+    ds = None
+    gdal.Unlink('/vsimem/test13.tif')
 
 ###############################################################################
 # Test creationOptions
@@ -368,17 +286,12 @@ def test_gdal_translate_lib_14():
 
     ds = gdal.Open('../gcore/data/byte.tif')
     ds = gdal.Translate('tmp/test14.tif', ds, creationOptions=['COMPRESS=LZW'])
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
     md = ds.GetMetadata('IMAGE_STRUCTURE')
-    if 'COMPRESSION' not in md or md['COMPRESSION'] != 'LZW':
-        gdaltest.post_reason('Did not get COMPRESSION')
-        return 'fail'
+    assert 'COMPRESSION' in md and md['COMPRESSION'] == 'LZW', 'Did not get COMPRESSION'
 
     ds = None
-
-    return 'success'
 
 ###############################################################################
 # Test internal wrappers
@@ -392,7 +305,7 @@ def test_gdal_translate_lib_100():
 
     # Will create an implicit options structure
     with gdaltest.error_handler():
-        gdal.TranslateInternal('', gdal.Open('../gcore/data/byte.tif'), None, gdal.TermProgress)
+        gdal.TranslateInternal('', gdal.Open('../gcore/data/byte.tif'), None, gdal.TermProgress_nocb)
 
     # Null dest name
     try:
@@ -400,8 +313,7 @@ def test_gdal_translate_lib_100():
     except:
         pass
 
-    return 'success'
-
+    
 ###############################################################################
 # Test behaviour with SIGNEDBYTE
 
@@ -409,21 +321,15 @@ def test_gdal_translate_lib_100():
 def test_gdal_translate_lib_101():
 
     ds = gdal.Translate('/vsimem/test_gdal_translate_lib_101.tif', gdal.Open('../gcore/data/byte.tif'), creationOptions=['PIXELTYPE=SIGNEDBYTE'], noData='-128')
-    if ds.GetRasterBand(1).GetMetadataItem('PIXELTYPE', 'IMAGE_STRUCTURE') != 'SIGNEDBYTE':
-        gdaltest.post_reason('Did not get SIGNEDBYTE')
-        return 'fail'
-    if ds.GetRasterBand(1).GetNoDataValue() != -128:
-        gdaltest.post_reason('Did not get -128')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetMetadataItem('PIXELTYPE', 'IMAGE_STRUCTURE') == 'SIGNEDBYTE', \
+        'Did not get SIGNEDBYTE'
+    assert ds.GetRasterBand(1).GetNoDataValue() == -128, 'Did not get -128'
     ds2 = gdal.Translate('/vsimem/test_gdal_translate_lib_101_2.tif', ds, noData=-127)
-    if ds2.GetRasterBand(1).GetNoDataValue() != -127:
-        gdaltest.post_reason('Did not get -127')
-        return 'fail'
+    assert ds2.GetRasterBand(1).GetNoDataValue() == -127, 'Did not get -127'
     ds = None
     ds2 = None
     gdal.Unlink('/vsimem/test_gdal_translate_lib_101.tif')
     gdal.Unlink('/vsimem/test_gdal_translate_lib_101_2.tif')
-    return 'success'
 
 ###############################################################################
 # Test -scale
@@ -433,10 +339,7 @@ def test_gdal_translate_lib_102():
 
     ds = gdal.Translate('', gdal.Open('../gcore/data/byte.tif'), format='MEM', scaleParams=[[0, 255, 0, 65535]], outputType=gdal.GDT_UInt16)
     result = ds.GetRasterBand(1).ComputeRasterMinMax(False)
-    if result != (19018.0, 65535.0):
-        gdaltest.post_reason('failure')
-        print(result)
-        return 'fail'
+    assert result == (19018.0, 65535.0)
 
     (approx_min, approx_max) = ds.GetRasterBand(1).ComputeRasterMinMax(True)
     ds2 = gdal.Translate('', ds, format='MEM', scaleParams=[[approx_min, approx_max]], outputType=gdal.GDT_Byte)
@@ -446,13 +349,9 @@ def test_gdal_translate_lib_102():
     ds2 = gdal.Translate('', ds, format='MEM', scaleParams=[[]], outputType=gdal.GDT_Byte)
     stats = ds2.GetRasterBand(1).ComputeStatistics(False)
     for i in range(4):
-        if abs(stats[i] - expected_stats[i]) > 1e-3:
-            gdaltest.post_reason('failure')
-            print(stats)
-            return 'fail'
+        assert stats[i] == pytest.approx(expected_stats[i], abs=1e-3)
 
-    return 'success'
-
+    
 ###############################################################################
 # Test that -projwin with nearest neighbor resampling uses integer source
 # pixel boundaries (#6610)
@@ -461,18 +360,12 @@ def test_gdal_translate_lib_102():
 def test_gdal_translate_lib_103():
 
     ds = gdal.Translate('', '../gcore/data/byte.tif', format='MEM', projWin=[440730, 3751310, 441910, 3750140])
-    if ds is None:
-        return 'fail'
+    assert ds is not None
 
-    if ds.GetRasterBand(1).Checksum() != 4672:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
 
-    if not gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9):
-        gdaltest.post_reason('Bad geotransform')
-        return 'fail'
-
-    return 'success'
+    assert gdaltest.geotransform_equals(gdal.Open('../gcore/data/byte.tif').GetGeoTransform(), ds.GetGeoTransform(), 1e-9), \
+        'Bad geotransform'
 
 ###############################################################################
 # Test translate with a MEM source to a anonymous VRT
@@ -483,11 +376,7 @@ def test_gdal_translate_lib_104():
     src_ds = gdal.GetDriverByName('MEM').Create('', 2, 2)
     src_ds.GetRasterBand(1).Fill(255)
     ds = gdal.Translate('', '../gcore/data/byte.tif', format='VRT', width=1, height=1)
-    if ds.GetRasterBand(1).Checksum() != 3:
-        gdaltest.post_reason('Bad checksum')
-        return 'fail'
-
-    return 'success'
+    assert ds.GetRasterBand(1).Checksum() == 3, 'Bad checksum'
 
 ###############################################################################
 # Test GCPs propagation in "VRT path"
@@ -497,20 +386,14 @@ def test_gdal_translate_lib_gcp_vrt_path():
 
     src_ds = gdal.Open('../gcore/data/gcps.vrt')
     ds = gdal.Translate('', src_ds, format='MEM', metadataOptions=['FOO=BAR'])
-    if len(ds.GetGCPs()) != len(src_ds.GetGCPs()):
-        return 'fail'
+    assert len(ds.GetGCPs()) == len(src_ds.GetGCPs())
     for i in range(len(src_ds.GetGCPs())):
-        if ds.GetGCPs()[i].GCPX != src_ds.GetGCPs()[i].GCPX:
-            return 'fail'
-        if ds.GetGCPs()[i].GCPY != src_ds.GetGCPs()[i].GCPY:
-            return 'fail'
-        if ds.GetGCPs()[i].GCPPixel != src_ds.GetGCPs()[i].GCPPixel:
-            return 'fail'
-        if ds.GetGCPs()[i].GCPLine != src_ds.GetGCPs()[i].GCPLine:
-            return 'fail'
+        assert ds.GetGCPs()[i].GCPX == src_ds.GetGCPs()[i].GCPX
+        assert ds.GetGCPs()[i].GCPY == src_ds.GetGCPs()[i].GCPY
+        assert ds.GetGCPs()[i].GCPPixel == src_ds.GetGCPs()[i].GCPPixel
+        assert ds.GetGCPs()[i].GCPLine == src_ds.GetGCPs()[i].GCPLine
 
-    return 'success'
-
+    
 ###############################################################################
 # Test RPC propagation in "VRT path"
 
@@ -519,10 +402,7 @@ def test_gdal_translate_lib_rcp_vrt_path():
 
     src_ds = gdal.Open('../gcore/data/rpc.vrt')
     ds = gdal.Translate('', src_ds, format='MEM', metadataOptions=['FOO=BAR'])
-    if ds.GetMetadata('RPC') != src_ds.GetMetadata('RPC'):
-        return 'fail'
-
-    return 'success'
+    assert ds.GetMetadata('RPC') == src_ds.GetMetadata('RPC')
 
 ###############################################################################
 # Test GeoLocation propagation in "VRT path"
@@ -532,11 +412,8 @@ def test_gdal_translate_lib_geolocation_vrt_path():
 
     src_ds = gdal.Open('../gcore/data/sstgeo.vrt')
     ds = gdal.Translate('/vsimem/temp.vrt', src_ds, format='VRT', metadataOptions=['FOO=BAR'])
-    if ds.GetMetadata('GEOLOCATION') != src_ds.GetMetadata('GEOLOCATION'):
-        return 'fail'
+    assert ds.GetMetadata('GEOLOCATION') == src_ds.GetMetadata('GEOLOCATION')
     gdal.Unlink('/vsimem/temp.vrt')
-
-    return 'success'
 
 ###############################################################################
 # Test -colorinterp and -colorinterp_X
@@ -548,51 +425,196 @@ def test_gdal_translate_lib_colorinterp():
 
     # Less bands specified than available
     ds = gdal.Translate('', src_ds, options='-f MEM -colorinterp blue,gray')
-    if ds.GetRasterBand(1).GetColorInterpretation() != gdal.GCI_BlueBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(2).GetColorInterpretation() != gdal.GCI_GrayIndex:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(3).GetColorInterpretation() != gdal.GCI_BlueBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_BlueBand
+    assert ds.GetRasterBand(2).GetColorInterpretation() == gdal.GCI_GrayIndex
+    assert ds.GetRasterBand(3).GetColorInterpretation() == gdal.GCI_BlueBand
 
     # More bands specified than available and a unknown color interpretation
     with gdaltest.error_handler():
         ds = gdal.Translate('', src_ds, options='-f MEM -colorinterp alpha,red,undefined,foo')
-    if ds.GetRasterBand(1).GetColorInterpretation() != gdal.GCI_AlphaBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(2).GetColorInterpretation() != gdal.GCI_RedBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(3).GetColorInterpretation() != gdal.GCI_Undefined:
-        gdaltest.post_reason('fail')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_AlphaBand
+    assert ds.GetRasterBand(2).GetColorInterpretation() == gdal.GCI_RedBand
+    assert ds.GetRasterBand(3).GetColorInterpretation() == gdal.GCI_Undefined
 
     # Test colorinterp_
     ds = gdal.Translate('', src_ds, options='-f MEM -colorinterp_2 alpha')
-    if ds.GetRasterBand(1).GetColorInterpretation() != gdal.GCI_RedBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(2).GetColorInterpretation() != gdal.GCI_AlphaBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
-    if ds.GetRasterBand(3).GetColorInterpretation() != gdal.GCI_BlueBand:
-        gdaltest.post_reason('fail')
-        return 'fail'
+    assert ds.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_RedBand
+    assert ds.GetRasterBand(2).GetColorInterpretation() == gdal.GCI_AlphaBand
+    assert ds.GetRasterBand(3).GetColorInterpretation() == gdal.GCI_BlueBand
 
     # Test invalid colorinterp_
-    try:
+    with pytest.raises(Exception):
         with gdaltest.error_handler():
             gdal.Translate('', src_ds, options='-f MEM -colorinterp_0 alpha')
-        gdaltest.post_reason('fail')
-        return 'fail'
-    except:
-        pass
+            
 
-    return 'success'
+###############################################################################
+# Test nogcp options
+
+
+def test_gdal_translate_lib_110():
+
+    ds = gdal.Open('../gcore/data/byte_gcp.tif')
+    ds = gdal.Translate('tmp/test110.tif', ds, nogcp='True')
+    assert ds is not None
+
+    assert ds.GetRasterBand(1).Checksum() == 4672, 'Bad checksum'
+
+    gcps = ds.GetGCPs()
+    assert len(gcps) == 0, 'GCP count wrong.'
+
+    ds = None
+
+
+###############################################################################
+# Test noxmp options
+
+
+def test_gdal_translate_lib_111():
+
+    ds = gdal.Open('../gdrivers/data/gtiff/byte_with_xmp.tif')
+    new_ds = gdal.Translate('tmp/test111noxmp.tif', ds, options='-noxmp')
+    assert new_ds is not None
+    xmp = new_ds.GetMetadata('xml:XMP')
+    new_ds = None
+    assert xmp is None
+
+    # codepath if some other options are set is different, creating a VRTdataset
+    new_ds = gdal.Translate('tmp/test111notcopied.tif', ds, nogcp='True')
+    assert new_ds is not None
+    new_ds = None
+    new_ds = gdal.Open('tmp/test111notcopied.tif')
+    xmp = new_ds.GetMetadata('xml:XMP')
+    new_ds = None
+    assert 'W5M0MpCehiHzreSzNTczkc9d' in xmp[0], 'Wrong output file without XMP'
+
+    # normal codepath calling CreateCopy directly
+    new_ds = gdal.Translate('tmp/test111.tif', ds)
+    assert new_ds is not None
+    new_ds = None
+    new_ds = gdal.Open('tmp/test111.tif')
+    xmp = new_ds.GetMetadata('xml:XMP')
+    new_ds = None
+    assert 'W5M0MpCehiHzreSzNTczkc9d' in xmp[0], 'Wrong output file without XMP'
+
+    ds = None
+
+
+def test_gdal_translate_lib_112():
+
+    ds = gdal.Open('../gdrivers/data/gtiff/byte_with_xmp.tif')
+    new_ds = gdal.Translate('tmp/test112noxmp.tif', ds, options='-of COG -noxmp')
+    assert new_ds is not None
+    xmp = new_ds.GetMetadata('xml:XMP')
+    new_ds = None
+    assert xmp is None
+
+    new_ds = gdal.Translate('tmp/test112.tif', ds, format='COG')
+    assert new_ds is not None
+    new_ds = None
+    new_ds = gdal.Open('tmp/test112.tif')
+    xmp = new_ds.GetMetadata('xml:XMP')
+    new_ds = None
+    assert 'W5M0MpCehiHzreSzNTczkc9d' in xmp[0], 'Wrong output file without XMP'
+
+    ds = None
+
+
+###############################################################################
+# Test gdal_translate foo.tif foo.tif.ovr
+
+
+def test_gdal_translate_lib_generate_ovr():
+
+    gdal.FileFromMemBuffer('/vsimem/foo.tif',
+                           open('../gcore/data/byte.tif', 'rb').read())
+    gdal.GetDriverByName('GTiff').Create('/vsimem/foo.tif.ovr', 10, 10)
+    ds = gdal.Translate('/vsimem/foo.tif.ovr',
+                        '/vsimem/foo.tif',
+                        resampleAlg = gdal.GRA_Average,
+                        format = 'GTiff', width = 10, height = 10)
+    assert ds
+    assert ds.GetRasterBand(1).Checksum() == 1152, 'Bad checksum'
+    ds = None
+
+    gdal.GetDriverByName('GTiff').Delete('/vsimem/foo.tif')
+
+
+###############################################################################
+# Test gdal_translate -tr with non-nearest resample
+
+def _get_src_ds_test_gdal_translate_lib_tr_non_nearest():
+
+    src_w = 5
+    src_h = 3
+    src_ds = gdal.GetDriverByName('MEM').Create('', src_w, src_h)
+    src_ds.SetGeoTransform([100, 10, 0, 1000, 0, -10])
+    src_ds.WriteRaster(0, 0, src_w, src_h,
+                       struct.pack('B' * src_w * src_h,
+                                   100, 100, 200, 200, 10,
+                                   100, 100, 200, 200, 20,
+                                   30,  30,  30,  30,  30))
+    return src_ds
+
+def test_gdal_translate_lib_tr_non_nearest_case_1():
+
+    ds = gdal.Translate('',
+                        _get_src_ds_test_gdal_translate_lib_tr_non_nearest(),
+                        resampleAlg = gdal.GRA_Average,
+                        format = 'MEM', xRes = 20, yRes = 20)
+    assert ds.RasterXSize == 3 # case where we round up
+    assert ds.RasterYSize == 2
+    assert struct.unpack('B' * 6, ds.ReadRaster()) == (100, 200, 15,
+                                                       30,  30,  30)
+
+def test_gdal_translate_lib_tr_non_nearest_case_2():
+
+    ds = gdal.Translate('',
+                        _get_src_ds_test_gdal_translate_lib_tr_non_nearest(),
+                        resampleAlg = gdal.GRA_Average,
+                        format = 'MEM', xRes = 40, yRes = 20)
+    assert ds.RasterXSize == 1 # case where we round down
+    assert ds.RasterYSize == 2
+    assert struct.unpack('B' * 2, ds.ReadRaster()) == (150, 30)
+
+
+def test_gdal_translate_lib_tr_non_nearest_case_3():
+
+    ds = gdal.Translate('',
+                        _get_src_ds_test_gdal_translate_lib_tr_non_nearest(),
+                        resampleAlg = gdal.GRA_Average,
+                        format = 'MEM', xRes = 25, yRes = 20)
+    assert ds.RasterXSize == 2 # case where src_w * src_res / dst_res is integer
+    assert ds.RasterYSize == 2
+    assert struct.unpack('B' * 4, ds.ReadRaster()) == (120, 126,
+                                                       30, 30)
+
+
+def test_gdal_translate_lib_tr_non_nearest_oversampling():
+
+    ds = gdal.Translate('',
+                        _get_src_ds_test_gdal_translate_lib_tr_non_nearest(),
+                        resampleAlg = gdal.GRA_Bilinear,
+                        format = 'MEM', xRes = 4, yRes = 10)
+    assert ds.RasterXSize == 13
+    assert ds.RasterYSize == 3
+    assert 0 not in struct.unpack('B' * 13 * 3, ds.ReadRaster())
+
+
+def test_gdal_translate_lib_preserve_block_size():
+
+    src_ds = gdal.GetDriverByName('GTiff').Create(
+        '/vsimem/tmp.tif', 256, 256, 1, options = ['TILED=YES', 'BLOCKXSIZE=32', 'BLOCKYSIZE=64'])
+
+    # VRT created by CreateCopy() of VRT driver
+    ds = gdal.Translate('', src_ds, format = 'VRT')
+    assert ds.GetRasterBand(1).GetBlockSize() == [32, 64]
+
+    # VRT created by GDALTranslate()
+    ds = gdal.Translate('', src_ds, format = 'VRT', metadataOptions=['FOO=BAR'])
+    assert ds.GetRasterBand(1).GetBlockSize() == [32, 64]
+    src_ds = None
+    gdal.Unlink('/vsimem/tmp.tif')
 
 ###############################################################################
 # Cleanup
@@ -609,41 +631,3 @@ def test_gdal_translate_lib_cleanup():
         except OSError:
             pass
 
-    return 'success'
-
-
-gdaltest_list = [
-    test_gdal_translate_lib_1,
-    test_gdal_translate_lib_2,
-    test_gdal_translate_lib_3,
-    test_gdal_translate_lib_4,
-    test_gdal_translate_lib_5,
-    test_gdal_translate_lib_6,
-    test_gdal_translate_lib_7,
-    test_gdal_translate_lib_8,
-    test_gdal_translate_lib_9,
-    test_gdal_translate_lib_10,
-    test_gdal_translate_lib_11,
-    test_gdal_translate_lib_12,
-    test_gdal_translate_lib_13,
-    test_gdal_translate_lib_14,
-    test_gdal_translate_lib_100,
-    test_gdal_translate_lib_101,
-    test_gdal_translate_lib_102,
-    test_gdal_translate_lib_103,
-    test_gdal_translate_lib_104,
-    test_gdal_translate_lib_gcp_vrt_path,
-    test_gdal_translate_lib_rcp_vrt_path,
-    test_gdal_translate_lib_geolocation_vrt_path,
-    test_gdal_translate_lib_colorinterp,
-    test_gdal_translate_lib_cleanup
-]
-
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('test_gdal_translate_lib')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

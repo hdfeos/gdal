@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -84,10 +84,16 @@ class RS2Dataset final: public GDALPamDataset
     virtual ~RS2Dataset();
 
     virtual int    GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
 
-    virtual const char *GetProjectionRef(void) override;
+    virtual const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual CPLErr GetGeoTransform( double * ) override;
 
     virtual char      **GetMetadataDomainList() override;
@@ -267,7 +273,7 @@ CPLErr RS2RasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
 /* or beta nought.                                                      */
 /************************************************************************/
 
-class RS2CalibRasterBand : public GDALPamRasterBand {
+class RS2CalibRasterBand final: public GDALPamRasterBand {
 private:
     // eCalibration m_eCalib;
     GDALDataset *m_poBandDataset;
@@ -1200,9 +1206,9 @@ GDALDataset *RS2Dataset::Open( GDALOpenInfo * poOpenInfo )
                     psUtmParams, "hemisphere", "" );
 #if 0
                 origEasting = CPLStrtod(CPLGetXMLValue(
-                    psUtmParams, "mapOriginFalseEasting", "0.0" ), NULL);
+                    psUtmParams, "mapOriginFalseEasting", "0.0" ), nullptr);
                 origNorthing = CPLStrtod(CPLGetXMLValue(
-                    psUtmParams, "mapOriginFalseNorthing", "0.0" ), NULL);
+                    psUtmParams, "mapOriginFalseNorthing", "0.0" ), nullptr);
 #endif
                 if ( STARTS_WITH_CI(pszHemisphere, "southern") )
                     bNorth = FALSE;
@@ -1307,9 +1313,9 @@ GDALDataset *RS2Dataset::Open( GDALOpenInfo * poOpenInfo )
             psGCP->pszId = CPLStrdup( szID );
             psGCP->pszInfo = CPLStrdup("");
             psGCP->dfGCPPixel =
-                CPLAtof(CPLGetXMLValue(psNode,"imageCoordinate.pixel","0"));
+                CPLAtof(CPLGetXMLValue(psNode,"imageCoordinate.pixel","0")) + 0.5;
             psGCP->dfGCPLine =
-                CPLAtof(CPLGetXMLValue(psNode,"imageCoordinate.line","0"));
+                CPLAtof(CPLGetXMLValue(psNode,"imageCoordinate.line","0")) + 0.5;
             psGCP->dfGCPX =
                 CPLAtof(CPLGetXMLValue(psNode,"geodeticCoordinate.longitude",""));
             psGCP->dfGCPY =
@@ -1422,7 +1428,7 @@ int RS2Dataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *RS2Dataset::GetGCPProjection()
+const char *RS2Dataset::_GetGCPProjection()
 
 {
     return pszGCPProjection;
@@ -1442,7 +1448,7 @@ const GDAL_GCP *RS2Dataset::GetGCPs()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *RS2Dataset::GetProjectionRef()
+const char *RS2Dataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -1471,7 +1477,7 @@ char **RS2Dataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "SUBDATASETS", NULL);
+                                   "SUBDATASETS", nullptr);
 }
 
 /************************************************************************/
@@ -1503,7 +1509,7 @@ void GDALRegister_RS2()
     poDriver->SetDescription( "RS2" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "RadarSat 2 XML Product" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_rs2.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/rs2.html" );
     poDriver->SetMetadataItem( GDAL_DMD_SUBDATASETS, "YES" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

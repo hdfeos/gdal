@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1998, Frank Warmerdam
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -41,7 +41,7 @@ CPL_CVSID("$Id$")
 
 class GXFRasterBand;
 
-class GXFDataset : public GDALPamDataset
+class GXFDataset final: public GDALPamDataset
 {
     friend class GXFRasterBand;
 
@@ -58,7 +58,10 @@ class GXFDataset : public GDALPamDataset
     static GDALDataset *Open( GDALOpenInfo * );
 
     CPLErr      GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 };
 
 /************************************************************************/
@@ -67,7 +70,7 @@ class GXFDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class GXFRasterBand : public GDALPamRasterBand
+class GXFRasterBand final: public GDALPamRasterBand
 {
     friend class GXFDataset;
 
@@ -215,7 +218,7 @@ CPLErr GXFDataset::GetGeoTransform( double * padfTransform )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *GXFDataset::GetProjectionRef()
+const char *GXFDataset::_GetProjectionRef()
 
 {
     return pszProjection;
@@ -270,27 +273,21 @@ GDALDataset *GXFDataset::Open( GDALOpenInfo * poOpenInfo )
 /*      we also now verify that there is a #GRID keyword before         */
 /*      passing it off to GXFOpen().  We check in the first 50K.        */
 /* -------------------------------------------------------------------- */
-    VSILFILE *fp = poOpenInfo->fpL;
-    poOpenInfo->fpL = nullptr;
-
-    const size_t BIGBUFSIZE = 50000;
-    char *pszBigBuf = (char *) CPLMalloc(BIGBUFSIZE);
-    const int nBytesRead =
-        static_cast<int>(VSIFReadL( pszBigBuf, 1, BIGBUFSIZE, fp ));
-    VSIFCloseL( fp );
-
+    CPL_IGNORE_RET_VAL(poOpenInfo->TryToIngest(50000));
     bool bGotGrid = false;
 
-    for( int i = 0; i < nBytesRead - 5 && !bGotGrid; i++ )
+    const char* pszBigBuf = (const char*)poOpenInfo->pabyHeader;
+    for( int i = 0; i < poOpenInfo->nHeaderBytes - 5 && !bGotGrid; i++ )
     {
         if( pszBigBuf[i] == '#' && STARTS_WITH_CI(pszBigBuf+i+1, "GRID") )
-            bGotGrid = TRUE;
+            bGotGrid = true;
     }
-
-    CPLFree( pszBigBuf );
 
     if( !bGotGrid )
         return nullptr;
+
+    VSIFCloseL( poOpenInfo->fpL );
+    poOpenInfo->fpL = nullptr;
 
 /* -------------------------------------------------------------------- */
 /*      Try opening the dataset.                                        */
@@ -387,7 +384,7 @@ void GDALRegister_GXF()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "GeoSoft Grid Exchange Format" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#GXF" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/gxf.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "gxf" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

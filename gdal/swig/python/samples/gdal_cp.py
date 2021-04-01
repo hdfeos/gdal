@@ -1,13 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ###############################################################################
 # $Id$
 #
 #  Project:  GDAL samples
 #  Purpose:  Copy a virtual file
-#  Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+#  Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-#  Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+#  Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -316,10 +316,13 @@ def gdal_cp(argv, progress=None):
     return gdal_cp_single(srcfile, targetfile, progress)
 
 
-if __name__ == '__main__':
+def main(argv):
     version_num = int(gdal.VersionInfo('VERSION_NUM'))
     if version_num < 1800:
         print('ERROR: Python bindings of GDAL 1.8.0 or later required')
-        sys.exit(1)
+        return 1
+    return gdal_cp(argv)
 
-    sys.exit(gdal_cp(sys.argv))
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

@@ -26,21 +26,6 @@
 # @param name the user input
 # @return a WKT string.
 
-## @sub \@GetProjectionMethods()
-# @deprecated Use Geo::OSR::Projections.
-#
-# @return reference to an array of possible projection methods.
-
-## @sub @GetProjectionMethodParameterList($projection)
-# @param projection one of Geo::OSR::Projections
-# @return a list (arrayref parameters, $projection_name).
-
-## @sub @GetProjectionMethodParamInfo($projection, $parameter)
-# @param projection one of Geo::OSR::Projections
-# @param parameter one of Geo::OSR::Parameters
-# @return a list ($user_friendly_name, $type, $default_value).
-
-
 ## @class Geo::OSR::SpatialReference
 # @brief A spatial reference system.
 # @details <a href="http://www.gdal.org/classOGRSpatialReference.html">Documentation
@@ -74,7 +59,7 @@
 # - GML: GML string
 # - URL: URL for downloading the spatial reference from
 # - ERMapper: listref: [Projection, Datum, Units]
-# - MapInfoCS: MapInfo style co-ordinate system definition
+# - MapInfoCS: MapInfo style coordinate system definition
 #
 # For more information, consult the import methods in <a href="http://www.gdal.org/classOGRSpatialReference.html">OGR documentation</a>.
 #
@@ -115,7 +100,7 @@
 # - PCI: a list: ($proj_string, $units, [$parms1, ...])
 # - USGS: a list: ($code, $zone, [$parms1, ...], $datum)
 # - GML (XML): GML based string (dialect)
-# - MapInfoCS (MICoordSys): MapInfo style co-ordinate system definition
+# - MapInfoCS (MICoordSys): MapInfo style coordinate system definition
 #
 # @note The named parameter syntax also works and is needed is those
 # cases when other arguments need or may be given. The format should

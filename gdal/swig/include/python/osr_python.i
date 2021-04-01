@@ -15,69 +15,25 @@
 %include "python_strings.i"
 #endif
 
-%{
-static PyObject *
-py_OPTGetProjectionMethods(PyObject *self, PyObject *args) {
-
-    PyObject *py_MList;
-    char     **papszMethods;
-    int      iMethod;
-
-    self = self;
-    args = args;
-
-    papszMethods = OPTGetProjectionMethods();
-    py_MList = PyList_New(CSLCount(papszMethods));
-
-    for( iMethod = 0; papszMethods[iMethod] != NULL; iMethod++ )
-    {
-	char    *pszUserMethodName;
-	char    **papszParameters;
-	PyObject *py_PList;
-	int       iParam;
-
-	papszParameters = OPTGetParameterList( papszMethods[iMethod],
-					       &pszUserMethodName );
-        if( papszParameters == NULL )
-        {
-            CSLDestroy( papszMethods );
-            return NULL;
-        }
-
-	py_PList = PyList_New(CSLCount(papszParameters));
-	for( iParam = 0; papszParameters[iParam] != NULL; iParam++ )
-       	{
-	    char    *pszType;
-	    char    *pszUserParamName;
-            double  dfDefault;
-
-	    OPTGetParameterInfo( papszMethods[iMethod],
-				 papszParameters[iParam],
-				 &pszUserParamName,
-				 &pszType, &dfDefault );
-	    PyList_SetItem(py_PList, iParam,
-			   Py_BuildValue("(sssd)",
-					 papszParameters[iParam],
-					 pszUserParamName,
-                                         pszType, dfDefault ));
-	}
-
-	CSLDestroy( papszParameters );
-
-	PyList_SetItem(py_MList, iMethod,
-		       Py_BuildValue("(ssO)",
-		                     papszMethods[iMethod],
-				     pszUserMethodName,
-		                     py_PList));
-
-        Py_XDECREF( py_PList );
-    }
-
-    CSLDestroy( papszMethods );
-
-    return py_MList;
-}
-%}
-%native(GetProjectionMethods) py_OPTGetProjectionMethods;
-
 %include typemaps_python.i
+
+%extend OSRSpatialReferenceShadow {
+  %pythoncode %{
+
+    def __init__(self, *args, **kwargs):
+        """__init__(OSRSpatialReferenceShadow self, char const * wkt) -> SpatialReference"""
+        oldval = _osr.GetUseExceptions()
+        if not oldval:
+            _osr.UseExceptions()
+        try:
+            this = _osr.new_SpatialReference(*args, **kwargs)
+        finally:
+            if not oldval:
+                _osr.DontUseExceptions()
+        try:
+            self.this.append(this)
+        except __builtin__.Exception:
+            self.this = this
+
+  %}
+}

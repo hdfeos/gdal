@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -192,8 +192,33 @@ CPLXMLNode *GDALPamDataset::SerializeToXML( const char *pszUnused )
 /* -------------------------------------------------------------------- */
 /*      SRS                                                             */
 /* -------------------------------------------------------------------- */
-    if( psPam->pszProjection != nullptr && strlen(psPam->pszProjection) > 0 )
-        CPLSetXMLValue( psDSTree, "SRS", psPam->pszProjection );
+    if( psPam->poSRS && !psPam->poSRS->IsEmpty() )
+    {
+        char* pszWKT = nullptr;
+        {
+            CPLErrorStateBackuper oErrorStateBackuper;
+            CPLErrorHandlerPusher oErrorHandler(CPLQuietErrorHandler);
+            if( psPam->poSRS->exportToWkt(&pszWKT) != OGRERR_NONE )
+            {
+                CPLFree(pszWKT);
+                pszWKT = nullptr;
+                const char* const apszOptions[] = { "FORMAT=WKT2", nullptr };
+                psPam->poSRS->exportToWkt(&pszWKT, apszOptions);
+            }
+        }
+        CPLXMLNode* psSRSNode = CPLCreateXMLElementAndValue( psDSTree, "SRS", pszWKT );
+        CPLFree(pszWKT);
+        const auto& mapping = psPam->poSRS->GetDataAxisToSRSAxisMapping();
+        CPLString osMapping;
+        for( size_t i = 0; i < mapping.size(); ++i )
+        {
+            if( !osMapping.empty() )
+                osMapping += ",";
+            osMapping += CPLSPrintf("%d", mapping[i]);
+        }
+        CPLAddXMLAttributeAndValue(psSRSNode, "dataAxisToSRSAxisMapping",
+                                   osMapping.c_str());
+    }
 
 /* -------------------------------------------------------------------- */
 /*      GeoTransform.                                                   */
@@ -231,7 +256,7 @@ CPLXMLNode *GDALPamDataset::SerializeToXML( const char *pszUnused )
         GDALSerializeGCPListToXML( psDSTree,
                                    psPam->pasGCPList,
                                    psPam->nGCPCount,
-                                   psPam->pszGCPProjection );
+                                   psPam->poGCP_SRS );
     }
 
 /* -------------------------------------------------------------------- */
@@ -270,6 +295,11 @@ CPLXMLNode *GDALPamDataset::SerializeToXML( const char *pszUnused )
     }
 
 /* -------------------------------------------------------------------- */
+/*      Save MDArray statistics                                         */
+/* -------------------------------------------------------------------- */
+    SerializeMDArrayStatistics(psDSTree);
+
+/* -------------------------------------------------------------------- */
 /*      We don't want to return anything if we had no metadata to       */
 /*      attach.                                                         */
 /* -------------------------------------------------------------------- */
@@ -280,6 +310,44 @@ CPLXMLNode *GDALPamDataset::SerializeToXML( const char *pszUnused )
     }
 
     return psDSTree;
+}
+
+/************************************************************************/
+/*                       SerializeMDArrayStatistics()                   */
+/************************************************************************/
+
+void GDALPamDataset::SerializeMDArrayStatistics(CPLXMLNode* psDSTree)
+
+{
+    if( !psPam->oMapMDArrayStatistics.empty() )
+    {
+        CPLXMLNode* psMDArrayStats = CPLCreateXMLNode(
+            psDSTree, CXT_Element, "MDArrayStatistics" );
+        for( const auto& kv: psPam->oMapMDArrayStatistics )
+        {
+            CPLXMLNode* psMDArray = CPLCreateXMLNode(
+                psMDArrayStats, CXT_Element, "MDArray" );
+            CPLAddXMLAttributeAndValue(psMDArray, "id", kv.first.c_str());
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "ApproxStats",
+                                        kv.second.bApproxStats ? "1" : "0");
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "Minimum",
+                                        CPLSPrintf("%.18g", kv.second.dfMin));
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "Maximum",
+                                        CPLSPrintf("%.18g", kv.second.dfMax));
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "Mean",
+                                        CPLSPrintf("%.18g", kv.second.dfMean));
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "StdDev",
+                                        CPLSPrintf("%.18g", kv.second.dfStdDev));
+            CPLCreateXMLElementAndValue(psMDArray,
+                                        "ValidSampleCount",
+                                        CPLSPrintf(CPL_FRMT_GUIB, kv.second.nValidCount));
+        }
+    }
 }
 
 /************************************************************************/
@@ -331,8 +399,10 @@ void GDALPamDataset::PamClear()
     if( psPam )
     {
         CPLFree( psPam->pszPamFilename );
-        CPLFree( psPam->pszProjection );
-        CPLFree( psPam->pszGCPProjection );
+        if( psPam->poSRS )
+            psPam->poSRS->Release();
+        if( psPam->poGCP_SRS )
+            psPam->poGCP_SRS->Release();
         if( psPam->nGCPCount > 0 )
         {
             GDALDeinitGCPs( psPam->nGCPCount, psPam->pasGCPList );
@@ -354,15 +424,30 @@ CPLErr GDALPamDataset::XMLInit( CPLXMLNode *psTree, const char *pszUnused )
 /* -------------------------------------------------------------------- */
 /*      Check for an SRS node.                                          */
 /* -------------------------------------------------------------------- */
-    if( strlen(CPLGetXMLValue(psTree, "SRS", "")) > 0 )
+    CPLXMLNode* psSRSNode = CPLGetXMLNode(psTree, "SRS");
+    if( psSRSNode )
     {
-        CPLFree( psPam->pszProjection );
-        psPam->pszProjection = nullptr;
-
-        OGRSpatialReference oSRS;
-        if( oSRS.SetFromUserInput( CPLGetXMLValue(psTree, "SRS", "") )
-            == OGRERR_NONE )
-            oSRS.exportToWkt( &(psPam->pszProjection) );
+        if( psPam->poSRS )
+            psPam->poSRS->Release();
+        psPam->poSRS = new OGRSpatialReference();
+        psPam->poSRS->SetFromUserInput( CPLGetXMLValue(psSRSNode, nullptr, "") );
+        const char* pszMapping =
+            CPLGetXMLValue(psSRSNode, "dataAxisToSRSAxisMapping", nullptr);
+        if( pszMapping )
+        {
+            char** papszTokens = CSLTokenizeStringComplex( pszMapping, ",", FALSE, FALSE);
+            std::vector<int> anMapping;
+            for( int i = 0; papszTokens && papszTokens[i]; i++ )
+            {
+                anMapping.push_back(atoi(papszTokens[i]));
+            }
+            CSLDestroy(papszTokens);
+            psPam->poSRS->SetDataAxisToSRSAxisMapping(anMapping);
+        }
+        else
+        {
+            psPam->poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        }
     }
 
 /* -------------------------------------------------------------------- */
@@ -396,8 +481,9 @@ CPLErr GDALPamDataset::XMLInit( CPLXMLNode *psTree, const char *pszUnused )
 
     if( psGCPList != nullptr )
     {
-        CPLFree( psPam->pszGCPProjection );
-        psPam->pszGCPProjection = nullptr;
+        if( psPam->poGCP_SRS )
+            psPam->poGCP_SRS->Release();
+        psPam->poGCP_SRS = nullptr;
 
         // Make sure any previous GCPs, perhaps from an .aux file, are cleared
         // if we have new ones.
@@ -412,18 +498,21 @@ CPLErr GDALPamDataset::XMLInit( CPLXMLNode *psTree, const char *pszUnused )
         GDALDeserializeGCPListFromXML( psGCPList,
                                        &(psPam->pasGCPList),
                                        &(psPam->nGCPCount),
-                                       &(psPam->pszGCPProjection) );
+                                       &(psPam->poGCP_SRS) );
     }
 
 /* -------------------------------------------------------------------- */
 /*      Apply any dataset level metadata.                               */
 /* -------------------------------------------------------------------- */
-    oMDMD.XMLInit( psTree, TRUE );
+    if( oMDMD.XMLInit( psTree, TRUE ) )
+    {
+        psPam->bHasMetadata = TRUE;
+    }
 
 /* -------------------------------------------------------------------- */
 /*      Try loading ESRI xml encoded GeodataXform.                      */
 /* -------------------------------------------------------------------- */
-    if (psPam->pszProjection == nullptr)
+    if (psPam->poSRS == nullptr)
     {
         // ArcGIS 9.3: GeodataXform as a root element
         CPLXMLNode* psGeodataXform = CPLGetXMLNode(psTree, "=GeodataXform");
@@ -454,18 +543,63 @@ CPLErr GDALPamDataset::XMLInit( CPLXMLNode *psTree, const char *pszUnused )
                                 "SpatialReference.WKT", nullptr);
             if (pszESRI_WKT)
             {
-                OGRSpatialReference* poSRS = new OGRSpatialReference(nullptr);
-                if (poSRS->importFromWkt(pszESRI_WKT) == OGRERR_NONE &&
-                    poSRS->morphFromESRI() == OGRERR_NONE)
+                psPam->poSRS = new OGRSpatialReference(nullptr);
+                psPam->poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                if( psPam->poSRS->importFromWkt(pszESRI_WKT) != OGRERR_NONE)
                 {
-                    char* pszWKT = nullptr;
-                    if (poSRS->exportToWkt(&pszWKT) == OGRERR_NONE)
-                    {
-                        psPam->pszProjection = CPLStrdup(pszWKT);
-                    }
-                    CPLFree(pszWKT);
+                    delete psPam->poSRS;
+                    psPam->poSRS = nullptr;
                 }
-                delete poSRS;
+            }
+
+            // Parse GCPs
+            const CPLXMLNode* psSourceGCPS = CPLGetXMLNode(psGeodataXform, "SourceGCPs");
+            const CPLXMLNode* psTargetGCPs = CPLGetXMLNode(psGeodataXform, "TargetGCPs");
+            if( psSourceGCPS && psTargetGCPs && !psPam->bHaveGeoTransform )
+            {
+                std::vector<double> adfSource;
+                std::vector<double> adfTarget;
+                bool ySourceAllNegative = true;
+                for( auto psIter = psSourceGCPS->psChild; psIter; psIter = psIter->psNext )
+                {
+                    if( psIter->eType == CXT_Element && strcmp(psIter->pszValue, "Double") == 0 )
+                    {
+                        adfSource.push_back(CPLAtof(CPLGetXMLValue(psIter, nullptr, "0")));
+                        if( (adfSource.size() % 2) == 0 && adfSource.back() > 0 )
+                            ySourceAllNegative = false;
+                    }
+                }
+                for( auto psIter = psTargetGCPs->psChild; psIter; psIter = psIter->psNext )
+                {
+                    if( psIter->eType == CXT_Element && strcmp(psIter->pszValue, "Double") == 0 )
+                    {
+                        adfTarget.push_back(CPLAtof(CPLGetXMLValue(psIter, nullptr, "0")));
+                    }
+                }
+                if( !adfSource.empty() &&
+                    adfSource.size() == adfTarget.size() &&
+                    (adfSource.size() % 2) == 0 )
+                {
+                    std::vector<GDAL_GCP> asGCPs;
+                    asGCPs.resize(adfSource.size() / 2);
+                    char szEmptyString[] = { 0 };
+                    for( size_t i = 0; i+1 < adfSource.size(); i+= 2 )
+                    {
+                        asGCPs[i/2].pszId = szEmptyString;
+                        asGCPs[i/2].pszInfo = szEmptyString;
+                        asGCPs[i/2].dfGCPPixel = adfSource[i];
+                        asGCPs[i/2].dfGCPLine =
+                            ySourceAllNegative ? -adfSource[i+1] : adfSource[i+1];
+                        asGCPs[i/2].dfGCPX = adfTarget[i];
+                        asGCPs[i/2].dfGCPY = adfTarget[i+1];
+                        asGCPs[i/2].dfGCPZ = 0;
+                    }
+                    GDALPamDataset::SetGCPs( static_cast<int>(asGCPs.size()),
+                                             &asGCPs[0],
+                                             psPam->poSRS );
+                    delete psPam->poSRS;
+                    psPam->poSRS = nullptr;
+                }
             }
         }
         if( psValueAsXML )
@@ -497,6 +631,41 @@ CPLErr GDALPamDataset::XMLInit( CPLXMLNode *psTree, const char *pszUnused )
             GetRasterBand(nBand) );
 
         poPamBand->XMLInit( psBandTree, pszUnused );
+    }
+
+/* -------------------------------------------------------------------- */
+/*      Load MDArray statistics                                         */
+/* -------------------------------------------------------------------- */
+    CPLXMLNode* psMDArrayStats = CPLGetXMLNode(psTree, "MDArrayStatistics" );
+    if( psMDArrayStats )
+    {
+        for( CPLXMLNode *psIter = psMDArrayStats->psChild;
+            psIter != nullptr;
+            psIter = psIter->psNext )
+        {
+            if( psIter->eType != CXT_Element
+                || !EQUAL(psIter->pszValue,"MDArray") )
+                continue;
+
+            const char* pszId = CPLGetXMLValue(psIter, "id", nullptr);
+            if( pszId == nullptr )
+                continue;
+
+            GDALDatasetPamInfo::Statistics sStats;
+            sStats.bApproxStats = CPLTestBool(
+                CPLGetXMLValue(psIter, "ApproxStats", "false"));
+            sStats.dfMin = CPLAtofM(
+                CPLGetXMLValue(psIter, "Minimum", "0"));
+            sStats.dfMax = CPLAtofM(
+                CPLGetXMLValue(psIter, "Maximum", "0"));
+            sStats.dfMean = CPLAtofM(
+                CPLGetXMLValue(psIter, "Mean", "0"));
+            sStats.dfStdDev = CPLAtofM(
+                CPLGetXMLValue(psIter, "StdDev", "0"));
+            sStats.nValidCount = static_cast<GUInt64>(CPLAtoGIntBig(
+                CPLGetXMLValue(psIter, "ValidSampleCount", "0")));
+            psPam->oMapMDArrayStatistics[pszId] = sStats;
+        }
     }
 
 /* -------------------------------------------------------------------- */
@@ -670,7 +839,8 @@ CPLErr GDALPamDataset::TryLoadXML(char **papszSiblingFiles)
     int nLastErrNo = CPLGetLastErrorNo();
     CPLString osLastErrorMsg = CPLGetLastErrorMsg();
 
-    if (papszSiblingFiles != nullptr && IsPamFilenameAPotentialSiblingFile())
+    if( papszSiblingFiles != nullptr && IsPamFilenameAPotentialSiblingFile() &&
+        GDALCanReliablyUseSiblingFileList(psPam->pszPamFilename) )
     {
         const int iSibling =
             CSLFindString( papszSiblingFiles,
@@ -924,14 +1094,13 @@ CPLErr GDALPamDataset::CloneInfo( GDALDataset *poSrcDS, int nCloneFlags )
 /* -------------------------------------------------------------------- */
     if( nCloneFlags & GCIF_PROJECTION )
     {
-        const char *pszWKT = poSrcDS->GetProjectionRef();
+        const auto poSRS = poSrcDS->GetSpatialRef();
 
-        if( pszWKT != nullptr && strlen(pszWKT) > 0 )
+        if( poSRS != nullptr )
         {
             if( !bOnlyIfMissing
-                || GetProjectionRef() == nullptr
-                || strlen(GetProjectionRef()) == 0 )
-                SetProjection( pszWKT );
+                || GetSpatialRef() == nullptr )
+                SetSpatialRef( poSRS );
         }
     }
 
@@ -946,7 +1115,7 @@ CPLErr GDALPamDataset::CloneInfo( GDALDataset *poSrcDS, int nCloneFlags )
             {
                 SetGCPs( poSrcDS->GetGCPCount(),
                          poSrcDS->GetGCPs(),
-                         poSrcDS->GetGCPProjection() );
+                         poSrcDS->GetGCPSpatialRef() );
             }
         }
     }
@@ -956,21 +1125,16 @@ CPLErr GDALPamDataset::CloneInfo( GDALDataset *poSrcDS, int nCloneFlags )
 /* -------------------------------------------------------------------- */
     if( nCloneFlags & GCIF_METADATA )
     {
-        if( poSrcDS->GetMetadata() != nullptr )
+        for( const char* pszMDD: { "", "RPC", "json:ISIS3", "json:VICAR" } )
         {
-            if( !bOnlyIfMissing
-                || CSLCount(GetMetadata()) != CSLCount(poSrcDS->GetMetadata()) )
+            auto papszSrcMD = poSrcDS->GetMetadata(pszMDD);
+            if(papszSrcMD  != nullptr )
             {
-                SetMetadata( poSrcDS->GetMetadata() );
-            }
-        }
-        if( poSrcDS->GetMetadata("RPC") != nullptr )
-        {
-            if( !bOnlyIfMissing
-                || CSLCount(GetMetadata("RPC"))
-                   != CSLCount(poSrcDS->GetMetadata("RPC")) )
-            {
-                SetMetadata( poSrcDS->GetMetadata("RPC"), "RPC" );
+                if( !bOnlyIfMissing
+                    || CSLCount(GetMetadata(pszMDD)) != CSLCount(papszSrcMD) )
+                {
+                    SetMetadata( papszSrcMD, pszMDD );
+                }
             }
         }
     }
@@ -1032,6 +1196,7 @@ char **GDALPamDataset::GetFileList()
     char **papszFileList = GDALDataset::GetFileList();
 
     if( psPam && !psPam->osPhysicalFilename.empty()
+        && GDALCanReliablyUseSiblingFileList(psPam->osPhysicalFilename.c_str())
         && CSLFindString( papszFileList, psPam->osPhysicalFilename ) == -1 )
     {
         papszFileList = CSLInsertString( papszFileList, 0,
@@ -1044,7 +1209,9 @@ char **GDALPamDataset::GetFileList()
         if (!bAddPamFile)
         {
             VSIStatBufL sStatBuf;
-            if (oOvManager.GetSiblingFiles() != nullptr && IsPamFilenameAPotentialSiblingFile())
+            if (oOvManager.GetSiblingFiles() != nullptr &&
+                IsPamFilenameAPotentialSiblingFile() &&
+                GDALCanReliablyUseSiblingFileList(psPam->pszPamFilename) )
             {
                 bAddPamFile = CSLFindString(oOvManager.GetSiblingFiles(),
                                   CPLGetFilename(psPam->pszPamFilename)) >= 0;
@@ -1062,6 +1229,7 @@ char **GDALPamDataset::GetFileList()
     }
 
     if( psPam && !psPam->osAuxFilename.empty() &&
+        GDALCanReliablyUseSiblingFileList(psPam->osAuxFilename.c_str()) &&
         CSLFindString( papszFileList, psPam->osAuxFilename ) == -1 )
     {
         papszFileList = CSLAddString( papszFileList, psPam->osAuxFilename );
@@ -1113,32 +1281,33 @@ CPLErr GDALPamDataset::IBuildOverviews( const char *pszResampling,
 //! @endcond
 
 /************************************************************************/
-/*                          GetProjectionRef()                          */
+/*                           GetSpatialRef()                            */
 /************************************************************************/
 
-const char *GDALPamDataset::GetProjectionRef()
+const OGRSpatialReference *GDALPamDataset::GetSpatialRef() const
 
 {
-    if( psPam && psPam->pszProjection )
-        return psPam->pszProjection;
+    if( psPam && psPam->poSRS )
+        return psPam->poSRS;
 
-    return GDALDataset::GetProjectionRef();
+    return GDALDataset::GetSpatialRef();
 }
 
 /************************************************************************/
-/*                           SetProjection()                            */
+/*                           SetSpatialRef()                            */
 /************************************************************************/
 
-CPLErr GDALPamDataset::SetProjection( const char *pszProjectionIn )
+CPLErr GDALPamDataset::SetSpatialRef( const OGRSpatialReference* poSRS )
 
 {
     PamInitialize();
 
     if( psPam == nullptr )
-        return GDALDataset::SetProjection( pszProjectionIn );
+        return GDALDataset::SetSpatialRef( poSRS );
 
-    CPLFree( psPam->pszProjection );
-    psPam->pszProjection = CPLStrdup( pszProjectionIn );
+    if( psPam->poSRS )
+        psPam->poSRS->Release();
+    psPam->poSRS = poSRS ? poSRS->Clone() : nullptr;
     MarkPamDirty();
 
     return CE_None;
@@ -1194,16 +1363,16 @@ int GDALPamDataset::GetGCPCount()
 }
 
 /************************************************************************/
-/*                          GetGCPProjection()                          */
+/*                          GetGCPSpatialRef()                          */
 /************************************************************************/
 
-const char *GDALPamDataset::GetGCPProjection()
+const OGRSpatialReference *GDALPamDataset::GetGCPSpatialRef() const
 
 {
-    if( psPam && psPam->pszGCPProjection != nullptr )
-        return psPam->pszGCPProjection;
+    if( psPam && psPam->poGCP_SRS != nullptr )
+        return psPam->poGCP_SRS;
 
-    return GDALDataset::GetGCPProjection();
+    return GDALDataset::GetGCPSpatialRef();
 }
 
 /************************************************************************/
@@ -1224,21 +1393,22 @@ const GDAL_GCP *GDALPamDataset::GetGCPs()
 /************************************************************************/
 
 CPLErr GDALPamDataset::SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
-                                const char *pszGCPProjection )
+                                const OGRSpatialReference* poGCP_SRS )
 
 {
     PamInitialize();
 
     if( psPam )
     {
-        CPLFree( psPam->pszGCPProjection );
+        if( psPam->poGCP_SRS )
+            psPam->poGCP_SRS->Release();
         if( psPam->nGCPCount > 0 )
         {
             GDALDeinitGCPs( psPam->nGCPCount, psPam->pasGCPList );
             CPLFree( psPam->pasGCPList );
         }
 
-        psPam->pszGCPProjection = CPLStrdup(pszGCPProjection);
+        psPam->poGCP_SRS = poGCP_SRS ? poGCP_SRS->Clone() : nullptr;
         psPam->nGCPCount = nGCPCount;
         psPam->pasGCPList = GDALDuplicateGCPs( nGCPCount, pasGCPList );
 
@@ -1247,7 +1417,7 @@ CPLErr GDALPamDataset::SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
         return CE_None;
     }
 
-    return GDALDataset::SetGCPs( nGCPCount, pasGCPList, pszGCPProjection );
+    return GDALDataset::SetGCPs( nGCPCount, pasGCPList, poGCP_SRS );
 }
 
 /************************************************************************/
@@ -1391,7 +1561,7 @@ CPLErr GDALPamDataset::TryLoadAux(char **papszSiblingFiles)
     if( strlen(pszPhysicalFile) == 0 )
         return CE_None;
 
-    if( papszSiblingFiles )
+    if( papszSiblingFiles && GDALCanReliablyUseSiblingFileList(pszPhysicalFile) )
     {
         CPLString osAuxFilename = CPLResetExtension( pszPhysicalFile, "aux");
         int iSibling = CSLFindString( papszSiblingFiles,
@@ -1526,5 +1696,176 @@ CPLErr GDALPamDataset::TryLoadAux(char **papszSiblingFiles)
     nPamFlags &= ~GPF_DIRTY;
 
     return CE_Failure;
+}
+//! @endcond
+
+/************************************************************************/
+/*                        _GetProjectionRef()                           */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+const char *GDALPamDataset::_GetProjectionRef()
+{
+    return GetProjectionRefFromSpatialRef(GDALPamDataset::GetSpatialRef());
+}
+
+/************************************************************************/
+/*                          _SetProjection()                            */
+/************************************************************************/
+
+CPLErr GDALPamDataset::_SetProjection( const char *pszProjection )
+{
+    if( pszProjection && pszProjection[0] != '\0' )
+    {
+        OGRSpatialReference oSRS;
+        oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        if( oSRS.importFromWkt(pszProjection) != OGRERR_NONE )
+        {
+            return CE_Failure;
+        }
+        return GDALPamDataset::SetSpatialRef(&oSRS);
+    }
+    else
+    {
+        return GDALPamDataset::SetSpatialRef(nullptr);
+    }
+}
+
+/************************************************************************/
+/*                        _GetGCPProjection()                           */
+/************************************************************************/
+
+const char *GDALPamDataset::_GetGCPProjection()
+{
+    return GetGCPProjectionFromSpatialRef(GDALPamDataset::GetGCPSpatialRef());
+}
+
+/************************************************************************/
+/*                            _SetGCPs()                                */
+/************************************************************************/
+
+CPLErr GDALPamDataset::_SetGCPs( int nGCPCount,
+                             const GDAL_GCP *pasGCPList,
+                             const char *pszGCPProjection )
+
+{
+    if( pszGCPProjection && pszGCPProjection[0] != '\0' )
+    {
+        OGRSpatialReference oSRS;
+        oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        if( oSRS.importFromWkt(pszGCPProjection) != OGRERR_NONE )
+        {
+            return CE_Failure;
+        }
+        return GDALPamDataset::SetGCPs(nGCPCount, pasGCPList, &oSRS);
+    }
+    else
+    {
+        return GDALPamDataset::SetGCPs(nGCPCount, pasGCPList,
+                       static_cast<const OGRSpatialReference*>(nullptr));
+    }
+}
+//! @endcond
+
+/************************************************************************/
+/*                          ClearStatistics()                           */
+/************************************************************************/
+
+void GDALPamDataset::ClearStatistics()
+{
+    PamInitialize();
+    if( !psPam )
+        return;
+    for( int i = 1; i <= nBands; ++i )
+    {
+        bool bChanged = false;
+        GDALRasterBand* poBand = GetRasterBand(i);
+        char** papszOldMD = poBand->GetMetadata();
+        char** papszNewMD = nullptr;
+        for( char** papszIter = papszOldMD; papszIter && papszIter[0]; ++papszIter )
+        {
+            if( STARTS_WITH_CI(*papszIter, "STATISTICS_") )
+            {
+                MarkPamDirty();
+                bChanged = true;
+            }
+            else
+            {
+                papszNewMD = CSLAddString(papszNewMD, *papszIter);
+            }
+        }
+        if( bChanged )
+        {
+            poBand->SetMetadata(papszNewMD);
+        }
+        CSLDestroy(papszNewMD);
+    }
+
+    if( !psPam->oMapMDArrayStatistics.empty() )
+    {
+        MarkPamDirty();
+        psPam->oMapMDArrayStatistics.clear();
+    }
+}
+
+/************************************************************************/
+/*                       GetMDArrayStatistics()                         */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+bool GDALPamDataset::GetMDArrayStatistics( const char* pszMDArrayId,
+                                           bool *pbApprox,
+                                           double *pdfMin, double *pdfMax,
+                                           double *pdfMean, double *pdfStdDev,
+                                           GUInt64 *pnValidCount )
+{
+    PamInitialize();
+    if( !psPam )
+    {
+        return false;
+    }
+    auto oIter = psPam->oMapMDArrayStatistics.find(pszMDArrayId);
+    if( oIter == psPam->oMapMDArrayStatistics.end() )
+    {
+        return false;
+    }
+    if( pbApprox )
+        *pbApprox = oIter->second.bApproxStats;
+    if( pdfMin )
+        *pdfMin = oIter->second.dfMin;
+    if( pdfMax )
+        *pdfMax = oIter->second.dfMax;
+    if( pdfMean )
+        *pdfMean = oIter->second.dfMean;
+    if( pdfStdDev )
+        *pdfStdDev = oIter->second.dfStdDev;
+    if( pnValidCount )
+        *pnValidCount = oIter->second.nValidCount;
+    return true;
+}
+
+/************************************************************************/
+/*                      StoreMDArrayStatistics()                        */
+/************************************************************************/
+
+//! @cond Doxygen_Suppress
+void GDALPamDataset::StoreMDArrayStatistics( const char* pszMDArrayId,
+                                 bool bApproxStats,
+                                 double dfMin, double dfMax,
+                                 double dfMean, double dfStdDev,
+                                 GUInt64 nValidCount )
+{
+    PamInitialize();
+    if( !psPam )
+        return;
+    MarkPamDirty();
+    GDALDatasetPamInfo::Statistics sStats;
+    sStats.bApproxStats = bApproxStats;
+    sStats.dfMin = dfMin;
+    sStats.dfMax = dfMax;
+    sStats.dfMean = dfMean;
+    sStats.dfStdDev = dfStdDev;
+    sStats.nValidCount = nValidCount;
+    psPam->oMapMDArrayStatistics[pszMDArrayId] = sStats;
 }
 //! @endcond

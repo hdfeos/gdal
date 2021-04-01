@@ -1,15 +1,15 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # *****************************************************************************
 # $Id$
 #
 # Project:  GDAL Utilities
 # Purpose:  Python port of Commandline application to list info about a file.
-# Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault, <even dot rouault at spatialys.com>
 #
 # Port from gdalinfo.c whose author is Frank Warmerdam
 #
 # *****************************************************************************
-# Copyright (c) 2010-2011, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2010-2011, Even Rouault <even dot rouault at spatialys.com>
 # Copyright (c) 1998, Frank Warmerdam
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -50,12 +50,12 @@ def Usage():
 def EQUAL(a, b):
     return a.lower() == b.lower()
 
-# **********************************************************************
-#                                main()
-# **********************************************************************
-
 
 def main(argv=None):
+    version_num = int(gdal.VersionInfo('VERSION_NUM'))
+    if version_num < 1800:  # because of GetGeoTransform(can_return_null)
+        print('ERROR: Python bindings of GDAL 1.8.0 or later required')
+        return 1
 
     bComputeMinMax = False
     bShowGCPs = True
@@ -391,7 +391,7 @@ def main(argv=None):
 
         if bReportHistograms:
 
-            hist = hBand.GetDefaultHistogram(force=True, callback=gdal.TermProgress)
+            hist = hBand.GetDefaultHistogram(force=True, callback=gdal.TermProgress_nocb)
             if hist is not None:
                 dfMin = hist[0]
                 dfMax = hist[1]
@@ -503,9 +503,15 @@ def main(argv=None):
                 print("    %3d: %s" % (i, category))
                 i = i + 1
 
-        if hBand.GetScale() != 1.0 or hBand.GetOffset() != 0.0:
+        scale = hBand.GetScale()
+        if not scale:
+            scale = 1.0
+        offset = hBand.GetOffset()
+        if not offset:
+            offset = 0.0
+        if scale != 1.0 or offset != 0.0:
             print("  Offset: %.15g,   Scale:%.15g" %
-                  (hBand.GetOffset(), hBand.GetScale()))
+                  (offset, scale))
 
         if bShowMetadata:
             papszMetadata = hBand.GetMetadata_List()
@@ -601,9 +607,4 @@ def GDALInfoReportCorner(hDataset, hTransform, corner_name, x, y):
 
 
 if __name__ == '__main__':
-    version_num = int(gdal.VersionInfo('VERSION_NUM'))
-    if version_num < 1800:  # because of GetGeoTransform(can_return_null)
-        print('ERROR: Python bindings of GDAL 1.8.0 or later required')
-        sys.exit(1)
-
     sys.exit(main(sys.argv))

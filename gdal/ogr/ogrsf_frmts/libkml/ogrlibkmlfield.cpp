@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Brian Case
- * Copyright (c) 2010-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -680,8 +680,8 @@ void field2kml(
                     if( poKmlPlacemark->has_geometry()
                         && -1 < poOgrFeat->GetFieldAsInteger( i ) )
                     {
-                        const int iTesselate = poOgrFeat->GetFieldAsInteger( i );
-                        if( iTesselate &&
+                        const int iTessellate = poOgrFeat->GetFieldAsInteger( i );
+                        if( iTessellate &&
                             !(!isGX &&
                               static_cast<kmldom::AltitudeModeEnum>(iAltitudeMode) ==
                               kmldom::ALTITUDEMODE_CLAMPTOGROUND) &&
@@ -700,7 +700,7 @@ void field2kml(
                         {
                             GeometryPtr poKmlGeometry =
                                 poKmlPlacemark->get_geometry();
-                            ogr2tessellate_rec( CPL_TO_BOOL(iTesselate),
+                            ogr2tessellate_rec( CPL_TO_BOOL(iTessellate),
                                                 poKmlGeometry );
                             if( !isGX &&
                                 iAltitudeMode ==
@@ -1357,20 +1357,18 @@ void kml2field( OGRFeature * poOgrFeat, FeaturePtr poKmlFeature )
                 poOgrFeat->SetField( iField, camera->get_roll() );
         }
 
-        int nAltitudeMode = -1;
-
         int iField = poOgrFeat->GetFieldIndex( oFC.altitudeModefield );
 
         if( iField > -1 )
         {
             if( camera->has_altitudemode() )
             {
-                nAltitudeMode = camera->get_altitudemode();
+                const int nAltitudeMode = camera->get_altitudemode();
                 ogrkmlSetAltitudeMode(poOgrFeat, iField, nAltitudeMode, false);
             }
             else if( camera->has_gx_altitudemode() )
             {
-                nAltitudeMode = camera->get_gx_altitudemode();
+                const int nAltitudeMode = camera->get_gx_altitudemode();
                 ogrkmlSetAltitudeMode(poOgrFeat, iField, nAltitudeMode, true);
             }
         }

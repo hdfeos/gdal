@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Thomas Hirsch
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -278,11 +278,11 @@ int  OGRSOSIDataSource::Open( const char *pszFilename, int bUpdate ) {
 
     /* allocate room for one pointer per feature */
     nNumFeatures = static_cast<unsigned int>(poFileadm->lAntGr);
-    void* mem = VSI_MALLOC2_VERBOSE(nNumFeatures, sizeof(void*));
-    if (mem == nullptr) {
+    papoBuiltGeometries = static_cast<OGRGeometry**>(
+        VSI_MALLOC2_VERBOSE(nNumFeatures, sizeof(OGRGeometry*)));
+    if (papoBuiltGeometries == nullptr) {
+        nNumFeatures = 0;
         return FALSE;
-    } else {
-        papoBuiltGeometries = (OGRGeometry**)mem;
     }
     for (unsigned int i=0; i<nNumFeatures; i++) papoBuiltGeometries[i] = nullptr;
 
@@ -411,6 +411,7 @@ int  OGRSOSIDataSource::Open( const char *pszFilename, int bUpdate ) {
                 return FALSE;
             }
             poSRS = new OGRSpatialReference();
+            poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
             /* Get coordinate system from SOSI header. */
             int nEPSG = sosi2epsg(oTrans.sKoordsys);
@@ -685,12 +686,9 @@ void OGRSOSIDataSource::buildOGRLineStringFromArc(long iSerial) {
     poLS->setNumPoints(npt);
     dth = dth / (npt-1);
 
-    int i;
-    double dfEast = 0, dfNorth = 0;
-
-    for (i=0; i<npt; i++) {
-        dfEast  = cE + r * cos(th1 + dth * i);
-        dfNorth = cN + r * sin(th1 + dth * i);
+    for (int i=0; i<npt; i++) {
+        const double dfEast  = cE + r * cos(th1 + dth * i);
+        const double dfNorth = cN + r * sin(th1 + dth * i);
         if (dfEast != dfEast) { /* which is a wonderful property of nans */
           CPLError( CE_Warning, CPLE_AppDefined,
                     "Calculated %lf for point %d of %d in curve %li.", dfEast, i, npt, iSerial);

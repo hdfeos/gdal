@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2008-2010, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2010, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +48,7 @@ static unsigned char *ParseXPM( const char *pszInput,
 /* ==================================================================== */
 /************************************************************************/
 
-class XPMDataset : public GDALPamDataset
+class XPMDataset final: public GDALPamDataset
 {
   public:
                  XPMDataset() {}
@@ -442,7 +442,7 @@ void GDALRegister_XPM()
     poDriver->SetDescription( "XPM" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "X11 PixMap Format" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#XPM" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/xpm.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "xpm" );
     poDriver->SetMetadataItem( GDAL_DMD_MIMETYPE, "image/x-xpixmap" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES, "Byte" );
@@ -567,7 +567,8 @@ ParseXPM( const char *pszInput,
 
     for( int iColor = 0; iColor < nColorCount; iColor++ )
     {
-        if( papszXPMList[iColor+1] == nullptr )
+        if( papszXPMList[iColor+1] == nullptr ||
+            papszXPMList[iColor+1][0] == '\0' )
         {
             CPLError( CE_Failure, CPLE_AppDefined,
                       "Missing color definition for %d in XPM header.",

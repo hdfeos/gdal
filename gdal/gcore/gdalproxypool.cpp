@@ -3,10 +3,10 @@
  * Project:  GDAL Core
  * Purpose:  A dataset and raster band classes that differ the opening of the
  *           underlying dataset in a limited pool of opened datasets.
- * Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -111,7 +111,9 @@ class GDALDatasetPool
                                              int bShared,
                                              bool bForceOpen,
                                              const char* pszOwner);
-        void _CloseDataset(const char* pszFileName, GDALAccess eAccess);
+        void _CloseDatasetIfZeroRefCount(
+                           const char* pszFileName, GDALAccess eAccess,
+                           const char* pszOwner);
 
 #ifdef DEBUG_PROXY_POOL
         // cppcheck-suppress unusedPrivateFunction
@@ -131,7 +133,9 @@ class GDALDatasetPool
                                                    bool bForceOpen,
                                                    const char* pszOwner);
         static void UnrefDataset(GDALProxyPoolCacheEntry* cacheEntry);
-        static void CloseDataset(const char* pszFileName, GDALAccess eAccess);
+        static void CloseDatasetIfZeroRefCount(
+                                 const char* pszFileName, GDALAccess eAccess,
+                                 const char* pszOwner);
 
         static void PreventDestroy();
         static void ForceDestroy();
@@ -207,6 +211,7 @@ void GDALDatasetPool::CheckLinks()
         CPLAssert(cur->next != nullptr || cur == lastEntry);
         cur = cur->next;
     }
+    (void)i;
     CPLAssert(i == currentSize);
 }
 #endif
@@ -355,11 +360,12 @@ GDALProxyPoolCacheEntry* GDALDatasetPool::_RefDataset(const char* pszFileName,
 }
 
 /************************************************************************/
-/*                       _CloseDataset()                                */
+/*                   _CloseDatasetIfZeroRefCount()                      */
 /************************************************************************/
 
-void GDALDatasetPool::_CloseDataset( const char* pszFileName,
-                                     GDALAccess /* eAccess */ )
+void GDALDatasetPool::_CloseDatasetIfZeroRefCount( const char* pszFileName,
+                                     GDALAccess /* eAccess */,
+                                     const char* pszOwner )
 {
     GDALProxyPoolCacheEntry* cur = firstEntry;
     GIntBig responsiblePID = GDALGetResponsiblePIDForCurrentThread();
@@ -369,7 +375,11 @@ void GDALDatasetPool::_CloseDataset( const char* pszFileName,
         GDALProxyPoolCacheEntry* next = cur->next;
 
         CPLAssert(cur->pszFileName);
-        if (strcmp(cur->pszFileName, pszFileName) == 0 && cur->refCount == 0 &&
+        if (cur->refCount == 0 &&
+            strcmp(cur->pszFileName, pszFileName) == 0 &&
+            ((pszOwner == nullptr && cur->pszOwner == nullptr) ||
+             (pszOwner != nullptr && cur->pszOwner != nullptr &&
+              strcmp(cur->pszOwner, pszOwner) == 0)) &&
             cur->poDS != nullptr )
         {
             /* Close by pretending we are the thread that GDALOpen'ed this */
@@ -499,13 +509,15 @@ void GDALDatasetPool::UnrefDataset(GDALProxyPoolCacheEntry* cacheEntry)
 }
 
 /************************************************************************/
-/*                       CloseDataset()                                 */
+/*                   CloseDatasetIfZeroRefCount()                       */
 /************************************************************************/
 
-void GDALDatasetPool::CloseDataset(const char* pszFileName, GDALAccess eAccess)
+void GDALDatasetPool::CloseDatasetIfZeroRefCount(
+                                   const char* pszFileName, GDALAccess eAccess,
+                                   const char* pszOwner)
 {
     CPLMutexHolderD( GDALGetphDLMutex() );
-    singleton->_CloseDataset(pszFileName, eAccess);
+    singleton->_CloseDatasetIfZeroRefCount(pszFileName, eAccess, pszOwner);
 }
 
 struct GetMetadataElt
@@ -620,7 +632,7 @@ GDALProxyPoolDataset::GDALProxyPoolDataset(const char* pszSourceDatasetDescripti
     if (padfGeoTransform)
     {
         memcpy(adfGeoTransform, padfGeoTransform,6 * sizeof(double));
-        bHasSrcGeoTransform = TRUE;
+        bHasSrcGeoTransform = true;
     }
     else
     {
@@ -630,7 +642,14 @@ GDALProxyPoolDataset::GDALProxyPoolDataset(const char* pszSourceDatasetDescripti
         adfGeoTransform[3] = 0;
         adfGeoTransform[4] = 0;
         adfGeoTransform[5] = 1;
-        bHasSrcGeoTransform = FALSE;
+        bHasSrcGeoTransform = false;
+    }
+
+    if( pszProjectionRefIn )
+    {
+        m_poSRS = new OGRSpatialReference();
+        m_poSRS->importFromWkt(pszProjectionRefIn);
+        m_bHasSrcSRS = true;
     }
 
     pszGCPProjection = nullptr;
@@ -647,10 +666,8 @@ GDALProxyPoolDataset::GDALProxyPoolDataset(const char* pszSourceDatasetDescripti
 
 GDALProxyPoolDataset::~GDALProxyPoolDataset()
 {
-    if( !bShared )
-    {
-        GDALDatasetPool::CloseDataset(GetDescription(), eAccess);
-    }
+    GDALDatasetPool::CloseDatasetIfZeroRefCount(GetDescription(), eAccess, m_pszOwner);
+
     /* See comment in constructor */
     /* It is not really a genuine shared dataset, so we don't */
     /* want ~GDALDataset() to try to release it from its */
@@ -670,6 +687,10 @@ GDALProxyPoolDataset::~GDALProxyPoolDataset()
     if (metadataItemSet)
         CPLHashSetDestroy(metadataItemSet);
     CPLFree(m_pszOwner);
+    if( m_poSRS )
+        m_poSRS->Release();
+    if( m_poGCPSRS )
+        m_poGCPSRS->Release();
 
     GDALDatasetPool::Unref();
 }
@@ -694,15 +715,25 @@ void GDALProxyPoolDataset::AddSrcBandDescription( GDALDataType eDataType, int nB
 }
 
 /************************************************************************/
+/*                    AddSrcBand()                                      */
+/************************************************************************/
+
+void GDALProxyPoolDataset::AddSrcBand(int nBand, GDALDataType eDataType, int nBlockXSize, int nBlockYSize)
+{
+    SetBand(nBand, new GDALProxyPoolRasterBand(this, nBand, eDataType, nBlockXSize, nBlockYSize));
+}
+
+
+/************************************************************************/
 /*                    RefUnderlyingDataset()                            */
 /************************************************************************/
 
-GDALDataset* GDALProxyPoolDataset::RefUnderlyingDataset()
+GDALDataset* GDALProxyPoolDataset::RefUnderlyingDataset() const
 {
     return RefUnderlyingDataset(true);
 }
 
-GDALDataset* GDALProxyPoolDataset::RefUnderlyingDataset(bool bForceOpen)
+GDALDataset* GDALProxyPoolDataset::RefUnderlyingDataset(bool bForceOpen) const
 {
     /* We pretend that the current thread is responsiblePID, that is */
     /* to say the thread that created that GDALProxyPoolDataset object. */
@@ -734,7 +765,7 @@ GDALDataset* GDALProxyPoolDataset::RefUnderlyingDataset(bool bForceOpen)
 /************************************************************************/
 
 void GDALProxyPoolDataset::UnrefUnderlyingDataset(
-    CPL_UNUSED GDALDataset* poUnderlyingDataset )
+    CPL_UNUSED GDALDataset* poUnderlyingDataset ) const
 {
     if (cacheEntry != nullptr)
     {
@@ -759,25 +790,59 @@ void  GDALProxyPoolDataset::FlushCache()
 }
 
 /************************************************************************/
+/*                        SetSpatialRef()                               */
+/************************************************************************/
+
+CPLErr GDALProxyPoolDataset::SetSpatialRef(const OGRSpatialReference* poSRS)
+{
+    m_bHasSrcSRS = false;
+    return GDALProxyDataset::SetSpatialRef(poSRS);
+}
+
+/************************************************************************/
+/*                        GetSpatialRef()                               */
+/************************************************************************/
+
+const OGRSpatialReference* GDALProxyPoolDataset::GetSpatialRef() const
+{
+    if (m_bHasSrcSRS)
+        return m_poSRS;
+    else
+    {
+        if( m_poSRS )
+            m_poSRS->Release();
+        m_poSRS = nullptr;
+        auto poSRS = GDALProxyDataset::GetSpatialRef();
+        if( poSRS )
+            m_poSRS = poSRS->Clone();
+        return m_poSRS;
+    }
+}
+
+/************************************************************************/
 /*                        SetProjection()                               */
 /************************************************************************/
 
-CPLErr GDALProxyPoolDataset::SetProjection(const char* pszProjectionRefIn)
+CPLErr GDALProxyPoolDataset::_SetProjection(const char* pszProjectionRefIn)
 {
-    bHasSrcProjection = FALSE;
-    return GDALProxyDataset::SetProjection(pszProjectionRefIn);
+    bHasSrcProjection = false;
+    return GDALProxyDataset::_SetProjection(pszProjectionRefIn);
 }
 
 /************************************************************************/
 /*                        GetProjectionRef()                            */
 /************************************************************************/
 
-const char *GDALProxyPoolDataset::GetProjectionRef()
+const char *GDALProxyPoolDataset::_GetProjectionRef()
 {
     if (bHasSrcProjection)
         return pszProjectionRef;
     else
-        return GDALProxyDataset::GetProjectionRef();
+    {
+        CPLFree(pszProjectionRef);
+        pszProjectionRef = CPLStrdup( GDALProxyDataset::_GetProjectionRef() );
+        return pszProjectionRef;
+    }
 }
 
 /************************************************************************/
@@ -786,7 +851,7 @@ const char *GDALProxyPoolDataset::GetProjectionRef()
 
 CPLErr GDALProxyPoolDataset::SetGeoTransform( double * padfGeoTransform )
 {
-    bHasSrcGeoTransform = FALSE;
+    bHasSrcGeoTransform = false;
     return GDALProxyDataset::SetGeoTransform(padfGeoTransform);
 }
 
@@ -877,10 +942,32 @@ void *GDALProxyPoolDataset::GetInternalHandle( const char * pszRequest)
 }
 
 /************************************************************************/
+/*                     GetGCPSpatialRef()                               */
+/************************************************************************/
+
+const OGRSpatialReference *GDALProxyPoolDataset::GetGCPSpatialRef() const
+{
+    GDALDataset* poUnderlyingDataset = RefUnderlyingDataset();
+    if (poUnderlyingDataset == nullptr)
+        return nullptr;
+
+    m_poGCPSRS->Release();
+    m_poGCPSRS = nullptr;
+
+    const auto poUnderlyingGCPSRS = poUnderlyingDataset->GetGCPSpatialRef();
+    if (poUnderlyingGCPSRS)
+        m_poGCPSRS = poUnderlyingGCPSRS->Clone();
+
+    UnrefUnderlyingDataset(poUnderlyingDataset);
+
+    return m_poGCPSRS;
+}
+
+/************************************************************************/
 /*                     GetGCPProjection()                               */
 /************************************************************************/
 
-const char *GDALProxyPoolDataset::GetGCPProjection()
+const char *GDALProxyPoolDataset::_GetGCPProjection()
 {
     GDALDataset* poUnderlyingDataset = RefUnderlyingDataset();
     if (poUnderlyingDataset == nullptr)
@@ -889,7 +976,7 @@ const char *GDALProxyPoolDataset::GetGCPProjection()
     CPLFree(pszGCPProjection);
     pszGCPProjection = nullptr;
 
-    const char* pszUnderlyingGCPProjection = poUnderlyingDataset->GetGCPProjection();
+    const char* pszUnderlyingGCPProjection = poUnderlyingDataset->_GetGCPProjection();
     if (pszUnderlyingGCPProjection)
         pszGCPProjection = CPLStrdup(pszUnderlyingGCPProjection);
 
@@ -1049,6 +1136,17 @@ GDALRasterBand* GDALProxyPoolRasterBand::RefUnderlyingRasterBand(bool bForceOpen
     if (poBand == nullptr)
     {
         (cpl::down_cast<GDALProxyPoolDataset*>(poDS))->UnrefUnderlyingDataset(poUnderlyingDataset);
+    }
+    else
+    if(nBlockXSize <= 0 || nBlockYSize <= 0)
+    {
+        // Here we try to load nBlockXSize&nBlockYSize from underlying band
+        // but we must guarantee that we will not access directly to
+        // nBlockXSize/nBlockYSize before RefUnderlyingRasterBand() is called
+        int nSrcBlockXSize, nSrcBlockYSize;
+        poBand->GetBlockSize(&nSrcBlockXSize, &nSrcBlockYSize);
+        nBlockXSize = nSrcBlockXSize;
+        nBlockYSize = nSrcBlockYSize;
     }
 
     return poBand;

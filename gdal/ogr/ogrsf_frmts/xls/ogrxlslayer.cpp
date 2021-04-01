@@ -2,10 +2,10 @@
  *
  * Project:  XLS Translator
  * Purpose:  Implements OGRXLSLayer class.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -276,37 +276,13 @@ GIntBig OGRXLSLayer::GetFeatureCount( int bForce )
 }
 
 /************************************************************************/
-/*                           GetNextFeature()                           */
-/************************************************************************/
-
-OGRFeature *OGRXLSLayer::GetNextFeature()
-{
-    GetLayerDefn();
-
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if (poFeature == nullptr)
-            return nullptr;
-
-        if(/*(m_poFilterGeom == NULL
-            || FilterGeometry( poFeature->GetGeometryRef() ) )
-        && */ (m_poAttrQuery == nullptr
-            || m_poAttrQuery->Evaluate( poFeature )) )
-        {
-            return poFeature;
-        }
-        else
-            delete poFeature;
-    }
-}
-
-/************************************************************************/
 /*                         GetNextRawFeature()                          */
 /************************************************************************/
 
 OGRFeature *OGRXLSLayer::GetNextRawFeature()
 {
+    GetLayerDefn();
+
     if (nNextFID == nRows)
         return nullptr;
 

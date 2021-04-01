@@ -6,7 +6,7 @@
  *
  **********************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -144,6 +144,14 @@ static int     CPLAcquireSpinLock( CPLSpinLock* );
 static void    CPLReleaseSpinLock( CPLSpinLock* );
 static void    CPLDestroySpinLock( CPLSpinLock* );
 
+#ifndef CPL_MULTIPROC_PTHREAD
+#ifndef MUTEX_NONE
+static CPLMutex*    CPLCreateOrAcquireMasterMutex( double );
+static CPLMutex*&   CPLCreateOrAcquireMasterMutexInternal( double );
+static CPLMutex*    CPLCreateUnacquiredMutex();
+#endif
+#endif
+
 // We don't want it to be publicly used since it solves rather tricky issues
 // that are better to remain hidden.
 void CPLFinalizeTLS();
@@ -268,7 +276,54 @@ int CPLCreateOrAcquireMutex( CPLMutex **phMutex, double dfWaitInSeconds )
 #ifndef CPL_MULTIPROC_PTHREAD
 
 #ifndef MUTEX_NONE
-static CPLMutex *hCOAMutex = nullptr;
+CPLMutex* CPLCreateUnacquiredMutex()
+{
+    CPLMutex *hMutex = CPLCreateMutex();
+    if (hMutex)
+    {
+        CPLReleaseMutex(hMutex);
+    }
+    return hMutex;
+}
+
+CPLMutex*& CPLCreateOrAcquireMasterMutexInternal(double dfWaitInSeconds = 1000.0)
+{
+    // The dynamic initialization of the block scope hCOAMutex
+    // with static storage duration is thread-safe in C++11
+    static CPLMutex *hCOAMutex = CPLCreateUnacquiredMutex();
+
+    // WARNING: although adding an CPLAssert(hCOAMutex); might seem logical
+    // here, do not enable it (see comment below). It calls CPLError that
+    // uses the hCOAMutex itself leading to recursive mutex acquisition
+    // and likely a stack overflow.
+
+    if ( !hCOAMutex )
+    {
+        // Fall back to this, ironically, NOT thread-safe re-initialisation of
+        // hCOAMutex in case of a memory error or call to CPLCleanupMasterMutex
+        // sequenced in an unusual, unexpected or erroneous way.
+        // For example, an unusual sequence could be:
+        //   GDALDriverManager has been instantiated,
+        //   then OGRCleanupAll is called which calls CPLCleanupMasterMutex,
+        //   then CPLFreeConfig is called which acquires the hCOAMutex
+        //   that has already been released and destroyed.
+
+        hCOAMutex = CPLCreateUnacquiredMutex();
+    }
+
+    if( hCOAMutex )
+    {
+        CPLAcquireMutex( hCOAMutex, dfWaitInSeconds );
+    }
+
+    return hCOAMutex;
+}
+
+CPLMutex* CPLCreateOrAcquireMasterMutex(double dfWaitInSeconds = 1000.0)
+{
+    CPLMutex *hCOAMutex = CPLCreateOrAcquireMasterMutexInternal(dfWaitInSeconds);
+    return hCOAMutex;
+}
 #endif
 
 #ifdef MUTEX_NONE
@@ -284,21 +339,11 @@ int CPLCreateOrAcquireMutexEx( CPLMutex **phMutex, double dfWaitInSeconds,
 {
     bool bSuccess = false;
 
-    // Ironically, creation of this initial mutex is not threadsafe
-    // even though we use it to ensure that creation of other mutexes
-    // is threadsafe.
+    CPLMutex* hCOAMutex = CPLCreateOrAcquireMasterMutex( dfWaitInSeconds );
     if( hCOAMutex == nullptr )
     {
-        hCOAMutex = CPLCreateMutex();
-        if( hCOAMutex == nullptr )
-        {
-            *phMutex = nullptr;
-            return FALSE;
-        }
-    }
-    else
-    {
-        CPLAcquireMutex( hCOAMutex, dfWaitInSeconds );
+        *phMutex = nullptr;
+        return FALSE;
     }
 
     if( *phMutex == nullptr )
@@ -337,21 +382,11 @@ int CPLCreateOrAcquireMutexInternal( CPLLock **phLock, double dfWaitInSeconds,
 {
     bool bSuccess = false;
 
-    // Ironically, creation of this initial mutex is not threadsafe
-    // even though we use it to ensure that creation of other mutexes.
-    // is threadsafe.
+    CPLMutex* hCOAMutex = CPLCreateOrAcquireMasterMutex( dfWaitInSeconds );
     if( hCOAMutex == nullptr )
     {
-        hCOAMutex = CPLCreateMutex();
-        if( hCOAMutex == nullptr )
-        {
-            *phLock = nullptr;
-            return FALSE;
-        }
-    }
-    else
-    {
-        CPLAcquireMutex( hCOAMutex, dfWaitInSeconds );
+        *phLock = nullptr;
+        return FALSE;
     }
 
     if( *phLock == nullptr )
@@ -396,8 +431,10 @@ void CPLCleanupMasterMutex()
 {
 #ifndef CPL_MULTIPROC_PTHREAD
 #ifndef MUTEX_NONE
+    CPLMutex*& hCOAMutex = CPLCreateOrAcquireMasterMutexInternal();
     if( hCOAMutex != nullptr )
     {
+        CPLReleaseMutex( hCOAMutex );
         CPLDestroyMutex( hCOAMutex );
         hCOAMutex = nullptr;
     }
@@ -574,6 +611,16 @@ CPLCond *CPLCreateCond()
 /************************************************************************/
 
 void CPLCondWait( CPLCond * /* hCond */ , CPLMutex* /* hMutex */ ) {}
+
+/************************************************************************/
+/*                         CPLCondTimedWait()                           */
+/************************************************************************/
+
+CPLCondTimedWaitReason CPLCondTimedWait( CPLCond * /* hCond */ ,
+                                         CPLMutex* /* hMutex */, double )
+{
+    return COND_TIMED_WAIT_OTHER;
+}
 
 /************************************************************************/
 /*                            CPLCondSignal()                           */
@@ -969,6 +1016,16 @@ static void CPLTLSFreeEvent( void* pData )
 
 void CPLCondWait( CPLCond *hCond, CPLMutex* hClientMutex )
 {
+    CPLCondTimedWait(hCond, hClientMutex, -1);
+}
+
+/************************************************************************/
+/*                         CPLCondTimedWait()                           */
+/************************************************************************/
+
+CPLCondTimedWaitReason CPLCondTimedWait( CPLCond *hCond, CPLMutex* hClientMutex,
+                                         double dfWaitInSeconds )
+{
     Win32Cond* psCond = reinterpret_cast<Win32Cond*>(hCond);
 
     HANDLE hEvent = static_cast<HANDLE>(CPLGetTLS(CTLS_WIN32_COND));
@@ -1001,10 +1058,17 @@ void CPLCondWait( CPLCond *hCond, CPLMutex* hClientMutex )
 
     // Ideally we would check that we do not get WAIT_FAILED but it is hard
     // to report a failure.
-    WaitForSingleObject(hEvent, INFINITE);
+    auto ret = WaitForSingleObject(hEvent, dfWaitInSeconds < 0 ?
+                    INFINITE : static_cast<int>(dfWaitInSeconds * 1000));
 
     // Reacquire the client mutex.
     CPLAcquireMutex(hClientMutex, 1000.0);
+
+    if( ret == WAIT_OBJECT_0 )
+        return COND_TIMED_WAIT_COND;
+    if( ret == WAIT_TIMEOUT )
+        return COND_TIMED_WAIT_TIME_OUT;
+    return COND_TIMED_WAIT_OTHER;
 }
 
 /************************************************************************/
@@ -1329,6 +1393,7 @@ void CPLCleanupTLS()
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/time.h>
 
   /************************************************************************/
   /* ==================================================================== */
@@ -1709,6 +1774,34 @@ void CPLCondWait( CPLCond *hCond, CPLMutex* hMutex )
     MutexLinkedElt* psItem = reinterpret_cast<MutexLinkedElt *>(hMutex);
     pthread_mutex_t * pMutex = &(psItem->sMutex);
     pthread_cond_wait(pCond, pMutex);
+}
+
+/************************************************************************/
+/*                         CPLCondTimedWait()                           */
+/************************************************************************/
+
+CPLCondTimedWaitReason CPLCondTimedWait( CPLCond *hCond, CPLMutex* hMutex,
+                                         double dfWaitInSeconds )
+{
+    pthread_cond_t* pCond = reinterpret_cast<pthread_cond_t*>(hCond);
+    MutexLinkedElt* psItem = reinterpret_cast<MutexLinkedElt *>(hMutex);
+    pthread_mutex_t * pMutex = &(psItem->sMutex);
+    struct timeval tv;
+    struct timespec ts;
+
+    gettimeofday(&tv, nullptr);
+    ts.tv_sec = time(nullptr) + static_cast<int>(dfWaitInSeconds);
+    ts.tv_nsec = tv.tv_usec * 1000 + static_cast<int>(
+                            1000 * 1000 * 1000 * fmod(dfWaitInSeconds, 1));
+    ts.tv_sec += ts.tv_nsec / (1000 * 1000 * 1000);
+    ts.tv_nsec %= (1000 * 1000 * 1000);
+    int ret = pthread_cond_timedwait(pCond, pMutex, &ts);
+    if( ret == 0 )
+        return COND_TIMED_WAIT_COND;
+    else if( ret == ETIMEDOUT )
+        return COND_TIMED_WAIT_TIME_OUT;
+    else
+        return COND_TIMED_WAIT_OTHER;
 }
 
 /************************************************************************/

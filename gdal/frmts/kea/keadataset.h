@@ -32,8 +32,10 @@
 #define KEADATASET_H
 
 #include "gdal_pam.h"
-
+#include "cpl_multiproc.h"
 #include "libkea_headers.h"
+
+class LockedRefCount;
 
 // class that implements a GDAL dataset
 class KEADataset final: public GDALPamDataset
@@ -41,7 +43,7 @@ class KEADataset final: public GDALPamDataset
     static H5::H5File *CreateLL( const char * pszFilename,
                                   int nXSize, int nYSize, int nBands,
                                   GDALDataType eType,
-                                  char ** papszParmList  );
+                                  char ** papszParamList  );
 
 public:
     // constructor/destructor
@@ -55,17 +57,23 @@ public:
     static GDALDataset *Create( const char * pszFilename,
                                   int nXSize, int nYSize, int nBands,
                                   GDALDataType eType,
-                                  char **  papszParmList );
+                                  char **  papszParamList );
     static GDALDataset *CreateCopy( const char * pszFilename, GDALDataset *pSrcDs,
-                                int bStrict, char **  papszParmList,
+                                int bStrict, char **  papszParamList,
                                 GDALProgressFunc pfnProgress, void *pProgressData );
 
     // virtual methods for dealing with transform and projection
     CPLErr      GetGeoTransform( double * padfTransform ) override;
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
 
     CPLErr  SetGeoTransform (double *padfTransform ) override;
-    CPLErr SetProjection( const char *pszWKT ) override;
+    CPLErr _SetProjection( const char *pszWKT ) override;
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
     // method to get a pointer to the imageio class
     void *GetInternalHandle (const char *) override;
@@ -82,9 +90,17 @@ public:
 
     // GCPs
     int GetGCPCount() override;
-    const char* GetGCPProjection() override;
+    const char* _GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP* GetGCPs() override;
-    CPLErr SetGCPs(int nGCPCount, const GDAL_GCP *pasGCPList, const char *pszGCPProjection) override;
+    CPLErr _SetGCPs(int nGCPCount, const GDAL_GCP *pasGCPList, const char *pszGCPProjection) override;
+    using GDALPamDataset::SetGCPs;
+    CPLErr SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
+                    const OGRSpatialReference* poSRS ) override {
+        return OldSetGCPsFromNew(nGCPCount, pasGCPList, poSRS);
+    }
 
 protected:
     // this method builds overviews for the specified bands.
@@ -100,14 +116,56 @@ protected:
 private:
     // pointer to KEAImageIO class and the refcount for it
     kealib::KEAImageIO  *m_pImageIO;
-    int                 *m_pnRefcount;
+    LockedRefCount      *m_pRefcount;
     char               **m_papszMetadataList; // CSLStringList for metadata
     GDAL_GCP            *m_pGCPs;
     char                *m_pszGCPProjection;
+    CPLMutex            *m_hMutex;
 };
 
 // conversion functions
 GDALDataType KEA_to_GDAL_Type( kealib::KEADataType ekeaType );
 kealib::KEADataType GDAL_to_KEA_Type( GDALDataType egdalType );
+
+// For unloading the VFL
+void KEADatasetDriverUnload(GDALDriver*);
+
+// A thresafe reference count. Used to manage shared pointer to
+// the kealib::KEAImageIO instance between bands and dataset.
+class LockedRefCount
+{
+private:
+    int m_nRefCount;
+    CPLMutex *m_hMutex;
+
+    CPL_DISALLOW_COPY_ASSIGN(LockedRefCount)
+
+public:
+    explicit LockedRefCount(int initCount=1)
+    {
+        m_nRefCount = initCount;
+        m_hMutex = CPLCreateMutex();
+        CPLReleaseMutex( m_hMutex );
+    }
+    ~LockedRefCount()
+    {
+        CPLDestroyMutex( m_hMutex );
+        m_hMutex = nullptr;
+    }
+
+    void IncRef()
+    {
+        CPLMutexHolderD( &m_hMutex );
+        m_nRefCount++;
+    }
+
+    // returns true if reference count now 0
+    bool DecRef()
+    {
+        CPLMutexHolderD( &m_hMutex );
+        m_nRefCount--;
+        return m_nRefCount <= 0;
+    }
+};
 
 #endif //KEADATASET_H

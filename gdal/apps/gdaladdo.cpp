@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Frank Warmerdam
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -41,7 +41,7 @@ CPL_CVSID("$Id$")
 static void Usage( const char* pszErrorMsg = nullptr )
 
 {
-    printf("Usage: gdaladdo [-r {nearest,average,gauss,cubic,cubicspline,lanczos,average_mp,average_magphase,mode}]\n"
+    printf("Usage: gdaladdo [-r {nearest,average,rms,gauss,cubic,cubicspline,lanczos,average_mp,average_magphase,mode}]\n"
            "                [-ro] [-clean] [-q] [-oo NAME=VALUE]* [-minsize val]\n"
            "                [--help-general] filename [levels]\n"
            "\n"

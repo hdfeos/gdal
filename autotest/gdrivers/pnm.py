@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -28,19 +28,17 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
-
-sys.path.append('../pymod')
-
+from osgeo import gdal
 import gdaltest
+import pytest
 
 ###############################################################################
 # Read Test grayscale (PGM)
 
 
-def pnm_1():
+def test_pnm_1():
 
-    tst = gdaltest.GDALTest('PNM', 'byte.pgm', 1, 4672)
+    tst = gdaltest.GDALTest('PNM', 'pnm/byte.pgm', 1, 4672)
 
     return tst.testOpen()
 
@@ -48,9 +46,9 @@ def pnm_1():
 # Write Test grayscale (PGM)
 
 
-def pnm_2():
+def test_pnm_2():
 
-    tst = gdaltest.GDALTest('PNM', 'byte.pgm', 1, 4672)
+    tst = gdaltest.GDALTest('PNM', 'pnm/byte.pgm', 1, 4672)
 
     return tst.testCreateCopy(vsimem=1)
 
@@ -58,9 +56,9 @@ def pnm_2():
 # Read Test RGB (PPM)
 
 
-def pnm_3():
+def test_pnm_3():
 
-    tst = gdaltest.GDALTest('PNM', 'rgbsmall.ppm', 2, 21053)
+    tst = gdaltest.GDALTest('PNM', 'pnm/rgbsmall.ppm', 2, 21053)
 
     return tst.testOpen()
 
@@ -68,25 +66,16 @@ def pnm_3():
 # Write Test RGB (PPM)
 
 
-def pnm_4():
+def test_pnm_4():
 
-    tst = gdaltest.GDALTest('PNM', 'rgbsmall.ppm', 2, 21053)
+    tst = gdaltest.GDALTest('PNM', 'pnm/rgbsmall.ppm', 2, 21053)
 
     return tst.testCreateCopy()
 
-
-gdaltest_list = [
-    pnm_1,
-    pnm_2,
-    pnm_3,
-    pnm_4
-]
-
-
-if __name__ == '__main__':
-
-    gdaltest.setup_run('ppm')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())
+@pytest.mark.parametrize("nbands", [1, 3])
+def test_pnm_write_non_standard_extension(nbands):
+    gdal.ErrorReset()
+    with gdaltest.error_handler():
+        gdal.GetDriverByName('PNM').Create('foo.foo', 1, 1, nbands)
+    assert gdal.GetLastErrorType() != 0
+    gdal.Unlink('foo.foo')

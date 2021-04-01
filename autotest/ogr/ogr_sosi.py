@@ -1,14 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR Test Suite
 # Purpose:  Test read functionality for OGR SOSI driver.
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2013, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2013, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -29,44 +29,81 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 from osgeo import ogr
-
-sys.path.append('../pymod')
+from osgeo import gdal
 
 import gdaltest
+import pytest
 
 ###############################################################################
 
 
-def ogr_sosi_1():
+def test_ogr_sosi_1():
 
     if ogr.GetDriverByName('SOSI') is None:
-        return 'skip'
+        pytest.skip()
 
     if not gdaltest.download_file('http://trac.osgeo.org/gdal/raw-attachment/ticket/3638/20BygnAnlegg.SOS', '20BygnAnlegg.SOS'):
-        return 'skip'
+        pytest.skip()
 
     import test_cli_utilities
     if test_cli_utilities.get_test_ogrsf_path() is None:
-        return 'skip'
+        pytest.skip()
 
-    ret = gdaltest.runexternal(test_cli_utilities.get_test_ogrsf_path() + ' -ro tmp/cache/20BygnAnlegg.SOS')
+    ret = gdaltest.runexternal(
+        test_cli_utilities.get_test_ogrsf_path() + ' -ro tmp/cache/20BygnAnlegg.SOS')
 
-    if ret.find('INFO') == -1 or ret.find('ERROR') != -1:
-        print(ret)
-        return 'fail'
+    assert ret.find('INFO') != -1 and ret.find('ERROR') == -1
 
-    return 'success'
+###############################################################################
+# test using no appendFieldsMap
 
 
-gdaltest_list = [
-    ogr_sosi_1]
+def test_ogr_sosi_2():
 
-if __name__ == '__main__':
+    if ogr.GetDriverByName('SOSI') is None:
+        pytest.skip()
 
-    gdaltest.setup_run('ogr_sosi')
+        ds = gdal.OpenEx('data/sosi/test_duplicate_fields.sos', open_options=[])
+        lyr = ds.GetLayer(0)
+        assert lyr.GetFeatureCount() == 17
+        lyr = ds.GetLayer(1)
+        assert lyr.GetFeatureCount() == 1
+        f = lyr.GetNextFeature()
+        assert f['REINBEITEBRUKERID'] == 'YD'
 
-    gdaltest.run_tests(gdaltest_list)
 
-    sys.exit(gdaltest.summarize())
+###############################################################################
+# test using simple open_options appendFieldsMap
+
+def test_ogr_sosi_3():
+
+    if ogr.GetDriverByName('SOSI') is None:
+        pytest.skip()
+
+        ds = gdal.OpenEx('data/sosi/test_duplicate_fields.sos',
+                         open_options=['appendFieldsMap=BEITEBRUKERID&OPPHAV'])
+        lyr = ds.GetLayer(0)
+        assert lyr.GetFeatureCount() == 17
+        lyr = ds.GetLayer(1)
+        assert lyr.GetFeatureCount() == 1
+        f = lyr.GetNextFeature()
+        assert f['REINBEITEBRUKERID'] == 'YD,YG'
+
+
+###############################################################################
+# test using simple open_options appendFieldsMap with semicolumns
+
+def test_ogr_sosi_4():
+
+    if ogr.GetDriverByName('SOSI') is None:
+        pytest.skip()
+
+        ds = gdal.OpenEx('data/sosi/test_duplicate_fields.sos',
+                         open_options=['appendFieldsMap=BEITEBRUKERID:;&OPPHAV:;'])
+        lyr = ds.GetLayer(0)
+        assert lyr.GetFeatureCount() == 17
+        lyr = ds.GetLayer(1)
+        assert lyr.GetFeatureCount() == 1
+        f = lyr.GetNextFeature()
+        assert f['REINBEITEBRUKERID'] == 'YD;YG'

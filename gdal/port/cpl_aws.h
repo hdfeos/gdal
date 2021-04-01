@@ -36,6 +36,7 @@
 #ifdef HAVE_CURL
 
 #include <cstddef>
+#include <mutex>
 
 #include "cpl_string.h"
 
@@ -108,6 +109,9 @@ public:
                                        bool /*bSetError*/, bool* /*pbUpdateMap*/ = nullptr) { return false;}
 
         virtual const CPLString& GetURL() const = 0;
+        CPLString GetURLNoKVP() const;
+
+        virtual CPLString GetCopySourceHeader() const { return std::string(); }
 
         static bool GetBucketAndObjectKey(const char* pszURI,
                                           const char* pszFSPrefix,
@@ -128,9 +132,9 @@ class VSIS3HandleHelper final: public IVSIS3LikeHandleHelper
         CPL_DISALLOW_COPY_ASSIGN(VSIS3HandleHelper)
 
         CPLString m_osURL{};
-        CPLString m_osSecretAccessKey{};
-        CPLString m_osAccessKeyId{};
-        CPLString m_osSessionToken{};
+        mutable CPLString m_osSecretAccessKey{};
+        mutable CPLString m_osAccessKeyId{};
+        mutable CPLString m_osSessionToken{};
         CPLString m_osEndpoint{};
         CPLString m_osRegion{};
         CPLString m_osRequestPayer{};
@@ -138,6 +142,7 @@ class VSIS3HandleHelper final: public IVSIS3LikeHandleHelper
         CPLString m_osObjectKey{};
         bool m_bUseHTTPS = false;
         bool m_bUseVirtualHosting = false;
+        bool m_bFromEC2 = false;
 
         void RebuildURL() override;
 
@@ -156,7 +161,8 @@ class VSIS3HandleHelper final: public IVSIS3LikeHandleHelper
                                      CPLString& osSecretAccessKey,
                                      CPLString& osAccessKeyId,
                                      CPLString& osSessionToken,
-                                     CPLString& osRegion);
+                                     CPLString& osRegion,
+                                     bool& bFromEC2);
   protected:
 
     public:
@@ -168,7 +174,7 @@ class VSIS3HandleHelper final: public IVSIS3LikeHandleHelper
                     const CPLString& osRequestPayer,
                     const CPLString& osBucket,
                     const CPLString& osObjectKey,
-                    bool bUseHTTPS, bool bUseVirtualHosting);
+                    bool bUseHTTPS, bool bUseVirtualHosting, bool bFromEC2);
        ~VSIS3HandleHelper();
 
         static VSIS3HandleHelper* BuildFromURI(const char* pszURI,
@@ -203,6 +209,8 @@ class VSIS3HandleHelper final: public IVSIS3LikeHandleHelper
         void SetRequestPayer(const CPLString &osStr);
         void SetVirtualHosting(bool b);
 
+        CPLString GetCopySourceHeader() const override { return "x-amz-copy-source"; }
+
         CPLString GetSignedURL(CSLConstList papszOptions);
 
         static void CleanMutex();
@@ -231,6 +239,12 @@ class VSIS3UpdateParams
             poHelper->SetRequestPayer(m_osRequestPayer);
             poHelper->SetVirtualHosting(m_bUseVirtualHosting);
         }
+
+        static std::mutex gsMutex;
+        static std::map< CPLString, VSIS3UpdateParams > goMapBucketsToS3Params;
+        static void UpdateMapFromHandle( IVSIS3LikeHandleHelper* poHandleHelper );
+        static void UpdateHandleFromMap( IVSIS3LikeHandleHelper* poHandleHelper );
+        static void ClearCache();
 };
 
 #endif /* HAVE_CURL */

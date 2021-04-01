@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Brian Case
- * Copyright (c) 2010-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -152,6 +152,7 @@ OGRLIBKMLLayer::OGRLIBKMLLayer( const char *pszLayerName,
 {
     m_poStyleTable = nullptr;
     m_poOgrSRS->SetWellKnownGeogCS( "WGS84" );
+    m_poOgrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     SetDescription( m_poOgrFeatureDefn->GetName() );
     m_poOgrFeatureDefn->Reference();
@@ -383,36 +384,6 @@ OGRLIBKMLLayer::~OGRLIBKMLLayer()
     m_poOgrSRS->Release();
 
     m_poOgrFeatureDefn->Release();
-}
-
-/******************************************************************************
- Method to get the next feature on the layer.
-
- Args:          none
-
- Returns:       The next feature, or NULL if there is no more
-
- This function copied from the sqlite driver.
-******************************************************************************/
-
-OGRFeature *OGRLIBKMLLayer::GetNextFeature()
-{
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if( poFeature == nullptr )
-            return nullptr;
-
-        if( (m_poFilterGeom == nullptr
-             || FilterGeometry( poFeature->GetGeometryRef() ) )
-            && (m_poAttrQuery == nullptr
-                || m_poAttrQuery->Evaluate( poFeature )) )
-        {
-            return poFeature;
-        }
-
-        delete poFeature;
-    }
 }
 
 /******************************************************************************
@@ -883,7 +854,7 @@ int OGRLIBKMLLayer::TestCapability( const char *pszCap )
     else if( EQUAL( pszCap, OLCSequentialWrite ) )
         result = bUpdate;
     else if( EQUAL( pszCap, OLCRandomWrite ) )
-        result = bUpdate;
+        result = bUpdate && m_poKmlUpdate;
     else if( EQUAL( pszCap, OLCFastFeatureCount ) )
         result = FALSE;
     else if( EQUAL( pszCap, OLCFastSetNextByIndex ) )

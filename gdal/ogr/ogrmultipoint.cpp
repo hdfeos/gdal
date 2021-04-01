@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
@@ -96,6 +97,16 @@ OGRMultiPoint& OGRMultiPoint::operator=( const OGRMultiPoint& other )
 }
 
 /************************************************************************/
+/*                               clone()                                */
+/************************************************************************/
+
+OGRMultiPoint *OGRMultiPoint::clone() const
+
+{
+    return new (std::nothrow) OGRMultiPoint(*this);
+}
+
+/************************************************************************/
 /*                          getGeometryType()                           */
 /************************************************************************/
 
@@ -145,104 +156,57 @@ OGRMultiPoint::isCompatibleSubType( OGRwkbGeometryType eGeomType ) const
 /************************************************************************/
 /*                            exportToWkt()                             */
 /*                                                                      */
-/*      Translate this structure into its well known text format       */
-/*      equivalent.  This could be made a lot more CPU efficient.       */
+/*      Translate this structure into its well known text format        */
+/*      equivalent.                                                     */
 /************************************************************************/
 
-OGRErr OGRMultiPoint::exportToWkt( char ** ppszDstText,
-                                   OGRwkbVariant eWkbVariant ) const
-
+std::string OGRMultiPoint::exportToWkt(const OGRWktOptions& opts, OGRErr *err) const
 {
-    size_t nMaxString = static_cast<size_t>(getNumGeometries()) * 22 + 130;
-    size_t nRetLen = 0;
-
-/* -------------------------------------------------------------------- */
-/*      Return MULTIPOINT EMPTY if we get no valid points.              */
-/* -------------------------------------------------------------------- */
-    if( IsEmpty() )
+    try
     {
-        if( eWkbVariant == wkbVariantIso )
+        std::string wkt = getGeometryName();
+        wkt += wktTypeString(opts.variant);
+
+        bool first(true);
+        // OGRMultiPoint has a begin()/end().
+        for(const OGRPoint *poPoint: this)
         {
-            if( (flags & OGR_G_3D) && (flags & OGR_G_MEASURED) )
-                *ppszDstText = CPLStrdup("MULTIPOINT ZM EMPTY");
-            else if( flags & OGR_G_MEASURED )
-                *ppszDstText = CPLStrdup("MULTIPOINT M EMPTY");
-            else if( flags & OGR_G_3D )
-                *ppszDstText = CPLStrdup("MULTIPOINT Z EMPTY");
+            if( poPoint->IsEmpty() )
+                continue;
+
+            if( first )
+                wkt += '(';
             else
-                *ppszDstText = CPLStrdup("MULTIPOINT EMPTY");
+                wkt += ',';
+            first = false;
+
+            if( opts.variant == wkbVariantIso )
+                wkt += '(';
+
+            wkt += OGRMakeWktCoordinateM(poPoint->getX(), poPoint->getY(),
+                    poPoint->getZ(), poPoint->getM(), poPoint->Is3D(),
+                    poPoint->IsMeasured() && (opts.variant == wkbVariantIso),
+                    opts);
+
+            if( opts.variant == wkbVariantIso )
+                wkt += ')';
         }
+
+        if (err)
+            *err = OGRERR_NONE;
+        if (first)
+            wkt += "EMPTY";
         else
-            *ppszDstText = CPLStrdup("MULTIPOINT EMPTY");
-        return OGRERR_NONE;
+            wkt += ')';
+        return wkt;
     }
-
-    *ppszDstText = static_cast<char *>(VSI_MALLOC_VERBOSE( nMaxString ));
-    if( *ppszDstText == nullptr )
-        return OGRERR_NOT_ENOUGH_MEMORY;
-
-    if( eWkbVariant == wkbVariantIso )
+    catch( const std::bad_alloc& e )
     {
-        if( (flags & OGR_G_3D) && (flags & OGR_G_MEASURED) )
-            snprintf( *ppszDstText, nMaxString, "%s ZM (", getGeometryName() );
-        else if( flags & OGR_G_MEASURED )
-            snprintf( *ppszDstText, nMaxString, "%s M (", getGeometryName() );
-        else if( flags & OGR_G_3D )
-            snprintf( *ppszDstText, nMaxString, "%s Z (", getGeometryName() );
-        else
-            snprintf( *ppszDstText, nMaxString, "%s (", getGeometryName() );
+        CPLError(CE_Failure, CPLE_OutOfMemory, "%s", e.what());
+        if (err)
+            *err = OGRERR_FAILURE;
+        return std::string();
     }
-    else
-        snprintf( *ppszDstText, nMaxString, "%s (", getGeometryName() );
-
-    bool bMustWriteComma = false;
-    for( auto&& poPoint: this )
-    {
-        if( poPoint->IsEmpty() )
-        {
-            CPLDebug("OGR",
-                     "OGRMultiPoint::exportToWkt() - skipping POINT EMPTY.");
-            continue;
-        }
-
-        if( bMustWriteComma )
-            strcat( *ppszDstText + nRetLen, "," );
-        bMustWriteComma = true;
-
-        nRetLen += strlen(*ppszDstText + nRetLen);
-
-        if( nMaxString < nRetLen + 100 )
-        {
-            nMaxString = nMaxString * 2;
-            *ppszDstText =
-                static_cast<char *>(CPLRealloc(*ppszDstText, nMaxString));
-        }
-
-        if( eWkbVariant == wkbVariantIso )
-        {
-            strcat( *ppszDstText + nRetLen, "(" );
-            nRetLen++;
-        }
-
-        OGRMakeWktCoordinateM(
-            *ppszDstText + nRetLen,
-            poPoint->getX(),
-            poPoint->getY(),
-            poPoint->getZ(),
-            poPoint->getM(),
-            poPoint->Is3D(),
-            poPoint->IsMeasured() && (eWkbVariant == wkbVariantIso));
-
-        if( eWkbVariant == wkbVariantIso )
-        {
-            strcat( *ppszDstText + nRetLen, ")" );
-            nRetLen++;
-        }
-    }
-
-    strcat( *ppszDstText+nRetLen, ")" );
-
-    return OGRERR_NONE;
 }
 
 /************************************************************************/

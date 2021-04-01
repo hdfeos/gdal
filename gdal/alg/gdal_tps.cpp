@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -180,7 +180,7 @@ void *GDALCreateTPSTransformerInt( int nGCPCount, const GDAL_GCP *pasGCPList,
     psInfo->sTI.pfnCreateSimilar = GDALCreateSimilarTPSTransformer;
 
 /* -------------------------------------------------------------------- */
-/*      Attach all the points to the transformation.                    */
+/*      Attach (non-redundant) points to the transformation.            */
 /* -------------------------------------------------------------------- */
     std::map< std::pair<double, double>, int > oMapPixelLineToIdx;
     std::map< std::pair<double, double>, int > oMapXYToIdx;

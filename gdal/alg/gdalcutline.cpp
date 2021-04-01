@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2008, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -309,7 +309,8 @@ GDALWarpCutlineMasker( void *pMaskFuncArg,
     if( wkbFlatten(OGR_G_GetGeometryType(hPolygon)) != wkbPolygon
         && wkbFlatten(OGR_G_GetGeometryType(hPolygon)) != wkbMultiPolygon )
     {
-        CPLAssert( false );
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "Cutline should be a polygon or a multipolygon");
         return CE_Failure;
     }
 

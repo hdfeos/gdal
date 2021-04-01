@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  The OGRGeomFieldDefn class implementation.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -80,7 +80,13 @@ OGRGeomFieldDefn::OGRGeomFieldDefn( const OGRGeomFieldDefn *poPrototype )
 
 {
     Initialize( poPrototype->GetNameRef(), poPrototype->GetType() );
-    SetSpatialRef( poPrototype->GetSpatialRef() );
+    auto l_poSRS = poPrototype->GetSpatialRef();
+    if( l_poSRS )
+    {
+        l_poSRS = l_poSRS->Clone();
+        SetSpatialRef( l_poSRS );
+        l_poSRS->Release();
+    }
     SetNullable( poPrototype->IsNullable() );
 }
 
@@ -607,7 +613,7 @@ int OGR_GFld_IsNullable( OGRGeomFieldDefnH hDefn )
  * By default, fields are nullable, so this method is generally called with
  * FALSE to set a not-null constraint.
  *
- * Drivers that support writing not-null constraint will advertize the
+ * Drivers that support writing not-null constraint will advertise the
  * GDAL_DCAP_NOTNULL_GEOMFIELDS driver metadata item.
  *
  * This method is the same as the C function OGR_GFld_SetNullable().
@@ -626,7 +632,7 @@ int OGR_GFld_IsNullable( OGRGeomFieldDefnH hDefn )
  * By default, fields are nullable, so this method is generally called with
  * FALSE to set a not-null constraint.
  *
- * Drivers that support writing not-null constraint will advertize the
+ * Drivers that support writing not-null constraint will advertise the
  * GDAL_DCAP_NOTNULL_GEOMFIELDS driver metadata item.
  *
  * This method is the same as the C++ method OGRGeomFieldDefn::SetNullable().

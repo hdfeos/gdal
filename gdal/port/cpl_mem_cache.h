@@ -172,6 +172,16 @@ class Cache {
     return cache_.find(k) != cache_.end();
   }
 
+  bool getOldestEntry(Key& kOut, Value& vOut) {
+    Guard g(lock_);
+    if( keys_.empty() ) {
+        return false;
+    }
+    kOut = keys_.back().key;
+    vOut = keys_.back().value;
+    return true;
+  }
+
   size_t getMaxSize() const { return maxSize_; }
   size_t getElasticity() const { return elasticity_; }
   size_t getMaxAllowedSize() const { return maxSize_ + elasticity_; }
@@ -180,6 +190,12 @@ class Cache {
     Guard g(lock_);
     std::for_each(keys_.begin(), keys_.end(), f);
   }
+
+  Cache(Cache&& other):
+    cache_(std::move(other.cache_)),
+    keys_(std::move(other.keys_)),
+    maxSize_(other.maxSize_),
+    elasticity_(other.elasticity_) {}
 
  protected:
   size_t prune() {
@@ -197,7 +213,7 @@ class Cache {
   }
 
  private:
-  // Dissallow copying.
+  // Disallow copying.
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
 

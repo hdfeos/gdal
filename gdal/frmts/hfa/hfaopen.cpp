@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Intergraph Corporation
- * Copyright (c) 2007-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -414,14 +414,14 @@ int HFAClose( HFAHandle hHFA )
 
     if( hHFA->pProParameters != nullptr )
     {
-        Eprj_ProParameters *psProParms = (Eprj_ProParameters *)
+        Eprj_ProParameters *psProParams = (Eprj_ProParameters *)
             hHFA->pProParameters;
 
-        CPLFree(psProParms->proExeName);
-        CPLFree(psProParms->proName);
-        CPLFree(psProParms->proSpheroid.sphereName);
+        CPLFree(psProParams->proExeName);
+        CPLFree(psProParams->proName);
+        CPLFree(psProParams->proSpheroid.sphereName);
 
-        CPLFree(psProParms);
+        CPLFree(psProParams);
     }
 
     if( hHFA->pDatum != nullptr )
@@ -1202,6 +1202,9 @@ char *HFAGetPEString( HFAHandle hHFA )
 CPLErr HFASetPEString( HFAHandle hHFA, const char *pszPEString )
 
 {
+    if( !CPLTestBool(CPLGetConfigOption("HFA_WRITE_PE_STRING", "YES")) )
+        return CE_None;
+
     // Loop over bands, setting information on each one.
     for( int iBand = 0; iBand < hHFA->nBands; iBand++ )
     {
@@ -1313,36 +1316,43 @@ const Eprj_ProParameters *HFAGetProParameters( HFAHandle hHFA )
         return nullptr;
 
     // Allocate the structure.
-    Eprj_ProParameters *psProParms = static_cast<Eprj_ProParameters *>(
+    Eprj_ProParameters *psProParams = static_cast<Eprj_ProParameters *>(
         CPLCalloc(sizeof(Eprj_ProParameters), 1));
 
     // Fetch the fields.
-    psProParms->proType = (Eprj_ProType)poMIEntry->GetIntField("proType");
-    psProParms->proNumber = poMIEntry->GetIntField("proNumber");
-    psProParms->proExeName = CPLStrdup(poMIEntry->GetStringField("proExeName"));
-    psProParms->proName = CPLStrdup(poMIEntry->GetStringField("proName"));
-    psProParms->proZone = poMIEntry->GetIntField("proZone");
+    const int proType = poMIEntry->GetIntField("proType");
+    if( proType != EPRJ_INTERNAL && proType != EPRJ_EXTERNAL )
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Wrong value for proType");
+        CPLFree(psProParams);
+        return nullptr;
+    }
+    psProParams->proType = static_cast<Eprj_ProType>(proType);
+    psProParams->proNumber = poMIEntry->GetIntField("proNumber");
+    psProParams->proExeName = CPLStrdup(poMIEntry->GetStringField("proExeName"));
+    psProParams->proName = CPLStrdup(poMIEntry->GetStringField("proName"));
+    psProParams->proZone = poMIEntry->GetIntField("proZone");
 
     for( int i = 0; i < 15; i++ )
     {
         char szFieldName[40] = {};
 
         snprintf(szFieldName, sizeof(szFieldName), "proParams[%d]", i);
-        psProParms->proParams[i] = poMIEntry->GetDoubleField(szFieldName);
+        psProParams->proParams[i] = poMIEntry->GetDoubleField(szFieldName);
     }
 
-    psProParms->proSpheroid.sphereName =
+    psProParams->proSpheroid.sphereName =
         CPLStrdup(poMIEntry->GetStringField("proSpheroid.sphereName"));
-    psProParms->proSpheroid.a = poMIEntry->GetDoubleField("proSpheroid.a");
-    psProParms->proSpheroid.b = poMIEntry->GetDoubleField("proSpheroid.b");
-    psProParms->proSpheroid.eSquared =
+    psProParams->proSpheroid.a = poMIEntry->GetDoubleField("proSpheroid.a");
+    psProParams->proSpheroid.b = poMIEntry->GetDoubleField("proSpheroid.b");
+    psProParams->proSpheroid.eSquared =
         poMIEntry->GetDoubleField("proSpheroid.eSquared");
-    psProParms->proSpheroid.radius =
+    psProParams->proSpheroid.radius =
         poMIEntry->GetDoubleField("proSpheroid.radius");
 
-    hHFA->pProParameters = (void *)psProParms;
+    hHFA->pProParameters = (void *)psProParams;
 
-    return psProParms;
+    return psProParams;
 }
 
 /************************************************************************/
@@ -1480,20 +1490,20 @@ CPLErr HFASetDatum( HFAHandle hHFA, const Eprj_Datum *poDatum )
     for( int iBand = 0; iBand < hHFA->nBands; iBand++ )
     {
         // Create a new Projection if there isn't one present already.
-        HFAEntry *poProParms =
+        HFAEntry *poProParams =
             hHFA->papoBand[iBand]->poNode->GetNamedChild("Projection");
-        if( poProParms == nullptr )
+        if( poProParams == nullptr )
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "Can't add Eprj_Datum with no Eprj_ProjParameters.");
             return CE_Failure;
         }
 
-        HFAEntry *poDatumEntry = poProParms->GetNamedChild("Datum");
+        HFAEntry *poDatumEntry = poProParams->GetNamedChild("Datum");
         if( poDatumEntry == nullptr )
         {
             poDatumEntry =
-                HFAEntry::New(hHFA, "Datum", "Eprj_Datum", poProParms);
+                HFAEntry::New(hHFA, "Datum", "Eprj_Datum", poProParams);
         }
 
         poDatumEntry->MarkDirty();
@@ -2160,6 +2170,9 @@ HFAHandle HFACreate( const char *pszFilename,
             ((( nBlockSize < 32 ) || (nBlockSize > 2048)) &&
             !CPLTestBool(CPLGetConfigOption("FORCE_BLOCKSIZE", "NO"))) )
         {
+            if( nBlockSize != 0 )
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "Forcing BLOCKSIZE to %d", 64);
             nBlockSize = 64;
         }
     }
@@ -2180,8 +2193,14 @@ HFAHandle HFACreate( const char *pszFilename,
         return nullptr;
     }
     const int nBlocks = nBlocksPerRow * nBlocksPerColumn;
-    const int nBytesPerBlock =
-        (nBlockSize * nBlockSize * HFAGetDataTypeBits(eDataType) + 7) / 8;
+    const GInt64 nBytesPerBlock64 =
+        (static_cast<GInt64>(nBlockSize) * nBlockSize * HFAGetDataTypeBits(eDataType) + 7) / 8;
+    if( nBytesPerBlock64 > INT_MAX )
+    {
+        CPLError(CE_Failure, CPLE_NotSupported, "Too large block");
+        return nullptr;
+    }
+    const int nBytesPerBlock = static_cast<int>(nBytesPerBlock64);
 
     // Create the low level structure.
     HFAHandle psInfo = HFACreateLL(pszFilename);
@@ -2739,7 +2758,7 @@ CPLErr HFASetMetadata( HFAHandle hHFA, int nBand, char **papszMD )
                         else
                         {
                             // Histogram were written as doubles, as is now the
-                            // default behaviour.
+                            // default behavior.
                             bRet &= VSIFSeekL(hHFA->fp, nOffset + 8 * nBin,
                                               SEEK_SET) >= 0;
                             double nValue = CPLAtof(pszWork);

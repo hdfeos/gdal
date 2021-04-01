@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -104,8 +104,14 @@ class EHdrDataset final: public RawDataset
 
     CPLErr GetGeoTransform( double *padfTransform ) override;
     CPLErr SetGeoTransform( double *padfTransform ) override;
-    const char *GetProjectionRef() override;
-    CPLErr SetProjection( const char * ) override;
+    const char *_GetProjectionRef() override;
+    CPLErr _SetProjection( const char * ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
     char **GetFileList() override;
 
@@ -113,7 +119,7 @@ class EHdrDataset final: public RawDataset
     static GDALDataset *Open( GDALOpenInfo *, bool bFileSizeCheck );
     static GDALDataset *Create( const char *pszFilename,
                                 int nXSize, int nYSize, int nBands,
-                                GDALDataType eType, char **papszParmList );
+                                GDALDataType eType, char **papszParamList );
     static GDALDataset *CreateCopy( const char *pszFilename,
                                     GDALDataset *poSrcDS,
                                     int bStrict, char **papszOptions,

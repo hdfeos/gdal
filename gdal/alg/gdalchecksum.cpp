@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2003, Frank Warmerdam
- * Copyright (c) 2007-2008, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2008, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -116,7 +116,7 @@ GDALChecksumImage( GDALRasterBandH hBand,
                 }
                 else
                 {
-                    // Standard behaviour of GDALCopyWords when converting
+                    // Standard behavior of GDALCopyWords when converting
                     // from floating point to Int32.
                     dfVal += 0.5;
 

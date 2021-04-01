@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -32,6 +32,7 @@
 
 #include <cstring>
 #include <cstddef>
+#include <new>
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
@@ -95,6 +96,16 @@ OGRPolygon& OGRPolygon::operator=( const OGRPolygon& other )
         OGRCurvePolygon::operator=( other );
     }
     return *this;
+}
+
+/************************************************************************/
+/*                               clone()                                */
+/************************************************************************/
+
+OGRPolygon *OGRPolygon::clone() const
+
+{
+    return new (std::nothrow) OGRPolygon(*this);
 }
 
 /************************************************************************/
@@ -618,145 +629,63 @@ OGRErr OGRPolygon::importFromWKTListOnly( const char ** ppszInput,
 /*      equivalent.  This could be made a lot more CPU efficient.       */
 /************************************************************************/
 
-OGRErr OGRPolygon::exportToWkt( char ** ppszDstText,
-                                OGRwkbVariant eWkbVariant ) const
-
+std::string OGRPolygon::exportToWkt(const OGRWktOptions& opts,
+                                    OGRErr *err) const
 {
-    bool bMustWriteComma = false;
-
+    std::string wkt;
 /* -------------------------------------------------------------------- */
 /*      If we have no valid exterior ring, return POLYGON EMPTY.        */
 /* -------------------------------------------------------------------- */
-    if( getExteriorRing() == nullptr ||
-        getExteriorRing()->IsEmpty() )
-    {
-        if( eWkbVariant == wkbVariantIso )
-        {
-            if( (flags & OGR_G_3D) && (flags & OGR_G_MEASURED) )
-                *ppszDstText = CPLStrdup((CPLString(getGeometryName()) + " ZM EMPTY").c_str());
-            else if( flags & OGR_G_MEASURED )
-                *ppszDstText = CPLStrdup((CPLString(getGeometryName()) + " M EMPTY").c_str());
-            else if( flags & OGR_G_3D )
-                *ppszDstText = CPLStrdup((CPLString(getGeometryName()) + " Z EMPTY").c_str());
-            else
-                *ppszDstText = CPLStrdup((CPLString(getGeometryName()) + " EMPTY").c_str());
-        }
-        else
-            *ppszDstText = CPLStrdup((CPLString(getGeometryName()) + " EMPTY").c_str());
-        return OGRERR_NONE;
-    }
+    wkt = getGeometryName();
+    wkt += wktTypeString(opts.variant);
+    if( getExteriorRing() == nullptr || getExteriorRing()->IsEmpty() )
+        wkt += "EMPTY";
 
 /* -------------------------------------------------------------------- */
 /*      Build a list of strings containing the stuff for each ring.     */
 /* -------------------------------------------------------------------- */
-    char **papszRings =
-        static_cast<char **>(CPLCalloc(sizeof(char *), oCC.nCurveCount));
-    size_t nCumulativeLength = 0;
-    size_t nNonEmptyRings = 0;
-    size_t *pnRingBeginning =
-        static_cast<size_t *>(CPLCalloc(sizeof(size_t), oCC.nCurveCount));
 
-    OGRErr eErr;
-    for( int iRing = 0; iRing < oCC.nCurveCount; iRing++ )
-    {
-        OGRLinearRing* poLR = oCC.papoCurves[iRing]->toLinearRing();
-        //poLR->setFlags( getFlags() );
-        poLR->set3D(Is3D());
-        poLR->setMeasured(IsMeasured());
-        if( poLR->getNumPoints() == 0 )
-        {
-            papszRings[iRing] = nullptr;
-            continue;
-        }
-
-        eErr = poLR->exportToWkt( &(papszRings[iRing]), eWkbVariant );
-        if( eErr != OGRERR_NONE )
-            goto error;
-
-        if( STARTS_WITH_CI(papszRings[iRing], "LINEARRING ZM (") )
-            pnRingBeginning[iRing] = 14;
-        else if( STARTS_WITH_CI(papszRings[iRing], "LINEARRING M (") )
-            pnRingBeginning[iRing] = 13;
-        else if( STARTS_WITH_CI(papszRings[iRing], "LINEARRING Z (") )
-            pnRingBeginning[iRing] = 13;
-        else if( STARTS_WITH_CI(papszRings[iRing], "LINEARRING (") )
-            pnRingBeginning[iRing] = 11;
-        else
-        {
-            CPLAssert(false);
-        }
-
-        nCumulativeLength += strlen(papszRings[iRing] + pnRingBeginning[iRing]);
-
-        nNonEmptyRings++;
-    }
-
-/* -------------------------------------------------------------------- */
-/*      Allocate exactly the right amount of space for the              */
-/*      aggregated string.                                              */
-/* -------------------------------------------------------------------- */
-    *ppszDstText = static_cast<char*>(VSI_MALLOC_VERBOSE(
-        nCumulativeLength + nNonEmptyRings + strlen(getGeometryName()) + strlen(" ZM ()") + 1));
-
-    if( *ppszDstText == nullptr )
-    {
-        eErr = OGRERR_NOT_ENOUGH_MEMORY;
-        goto error;
-    }
-
-/* -------------------------------------------------------------------- */
-/*      Build up the string, freeing temporary strings as we go.        */
-/* -------------------------------------------------------------------- */
-    if( eWkbVariant == wkbVariantIso )
-    {
-        if( (flags & OGR_G_3D) && (flags & OGR_G_MEASURED) )
-            strcpy( *ppszDstText, (CPLString(getGeometryName()) + " ZM (").c_str() );
-        else if( flags & OGR_G_MEASURED )
-            strcpy( *ppszDstText, (CPLString(getGeometryName()) + " M (").c_str() );
-        else if( flags & OGR_G_3D )
-            strcpy( *ppszDstText, (CPLString(getGeometryName()) + " Z (").c_str() );
-        else
-            strcpy( *ppszDstText, (CPLString(getGeometryName()) + " (").c_str() );
-    }
     else
-        strcpy( *ppszDstText, (CPLString(getGeometryName()) + " (").c_str() );
-    nCumulativeLength = strlen(*ppszDstText);
-
-    for( int iRing = 0; iRing < oCC.nCurveCount; iRing++ )
     {
-        if( papszRings[iRing] == nullptr )
+        try
         {
-            CPLDebug( "OGR",
-                      "OGRPolygon::exportToWkt() - skipping empty ring.");
-            continue;
+            bool first(true);
+            wkt += '(';
+            for( int iRing = 0; iRing < oCC.nCurveCount; iRing++ )
+            {
+                OGRLinearRing* poLR = oCC.papoCurves[iRing]->toLinearRing();
+                if( poLR->getNumPoints() )
+                {
+                    if (!first)
+                        wkt += ',';
+                    first = false;
+                    OGRErr subgeomErr = OGRERR_NONE;
+                    std::string tempWkt = poLR->exportToWkt(opts, &subgeomErr);
+                    if ( subgeomErr != OGRERR_NONE )
+                    {
+                        if( err )
+                            *err = subgeomErr;
+                        return std::string();
+                    }
+
+                    // Remove leading "LINEARRING..."
+                    wkt += tempWkt.substr(tempWkt.find_first_of('('));
+                }
+            }
+            wkt += ')';
         }
-
-        if( bMustWriteComma )
-            (*ppszDstText)[nCumulativeLength++] = ',';
-        bMustWriteComma = true;
-
-        size_t nRingLen = strlen(papszRings[iRing] + pnRingBeginning[iRing]);
-        memcpy( *ppszDstText + nCumulativeLength,
-                papszRings[iRing] + pnRingBeginning[iRing],
-                nRingLen );
-        nCumulativeLength += nRingLen;
-        VSIFree( papszRings[iRing] );
+        catch( const std::bad_alloc& e )
+        {
+            CPLError(CE_Failure, CPLE_OutOfMemory, "%s", e.what());
+            if (err)
+                *err = OGRERR_FAILURE;
+            return std::string();
+        }
     }
 
-    (*ppszDstText)[nCumulativeLength++] = ')';
-    (*ppszDstText)[nCumulativeLength] = '\0';
-
-    CPLFree( papszRings );
-    CPLFree( pnRingBeginning );
-
-    return OGRERR_NONE;
-
-error:
-    for( int iRing = 0; iRing < oCC.nCurveCount; iRing++ )
-        CPLFree(papszRings[iRing]);
-    CPLFree(papszRings);
-    CPLFree( pnRingBeginning );
-    return eErr;
+    if (err)
+        *err = OGRERR_NONE;
+    return wkt;
 }
 
 /************************************************************************/
@@ -819,7 +748,7 @@ OGRPolygon* OGRPolygon::CurvePolyToPoly(
     CPL_UNUSED double dfMaxAngleStepSizeDegrees,
     CPL_UNUSED const char* const* papszOptions ) const
 {
-    return clone()->toPolygon();
+    return clone();
 }
 
 /************************************************************************/

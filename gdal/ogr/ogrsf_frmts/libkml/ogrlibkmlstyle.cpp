@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Brian Case
- * Copyright (c) 2011-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -113,14 +113,7 @@ StylePtr addstylestring2kml(
             {
                 poKmlLineStyle = poKmlFactory->CreateLineStyle();
 
-                OGRStylePen *poStylePen = dynamic_cast<OGRStylePen *>(poOgrST);
-                if( poStylePen == nullptr )
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "dynamic_cast failed.");
-                    delete poOgrSM;
-                    return nullptr;
-                }
+                OGRStylePen *poStylePen = cpl::down_cast<OGRStylePen *>(poOgrST);
 
                 /***** pen color *****/
                 GBool nullcheck = FALSE;
@@ -152,14 +145,7 @@ StylePtr addstylestring2kml(
             case OGRSTCBrush:
             {
                 OGRStyleBrush * const poStyleBrush =
-                    dynamic_cast<OGRStyleBrush *>(poOgrST);
-                if( poStyleBrush == nullptr )
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "dynamic_cast failed.");
-                    delete poOgrSM;
-                    return nullptr;
-                }
+                    cpl::down_cast<OGRStyleBrush *>(poOgrST);
 
                 /***** brush color *****/
                 GBool nullcheck = FALSE;
@@ -184,14 +170,7 @@ StylePtr addstylestring2kml(
             case OGRSTCSymbol:
             {
                 OGRStyleSymbol * const poStyleSymbol =
-                    dynamic_cast<OGRStyleSymbol *>(poOgrST);
-                if( poStyleSymbol == nullptr )
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "dynamic_cast failed.");
-                    delete poOgrSM;
-                    return nullptr;
-                }
+                    cpl::down_cast<OGRStyleSymbol *>(poOgrST);
 
                 /***** id (kml icon) *****/
                 GBool nullcheck = FALSE;
@@ -291,14 +270,7 @@ StylePtr addstylestring2kml(
                 GBool nullcheck2;
 
                 OGRStyleLabel *poStyleLabel =
-                    dynamic_cast<OGRStyleLabel *>(poOgrST);
-                if( poStyleLabel == nullptr )
-                {
-                    CPLError(CE_Failure, CPLE_AppDefined,
-                             "dynamic_cast failed.");
-                    delete poOgrSM;
-                    return nullptr;
-                }
+                    cpl::down_cast<OGRStyleLabel *>(poOgrST);
 
                 /***** color *****/
                 const char *pszcolor = poStyleLabel->ForeColor( nullcheck );
@@ -649,7 +621,8 @@ void kml2stylestring( StylePtr poKmlStyle, OGRStyleMgr * poOgrSM )
             if( !poOgrST )
                 continue;
 
-            if( poOgrST->GetType() == OGRSTCPen )
+            if( poOgrST->GetType() == OGRSTCPen &&
+                poOgrTmpST == nullptr )
             {
                 poOgrTmpST = poOgrST;
             }
@@ -685,7 +658,8 @@ void kml2stylestring( StylePtr poKmlStyle, OGRStyleMgr * poOgrSM )
             if( !poOgrST )
                 continue;
 
-            if( poOgrST->GetType() == OGRSTCBrush )
+            if( poOgrST->GetType() == OGRSTCBrush &&
+                poOgrTmpST == nullptr )
             {
                 poOgrTmpST = poOgrST;
             }
@@ -721,7 +695,8 @@ void kml2stylestring( StylePtr poKmlStyle, OGRStyleMgr * poOgrSM )
             if( !poOgrST )
                 continue;
 
-            if( poOgrST->GetType() == OGRSTCSymbol )
+            if( poOgrST->GetType() == OGRSTCSymbol &&
+                poOgrTmpST == nullptr )
             {
                 poOgrTmpST = poOgrST;
             }
@@ -757,7 +732,8 @@ void kml2stylestring( StylePtr poKmlStyle, OGRStyleMgr * poOgrSM )
             if( !poOgrST )
                 continue;
 
-            if( poOgrST->GetType() == OGRSTCLabel )
+            if( poOgrST->GetType() == OGRSTCLabel &&
+                poOgrTmpST == nullptr )
             {
                 poOgrTmpST = poOgrST;
             }

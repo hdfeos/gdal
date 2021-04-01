@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -140,7 +140,7 @@ class ELASDataset final: public GDALPamDataset
     static int          Identify( GDALOpenInfo * );
     static GDALDataset *Create( const char * pszFilename,
                                 int nXSize, int nYSize, int nBands,
-                                GDALDataType eType, char ** papszParmList );
+                                GDALDataType eType, char ** papszParamList );
 
     void FlushCache() override;
 };
@@ -506,7 +506,7 @@ GDALDataset *ELASDataset::Open( GDALOpenInfo * poOpenInfo )
 GDALDataset *ELASDataset::Create( const char * pszFilename,
                                   int nXSize, int nYSize, int nBands,
                                   GDALDataType eType,
-                                  char ** /* notdef: papszParmList */ )
+                                  char ** /* notdef: papszParamList */ )
 
 {
 /* -------------------------------------------------------------------- */

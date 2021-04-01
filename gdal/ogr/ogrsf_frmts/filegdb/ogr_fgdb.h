@@ -7,7 +7,7 @@
 *
 ******************************************************************************
 * Copyright (c) 2009, Ragi Yaser Burhum
- * Copyright (c) 2011-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2014, Even Rouault <even dot rouault at spatialys.com>
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -71,7 +71,7 @@ class FGdbDriver;
 /*                           FGdbBaseLayer                              */
 /************************************************************************/
 
-class FGdbBaseLayer : public OGRLayer
+class FGdbBaseLayer CPL_NON_FINAL: public OGRLayer
 {
 protected:
 
@@ -88,6 +88,7 @@ protected:
 
   bool  m_suppressColumnMappingError;
   bool  m_forceMulti;
+  bool  m_bTimeInUTC = false;
 
   bool OGRFeatureFromGdbRow(Row* pRow, OGRFeature** ppFeature);
 
@@ -223,6 +224,8 @@ protected:
 
   bool GDBToOGRFields(CPLXMLNode* psFields);
   bool ParseGeometryDef(CPLXMLNode* psGeometryDef);
+
+  static
   bool ParseSpatialReference(CPLXMLNode* psSpatialRefNode, std::string* pOutWkt,
                              std::string* pOutWKID, std::string* pOutLatestWKID);
 
@@ -239,7 +242,6 @@ protected:
 
   std::wstring m_wstrSubfields;
   std::wstring m_wstrWhereClause;
-  OGRGeometry* m_pOGRFilterGeometry;
 
   bool        m_bFilterDirty; //optimization to avoid multiple calls to search until necessary
 

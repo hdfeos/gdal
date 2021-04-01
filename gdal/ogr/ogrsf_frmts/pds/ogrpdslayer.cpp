@@ -2,10 +2,10 @@
  *
  * Project:  PDS Translator
  * Purpose:  Implements OGRPDSLayer class.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -310,6 +310,11 @@ void OGRPDSLayer::ReadStructure(CPLString osStructureFilename)
                     CPLError(CE_Failure, CPLE_AppDefined,
                                 "Field %d out of record extents", nFields);
                     CSLDestroy(papszTokens);
+                    if( nFields == 0 )
+                    {
+                        CPLFree(pasFieldDesc);
+                        pasFieldDesc = nullptr;
+                    }
                     break;
                 }
             }
@@ -471,30 +476,6 @@ void OGRPDSLayer::ResetReading()
 {
     nNextFID = 0;
     VSIFSeekL( fpPDS, nStartBytes, SEEK_SET );
-}
-
-/************************************************************************/
-/*                           GetNextFeature()                           */
-/************************************************************************/
-
-OGRFeature *OGRPDSLayer::GetNextFeature()
-{
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if (poFeature == nullptr)
-            return nullptr;
-
-        if((m_poFilterGeom == nullptr
-            || FilterGeometry( poFeature->GetGeometryRef() ) )
-        && (m_poAttrQuery == nullptr
-            || m_poAttrQuery->Evaluate( poFeature )) )
-        {
-            return poFeature;
-        }
-
-        delete poFeature;
-    }
 }
 
 /************************************************************************/

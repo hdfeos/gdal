@@ -8,7 +8,7 @@
 ******************************************************************************
 * Copyright (c) 2010, Ragi Yaser Burhum
 * Copyright (c) 2011, Paul Ramsey <pramsey at cleverelephant.ca>
- * Copyright (c) 2011-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2014, Even Rouault <even dot rouault at spatialys.com>
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -492,13 +492,14 @@ bool GDBGeometryToOGRGeometry(bool forceMulti, FileGDBAPI::ShapeBuffer* pGdbGeom
 
 bool GDBToOGRSpatialReference(const string & wkt, OGRSpatialReference** ppSR)
 {
-    if (wkt.size() <= 0)
+    if (wkt.empty())
     {
         CPLError( CE_Warning, CPLE_AppDefined, "ESRI Spatial Reference is NULL");
         return false;
     }
 
     *ppSR = new OGRSpatialReference(wkt.c_str());
+    (*ppSR)->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     OGRErr result = (*ppSR)->morphFromESRI();
 
@@ -514,6 +515,7 @@ bool GDBToOGRSpatialReference(const string & wkt, OGRSpatialReference** ppSR)
             {
                 (*ppSR)->Release();
                 (*ppSR) = reinterpret_cast<OGRSpatialReference*>(pahSRS[0]);
+                (*ppSR)->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 CPLFree(pahSRS);
             }
             else
@@ -621,7 +623,7 @@ std::string FGDBEscapeReservedKeywords(const std::string& name)
                                     "SET", "TABLE", "UPDATE", "VALUES", "WHERE", nullptr};
 
     // Append an underscore to any FGDB reserved words used as field names
-    // This is the same behaviour ArcCatalog follows.
+    // This is the same behavior ArcCatalog follows.
     for (int i = 0; RESERVED_WORDS[i] != nullptr; i++)
     {
         const char* w = RESERVED_WORDS[i];

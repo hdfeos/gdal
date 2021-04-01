@@ -7,10 +7,10 @@
 # Purpose:  Generate test files that can be used to exercise the points tested
 #           by the OGC KML 2.2 – Abstract Test Suite
 #           (http://portal.opengeospatial.org/files/?artifact_id=27811)
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2014, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2014, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -264,7 +264,7 @@ eiffel_tower_highlight:SYMBOL(id:"http://upload.wikimedia.org/wikipedia/commons/
     lyr.CreateFeature(feat)
 
     feat = ogr.Feature(lyr.GetLayerDefn())
-    feat.SetField("photooverlay", "http://tile.openstreetmap.org/$[level]/$[x]/$[y].png")
+    feat.SetField("photooverlay", "http://even.rouault.free.fr/kml/gdalicon_$[level]_$[x]_$[y].png")
     feat.SetField("imagepyramid_tilesize", 256)
     feat.SetField("imagepyramid_maxwidth", 512)
     feat.SetField("imagepyramid_maxheight", 512)
@@ -354,8 +354,6 @@ def generate_kmlsuperoverlay(filename):
     del ds
     src_ds = None
 
-
-gdaltest_list = []
 
 if __name__ == '__main__':
 

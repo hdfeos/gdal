@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -584,20 +584,20 @@ void EHdrDataset::RewriteCLR( GDALRasterBand* poBand ) const
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *EHdrDataset::GetProjectionRef()
+const char *EHdrDataset::_GetProjectionRef()
 
 {
     if (pszProjection && strlen(pszProjection) > 0)
         return pszProjection;
 
-    return GDALPamDataset::GetProjectionRef();
+    return GDALPamDataset::_GetProjectionRef();
 }
 
 /************************************************************************/
 /*                           SetProjection()                            */
 /************************************************************************/
 
-CPLErr EHdrDataset::SetProjection( const char *pszSRS )
+CPLErr EHdrDataset::_SetProjection( const char *pszSRS )
 
 {
     // Reset coordinate system on the dataset.
@@ -1674,7 +1674,7 @@ GDALDataset *EHdrDataset::Open( GDALOpenInfo * poOpenInfo, bool bFileSizeCheck )
         for( int i = 1; i <= poDS->nBands; i++ )
         {
             EHdrRasterBand *poBand =
-                    dynamic_cast<EHdrRasterBand*>(poDS->GetRasterBand(i));
+                    cpl::down_cast<EHdrRasterBand*>(poDS->GetRasterBand(i));
             poBand->m_poColorTable = poDS->m_poColorTable;
             poBand->m_poRAT = poDS->m_poRAT;
             poBand->SetColorInterpretation(GCI_PaletteIndex);
@@ -1702,7 +1702,7 @@ GDALDataset *EHdrDataset::Open( GDALOpenInfo * poOpenInfo, bool bFileSizeCheck )
 GDALDataset *EHdrDataset::Create( const char * pszFilename,
                                   int nXSize, int nYSize, int nBands,
                                   GDALDataType eType,
-                                  char **papszParmList )
+                                  char **papszParamList )
 
 {
     // Verify input options.
@@ -1763,13 +1763,13 @@ GDALDataset *EHdrDataset::Create( const char * pszFilename,
     // Decide how many bits the file should have.
     int nBits = GDALGetDataTypeSize(eType);
 
-    if( CSLFetchNameValue(papszParmList, "NBITS") != nullptr )
-        nBits = atoi(CSLFetchNameValue(papszParmList, "NBITS"));
+    if( CSLFetchNameValue(papszParamList, "NBITS") != nullptr )
+        nBits = atoi(CSLFetchNameValue(papszParamList, "NBITS"));
 
     const int nRowBytes = (nBits * nXSize + 7) / 8;
 
     // Check for signed byte.
-    const char *pszPixelType = CSLFetchNameValue(papszParmList, "PIXELTYPE");
+    const char *pszPixelType = CSLFetchNameValue(papszParamList, "PIXELTYPE");
     if( pszPixelType == nullptr )
         pszPixelType = "";
 
@@ -2077,7 +2077,7 @@ void GDALRegister_EHdr()
     poDriver->SetDescription("EHdr");
     poDriver->SetMetadataItem(GDAL_DCAP_RASTER, "YES");
     poDriver->SetMetadataItem(GDAL_DMD_LONGNAME, "ESRI .hdr Labelled");
-    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "frmt_various.html#EHdr");
+    poDriver->SetMetadataItem(GDAL_DMD_HELPTOPIC, "drivers/raster/ehdr.html");
     poDriver->SetMetadataItem(GDAL_DMD_EXTENSION, "bil");
     poDriver->SetMetadataItem(GDAL_DMD_CREATIONDATATYPES,
                               "Byte Int16 UInt16 Int32 UInt32 Float32");

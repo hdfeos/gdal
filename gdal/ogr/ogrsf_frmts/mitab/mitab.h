@@ -75,7 +75,7 @@ typedef enum
  * be available for any type of MapInfo dataset.
  *--------------------------------------------------------------------*/
 
-class IMapInfoFile : public OGRLayer
+class IMapInfoFile CPL_NON_FINAL: public OGRLayer
 {
     CPL_DISALLOW_COPY_ASSIGN(IMapInfoFile)
 
@@ -85,7 +85,7 @@ class IMapInfoFile : public OGRLayer
     GBool               m_bBoundsSet;
 
     char                *m_pszCharset;
-
+    std::set<CPLString> m_oSetFields{};
     TABFeature*         CreateTABFeature(OGRFeature *poFeature);
 
   public:
@@ -178,6 +178,7 @@ class IMapInfoFile : public OGRLayer
     void SetEncoding( const char* );
     const char* GetEncoding() const;
     int TestUtf8Capability() const;
+    CPLString NormalizeFieldName(const char *pszName) const;
     ///////////////
     // semi-private.
     virtual int  GetProjInfo(TABProjInfo *poPI) = 0;
@@ -216,7 +217,6 @@ class TABFile final : public IMapInfoFile
     TABINDFile  *m_poINDFile;   // Attributes index file
 
     OGRFeatureDefn *m_poDefn;
-    std::set<CPLString> m_oSetFields{};
     OGRSpatialReference *m_poSpatialRef;
     int         bUseSpatialTraversal;
 
@@ -284,6 +284,10 @@ class TABFile final : public IMapInfoFile
 
     virtual OGRErr      SyncToDisk() override;
 
+    virtual CPLErr SetMetadataItem( const char * pszName,
+                                    const char * pszValue,
+                                    const char * pszDomain = "" ) override;
+
     ///////////////
     // Read access specific stuff
     //
@@ -304,7 +308,7 @@ class TABFile final : public IMapInfoFile
 
     static OGRSpatialReference* GetSpatialRefFromTABProj(const TABProjInfo& sTABProj);
     static int                  GetTABProjFromSpatialRef(const OGRSpatialReference* poSpatialRef,
-                                                         TABProjInfo& sTABProj, int& nParmCount);
+                                                         TABProjInfo& sTABProj, int& nParamCount);
 
     virtual int GetFeatureCountByType(int &numPoints, int &numLines,
                                       int &numRegions, int &numTexts,
@@ -654,7 +658,6 @@ class MIFFile final : public IMapInfoFile
     MIDDATAFile  *m_poMIFFile;   // Mif File
 
     OGRFeatureDefn *m_poDefn;
-    std::set<CPLString> m_oSetFields{};
     OGRSpatialReference *m_poSpatialRef;
 
     int         m_nFeatureCount;
@@ -954,8 +957,10 @@ class ITABFeatureSymbol
     void        SetSymbolSize(GInt16 val)   { m_sSymbolDef.nPointSize = val;}
     void        SetSymbolColor(GInt32 clr)  { m_sSymbolDef.rgbColor = clr;}
 
-    const char *GetSymbolStyleString(double dfAngle = 0.0) const;
+    static TABFeatureClass GetSymbolFeatureClass(const char *pszStyleString);
+    virtual const char *GetSymbolStyleString(double dfAngle = 0.0) const;
     void        SetSymbolFromStyleString(const char *pszStyleString);
+    virtual void SetSymbolFromStyle(OGRStyleSymbol* poSymbolStyle);
 
     void        DumpSymbolDef(FILE *fpOut = nullptr);
 };
@@ -1155,7 +1160,9 @@ class TABFontPoint final : public TABPoint,
     virtual int ReadGeometryFromMIFFile(MIDDATAFile *fp) override;
     virtual int WriteGeometryToMIFFile(MIDDATAFile *fp) override;
 
+    virtual const char *GetSymbolStyleString(double dfAngle = 0.0) const override;
     virtual const char *GetStyleString() const override;
+    virtual void SetSymbolFromStyle(OGRStyleSymbol* poSymbolStyle) override;
 
     GBool       QueryFontStyle(TABFontStyle eStyleToQuery);
     void        ToggleFontStyle(TABFontStyle eStyleToToggle, GBool bStatus);
@@ -1211,9 +1218,11 @@ class TABCustomPoint final : public TABPoint,
     virtual int ReadGeometryFromMIFFile(MIDDATAFile *fp) override;
     virtual int WriteGeometryToMIFFile(MIDDATAFile *fp) override;
 
+    virtual const char *GetSymbolStyleString(double dfAngle = 0.0) const override;
     virtual const char *GetStyleString() const override;
+    virtual void SetSymbolFromStyle(OGRStyleSymbol* poSymbolStyle) override;
 
-    const char *GetSymbolNameRef()      { return GetFontNameRef(); }
+    const char *GetSymbolNameRef() const { return GetFontNameRef(); }
     void        SetSymbolName(const char *pszName) {SetFontName(pszName);}
 
     GByte       GetCustomSymbolStyle()              {return m_nCustomStyle;}

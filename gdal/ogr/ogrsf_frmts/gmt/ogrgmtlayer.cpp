@@ -122,6 +122,7 @@ OGRGmtLayer::OGRGmtLayer( const char * pszFilename, int bUpdateIn ) :
     if( osWKT.length() )
     {
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromWkt(osWKT.c_str()) != OGRERR_NONE )
         {
             delete poSRS;
@@ -131,6 +132,7 @@ OGRGmtLayer::OGRGmtLayer( const char * pszFilename, int bUpdateIn ) :
     else if( osEPSG.length() )
     {
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromEPSG( atoi(osEPSG) ) != OGRERR_NONE )
         {
             delete poSRS;
@@ -140,6 +142,7 @@ OGRGmtLayer::OGRGmtLayer( const char * pszFilename, int bUpdateIn ) :
     else if( osProj4.length() )
     {
         poSRS = new OGRSpatialReference();
+        poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         if( poSRS->importFromProj4( osProj4 ) != OGRERR_NONE )
         {
             delete poSRS;
@@ -462,7 +465,7 @@ OGRFeature *OGRGmtLayer::GetNextRawFeature()
                 {
                     // Add a hole to the current polygon.
                     poMP->getGeometryRef(
-                        poMP->getNumGeometries()-1 )->toPolygon()->
+                        poMP->getNumGeometries()-1 )->
                         addRingDirectly( new OGRLinearRing() );
                 }
                 else if( !NextIsFeature() )
@@ -569,6 +572,8 @@ OGRFeature *OGRGmtLayer::GetNextRawFeature()
                     }
                 }
 
+                CPLAssert( poGeom != nullptr );
+                // cppcheck-suppress nullPointerRedundantCheck
                 switch( wkbFlatten(poGeom->getGeometryType()) )
                 {
                   case wkbPoint:
@@ -601,7 +606,7 @@ OGRFeature *OGRGmtLayer::GetNextRawFeature()
                       {
                           OGRMultiPolygon *poMP = poGeom->toMultiPolygon();
                           poPoly = poMP->getGeometryRef(
-                              poMP->getNumGeometries() - 1 )->toPolygon();
+                              poMP->getNumGeometries() - 1 );
                       }
                       else
                           poPoly = poGeom->toPolygon();
@@ -624,7 +629,7 @@ OGRFeature *OGRGmtLayer::GetNextRawFeature()
                   {
                       OGRMultiLineString *poML = poGeom->toMultiLineString();
                       OGRLineString *poLine = poML->getGeometryRef(
-                          poML->getNumGeometries() -1 )->toLineString();
+                          poML->getNumGeometries() -1 );
 
                       if( nDim == 3 )
                           poLine->addPoint( dfX, dfY, dfZ );
@@ -675,34 +680,6 @@ OGRFeature *OGRGmtLayer::GetNextRawFeature()
     m_nFeaturesRead++;
 
     return poFeature;
-}
-
-/************************************************************************/
-/*                           GetNextFeature()                           */
-/************************************************************************/
-
-OGRFeature *OGRGmtLayer::GetNextFeature()
-
-{
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-
-        if( poFeature == nullptr )
-            return nullptr;
-
-        if( (m_poFilterGeom == nullptr
-             || FilterGeometry( poFeature->GetGeometryRef() ) )
-            && (m_poAttrQuery == nullptr
-                || m_poAttrQuery->Evaluate( poFeature ) ) )
-        {
-            return poFeature;
-        }
-
-        delete poFeature;
-    }
-
-    return nullptr;
 }
 
 /************************************************************************/

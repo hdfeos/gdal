@@ -7,7 +7,7 @@
  *
  **********************************************************************
  * Copyright (c) 1998, Daniel Morissette
- * Copyright (c) 2008-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -1451,7 +1451,11 @@ int CPLprintf( CPL_FORMAT_STRING(const char* fmt), ... )
   * @return the number of matched patterns;
   * @since GDAL 2.0
   */
+#ifdef DOXYGEN_XML
+int CPLsscanf( const char* str, const char* fmt, ... )
+#else
 int CPLsscanf( const char* str, CPL_SCANF_FORMAT_STRING(const char* fmt), ... )
+#endif
 {
     bool error = false;
     int ret = 0;
@@ -1734,7 +1738,7 @@ int CSLFindName( CSLConstList papszStrList, const char *pszName )
  * Parse NAME=VALUE string into name and value components.
  *
  * Note that if ppszKey is non-NULL, the key (or name) portion will be
- * allocated using VSIMalloc(), and returned in that pointer.  It is the
+ * allocated using CPLMalloc(), and returned in that pointer.  It is the
  * applications responsibility to free this string, but the application should
  * not modify or free the returned value portion.
  *
@@ -1764,7 +1768,7 @@ const char *CPLParseNameValue( const char *pszNameValue, char **ppszKey )
             if( ppszKey != nullptr )
             {
                 *ppszKey = static_cast<char *>(CPLMalloc(i + 1));
-                strncpy( *ppszKey, pszNameValue, i );
+                memcpy( *ppszKey, pszNameValue, i );
                 (*ppszKey)[i] = '\0';
                 while( i > 0 &&
                        ( (*ppszKey)[i-1] == ' ' || (*ppszKey)[i-1] == '\t') )
@@ -2154,7 +2158,7 @@ char *CPLEscapeString( const char *pszInput, int nLength,
                 || pszInput[iIn] == '+' || pszInput[iIn] == '!'
                 || pszInput[iIn] == '*' || pszInput[iIn] == '\''
                 || pszInput[iIn] == '(' || pszInput[iIn] == ')'
-                || pszInput[iIn] == '"' || pszInput[iIn] == ',' )
+                || pszInput[iIn] == ',' )
             {
                 pszOutput[iOut++] = pszInput[iIn];
             }
@@ -2581,7 +2585,7 @@ CPLValueType CPLGetValueType( const char* pszValue )
     const char* pszValueInit = pszValue;
 
     // Skip leading spaces.
-    while( isspace( *pszValue ) )
+    while( isspace(static_cast<unsigned char>( *pszValue )) )
         ++pszValue;
 
     if( *pszValue == '\0' )
@@ -2600,15 +2604,15 @@ CPLValueType CPLGetValueType( const char* pszValue )
 
     for( ; *pszValue != '\0'; ++pszValue )
     {
-        if( isdigit( *pszValue))
+        if( isdigit(static_cast<unsigned char>( *pszValue )) )
         {
             bIsLastCharExponent = false;
             bFoundMantissa = true;
         }
-        else if( isspace( *pszValue ) )
+        else if( isspace(static_cast<unsigned char>( *pszValue )) )
         {
             const char* pszTmp = pszValue;
-            while( isspace( *pszTmp ) )
+            while( isspace(static_cast<unsigned char>( *pszTmp )) )
                 ++pszTmp;
             if( *pszTmp == 0 )
                 break;

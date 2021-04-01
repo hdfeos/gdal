@@ -3,10 +3,10 @@
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements OGRGeomediaLayer class, code shared between
  *           the direct table access, and the generic SQL results.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -165,6 +165,7 @@ CPLErr OGRGeomediaLayer::BuildFeatureDefn( const char *pszLayerName,
             break;
 
           case SQL_C_TIMESTAMP:
+          case SQL_C_TYPE_TIMESTAMP:
             oField.SetType( OFTDateTime );
             break;
 
@@ -187,29 +188,6 @@ void OGRGeomediaLayer::ResetReading()
 
 {
     iNextShapeId = 0;
-}
-
-/************************************************************************/
-/*                           GetNextFeature()                           */
-/************************************************************************/
-
-OGRFeature *OGRGeomediaLayer::GetNextFeature()
-
-{
-    while( true )
-    {
-        OGRFeature *poFeature = GetNextRawFeature();
-        if( poFeature == nullptr )
-            return nullptr;
-
-        if( (m_poFilterGeom == nullptr
-            || FilterGeometry( poFeature->GetGeometryRef() ) )
-            && (m_poAttrQuery == nullptr
-                || m_poAttrQuery->Evaluate( poFeature )) )
-            return poFeature;
-
-        delete poFeature;
-    }
 }
 
 /************************************************************************/

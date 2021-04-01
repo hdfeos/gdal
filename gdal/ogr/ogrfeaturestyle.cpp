@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000-2001, Stephane Villeneuve
- * Copyright (c) 2008-2010, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2010, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -89,7 +89,7 @@ static const OGRStyleParamId asStyleSymbol[] =
     {OGRSTSymbolPerp, "dp", TRUE, OGRSTypeDouble},
     {OGRSTSymbolOffset, "di", TRUE, OGRSTypeDouble},
     {OGRSTSymbolPriority, "l", FALSE, OGRSTypeInteger},
-    {-1, nullptr, FALSE, OGRSTypeUnused}, // was OGRSTSymbolFontName
+    {OGRSTSymbolFontName, "f", FALSE, OGRSTypeString},
     {OGRSTSymbolOColor, "o", FALSE, OGRSTypeString}
 };
 
@@ -150,7 +150,7 @@ OGRStyleMgr::OGRStyleMgr( OGRStyleTable *poDataSetStyleTable ):
  * @param hStyleTable pointer to OGRStyleTable or NULL if not working with
  *  a style table.
  *
- * @return an handle to the new style manager object.
+ * @return a handle to the new style manager object.
  */
 
 OGRStyleMgrH OGR_SM_Create( OGRStyleTableH hStyleTable )
@@ -779,7 +779,7 @@ OGRStyleTable::OGRStyleTable()
  * This function is the same as the C++ method OGRStyleTable::OGRStyleTable().
  *
  *
- * @return an handle to the new style table object.
+ * @return a handle to the new style table object.
  */
 
 OGRStyleTableH OGR_STBL_Create( void )
@@ -1360,7 +1360,7 @@ OGRStyleTool::OGRStyleTool( OGRSTClassId eClassId ) :
  * @param eClassId subclass of style tool to create. One of OGRSTCPen (1),
  * OGRSTCBrush (2), OGRSTCSymbol (3) or OGRSTCLabel (4).
  *
- * @return an handle to the new style tool object or NULL if the creation
+ * @return a handle to the new style tool object or NULL if the creation
  * failed.
  */
 

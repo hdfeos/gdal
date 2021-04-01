@@ -307,6 +307,11 @@ public:
 
 %rename (Dataset) GDALDatasetShadow;
 
+#ifdef SWIGPYTHON
+%rename (_SetGCPs) SetGCPs;
+%rename (_SetGCPs2) SetGCPs2;
+#endif
+
 class GDALDatasetShadow : public GDALMajorObjectShadow {
 private:
   GDALDatasetShadow();
@@ -336,6 +341,11 @@ public:
     return (GDALRasterBandShadow*) GDALGetRasterBand( self, nBand );
   }
 
+%newobject GetRootGroup;
+  GDALGroupHS* GetRootGroup() {
+    return GDALDatasetGetRootGroup(self);
+  }
+
   char const *GetProjection() {
     return GDALGetProjectionRef( self );
   }
@@ -344,11 +354,24 @@ public:
     return GDALGetProjectionRef( self );
   }
 
+  %newobject GetSpatialRef;
+  OSRSpatialReferenceShadow *GetSpatialRef() {
+    OGRSpatialReferenceH ref = GDALGetSpatialRef(self);
+    if( ref )
+       ref = OSRClone( ref );
+    return (OSRSpatialReferenceShadow*) ref;
+  }
+
   %apply Pointer NONNULL {char const *prj};
   CPLErr SetProjection( char const *prj ) {
     return GDALSetProjection( self, prj );
   }
   %clear char const *prj;
+
+  CPLErr SetSpatialRef(OSRSpatialReferenceShadow* srs)
+  {
+     return GDALSetSpatialRef( self, (OGRSpatialReferenceH)srs );
+  }
 
 #ifdef SWIGPYTHON
 %feature("kwargs") GetGeoTransform;
@@ -438,6 +461,16 @@ public:
   }
 
 #ifndef SWIGCSHARP
+  %newobject GetGCPSpatialRef;
+  OSRSpatialReferenceShadow *GetGCPSpatialRef() {
+    OGRSpatialReferenceH ref = GDALGetGCPSpatialRef(self);
+    if( ref )
+       ref = OSRClone( ref );
+    return (OSRSpatialReferenceShadow*) ref;
+  }
+#endif
+
+#ifndef SWIGCSHARP
   void GetGCPs( int *nGCPs, GDAL_GCP const **pGCPs ) {
     *nGCPs = GDALGetGCPCount( self );
     *pGCPs = GDALGetGCPs( self );
@@ -445,6 +478,10 @@ public:
 
   CPLErr SetGCPs( int nGCPs, GDAL_GCP const *pGCPs, const char *pszGCPProjection ) {
     return GDALSetGCPs( self, nGCPs, pGCPs, pszGCPProjection );
+  }
+
+  CPLErr SetGCPs2( int nGCPs, GDAL_GCP const *pGCPs, OSRSpatialReferenceShadow* hSRS ) {
+    return GDALSetGCPs2( self, nGCPs, pGCPs, (OGRSpatialReferenceH)hSRS );
   }
 
 #endif
@@ -476,7 +513,11 @@ public:
 %apply (GIntBig nLen, char *pBuf) { (GIntBig buf_len, char *buf_string) };
 %apply (GIntBig *optional_GIntBig) { (GIntBig*) };
 %apply (int *optional_int) { (int*) };
+#if defined(SWIGPYTHON)
+%apply (GDALDataType *optional_GDALDataType) { (GDALDataType *buf_type) };
+#else
 %apply (int *optional_int) { (GDALDataType *buf_type) };
+#endif
 %apply (int nList, int *pList ) { (int band_list, int *pband_list ) };
   CPLErr WriteRaster( int xoff, int yoff, int xsize, int ysize,
                       GIntBig buf_len, char *buf_string,
@@ -938,6 +979,11 @@ CPLErr AdviseRead(  int xoff, int yoff, int xsize, int ysize,
 
 #endif /* defined(SWIGPYTHON) || defined(SWIGJAVA) || defined(SWIGPERL) */
 
+
+OGRErr AbortSQL() {
+    return GDALDatasetAbortSQL(self);
+}
+
 #ifndef SWIGJAVA
   %feature( "kwargs" ) StartTransaction;
 #endif
@@ -954,6 +1000,11 @@ CPLErr AdviseRead(  int xoff, int yoff, int xsize, int ysize,
   OGRErr RollbackTransaction()
   {
     return GDALDatasetRollbackTransaction(self);
+  }
+
+  void ClearStatistics()
+  {
+      GDALDatasetClearStatistics(self);
   }
 
 } /* extend */

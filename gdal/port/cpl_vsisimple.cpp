@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1998, Frank Warmerdam
- * Copyright (c) 2008-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -1466,7 +1466,13 @@ GIntBig CPLGetUsablePhysicalRAM( void )
 #endif
 #if HAVE_GETRLIMIT
     struct rlimit sLimit;
-    if( getrlimit( RLIMIT_AS, &sLimit) == 0 &&
+#   if HAVE_RLIMIT_AS
+    const int res = RLIMIT_AS;
+#   else
+    // OpenBSD currently doesn't support RLIMIT_AS (mandated by Posix though)
+    const int res = RLIMIT_DATA;
+#   endif
+    if( getrlimit( res, &sLimit) == 0 &&
         sLimit.rlim_cur != RLIM_INFINITY &&
         static_cast<GIntBig>(sLimit.rlim_cur) < nRAM )
     {

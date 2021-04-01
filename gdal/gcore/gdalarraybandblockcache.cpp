@@ -106,7 +106,7 @@ GDALArrayBandBlockCache::GDALArrayBandBlockCache(GDALRasterBand* poBandIn) :
 
 GDALArrayBandBlockCache::~GDALArrayBandBlockCache()
 {
-    FlushCache();
+    GDALArrayBandBlockCache::FlushCache();
 
     if( !bSubBlockingActive )
         CPLFree( u.papoBlocks );
@@ -257,6 +257,8 @@ CPLErr GDALArrayBandBlockCache::FlushCache()
 
     CPLErr eGlobalErr = poBand->eFlushBlockErr;
 
+    StartDirtyBlockFlushingLog();
+
 /* -------------------------------------------------------------------- */
 /*      Flush all blocks in memory ... this case is without subblocking.*/
 /* -------------------------------------------------------------------- */
@@ -318,7 +320,9 @@ CPLErr GDALArrayBandBlockCache::FlushCache()
         }
     }
 
-    WaitKeepAliveCounter();
+    EndDirtyBlockFlushingLog();
+
+    WaitCompletionPendingTasks();
 
     return( eGlobalErr );
 }
@@ -424,8 +428,13 @@ CPLErr GDALArrayBandBlockCache::FlushBlock( int nXBlockOff, int nYBlockOff,
     poBlock->Detach();
 
     CPLErr eErr = CE_None;
+
     if( bWriteDirtyBlock && poBlock->GetDirty() )
+    {
+        UpdateDirtyBlockFlushingLog();
+
         eErr = poBlock->Write();
+    }
 
 /* -------------------------------------------------------------------- */
 /*      Deallocate the block;                                           */

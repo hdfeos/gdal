@@ -57,7 +57,7 @@ CPL_CVSID("$Id$")
  *
  * Constructor.
  **********************************************************************/
-TABMAPFile::TABMAPFile() :
+TABMAPFile::TABMAPFile(const char* pszEncoding) :
     m_nMinTABVersion(300),
     m_pszFname(nullptr),
     m_fp(nullptr),
@@ -82,7 +82,8 @@ TABMAPFile::TABMAPFile() :
     m_bUpdated(FALSE),
     m_bLastOpWasRead(FALSE),
     m_bLastOpWasWrite(FALSE),
-    m_poSpIndexLeaf(nullptr)
+    m_poSpIndexLeaf(nullptr),
+    m_osEncoding(pszEncoding)
 {
     m_sMinFilter.x = 0;
     m_sMinFilter.y = 0;
@@ -1101,7 +1102,21 @@ int TABMAPFile::MoveToObjId(int nObjId)
          * OK, it worked, read the object type and row id.
          *------------------------------------------------------------*/
         m_nCurObjPtr = nFileOffset;
-        m_nCurObjType = static_cast<TABGeomType>(m_poCurObjBlock->ReadByte());
+
+        const GByte byVal = m_poCurObjBlock->ReadByte();
+        if( IsValidObjType(byVal) )
+        {
+            m_nCurObjType = static_cast<TABGeomType>(byVal);
+        }
+        else
+        {
+            CPLError(CE_Warning,
+                static_cast<CPLErrorNum>(TAB_WarningFeatureTypeNotSupported),
+                "Unsupported object type %d (0x%2.2x).  Feature will be "
+                "returned with NONE geometry.",
+                byVal, byVal);
+            m_nCurObjType = TAB_GEOM_NONE;
+        }
         m_nCurObjId   = m_poCurObjBlock->ReadInt32();
 
         // Do a consistency check...
@@ -1148,22 +1163,26 @@ int TABMAPFile::MoveToObjId(int nObjId)
  **********************************************************************/
 int TABMAPFile::MarkAsDeleted()
 {
-    if (m_eAccessMode == TABRead || m_poCurObjBlock == nullptr)
+    if (m_eAccessMode == TABRead)
         return -1;
 
     if ( m_nCurObjPtr <= 0 )
         return 0;
 
-    /* Goto offset for object id */
-    if ( m_poCurObjBlock->GotoByteInFile(m_nCurObjPtr + 1, TRUE) != 0)
-        return -1;
-
-    /* Mark object as deleted */
-    m_poCurObjBlock->WriteInt32(m_nCurObjId | 0x40000000);
-
     int ret = 0;
-    if( m_poCurObjBlock->CommitToFile() != 0 )
-        ret = -1;
+    if( m_nCurObjType != TAB_GEOM_NONE  )
+    {
+        /* Goto offset for object id */
+        if ( m_poCurObjBlock == nullptr ||
+            m_poCurObjBlock->GotoByteInFile(m_nCurObjPtr + 1, TRUE) != 0)
+            return -1;
+
+        /* Mark object as deleted */
+        m_poCurObjBlock->WriteInt32(m_nCurObjId | 0x40000000);
+
+        if( m_poCurObjBlock->CommitToFile() != 0 )
+            ret = -1;
+    }
 
     /* Update index entry to reflect delete state as well */
     if( m_poIdIndex->SetObjPtr(m_nCurObjId, 0) != 0 )
@@ -3046,6 +3065,70 @@ int   TABMAPFile::GetMinTABFileVersion()
         nToolVersion = m_poToolDefTable->GetMinVersionNumber();
 
     return std::max(nToolVersion, m_nMinTABVersion);
+}
+
+const CPLString& TABMAPFile::GetEncoding() const
+{
+    return m_osEncoding;
+}
+
+void TABMAPFile::SetEncoding( const CPLString& osEncoding )
+{
+    m_osEncoding = osEncoding;
+}
+
+bool TABMAPFile::IsValidObjType(int nObjType)
+{
+    switch( nObjType )
+    {
+        case TAB_GEOM_NONE:
+        case TAB_GEOM_SYMBOL_C:
+        case TAB_GEOM_SYMBOL:
+        case TAB_GEOM_LINE_C:
+        case TAB_GEOM_LINE:
+        case TAB_GEOM_PLINE_C:
+        case TAB_GEOM_PLINE:
+        case TAB_GEOM_ARC_C:
+        case TAB_GEOM_ARC:
+        case TAB_GEOM_REGION_C:
+        case TAB_GEOM_REGION:
+        case TAB_GEOM_TEXT_C:
+        case TAB_GEOM_TEXT:
+        case TAB_GEOM_RECT_C:
+        case TAB_GEOM_RECT:
+        case TAB_GEOM_ROUNDRECT_C:
+        case TAB_GEOM_ROUNDRECT:
+        case TAB_GEOM_ELLIPSE_C:
+        case TAB_GEOM_ELLIPSE:
+        case TAB_GEOM_MULTIPLINE_C:
+        case TAB_GEOM_MULTIPLINE:
+        case TAB_GEOM_FONTSYMBOL_C:
+        case TAB_GEOM_FONTSYMBOL:
+        case TAB_GEOM_CUSTOMSYMBOL_C:
+        case TAB_GEOM_CUSTOMSYMBOL:
+        case TAB_GEOM_V450_REGION_C:
+        case TAB_GEOM_V450_REGION:
+        case TAB_GEOM_V450_MULTIPLINE_C:
+        case TAB_GEOM_V450_MULTIPLINE:
+        case TAB_GEOM_MULTIPOINT_C:
+        case TAB_GEOM_MULTIPOINT:
+        case TAB_GEOM_COLLECTION_C:
+        case TAB_GEOM_COLLECTION:
+        case TAB_GEOM_UNKNOWN1_C:
+        case TAB_GEOM_UNKNOWN1:
+        case TAB_GEOM_V800_REGION_C:
+        case TAB_GEOM_V800_REGION:
+        case TAB_GEOM_V800_MULTIPLINE_C:
+        case TAB_GEOM_V800_MULTIPLINE:
+        case TAB_GEOM_V800_MULTIPOINT_C:
+        case TAB_GEOM_V800_MULTIPOINT:
+        case TAB_GEOM_V800_COLLECTION_C:
+        case TAB_GEOM_V800_COLLECTION:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 /**********************************************************************

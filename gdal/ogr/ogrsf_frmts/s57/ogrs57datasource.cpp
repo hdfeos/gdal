@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -53,6 +53,7 @@ OGRS57DataSource::OGRS57DataSource(char** papszOpenOptionsIn) :
     bExtentsSet(false)
 {
     poSpatialRef->SetWellKnownGeogCS( "WGS84" );
+    poSpatialRef->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
 /* -------------------------------------------------------------------- */
 /*      Allow initialization of options from the environment.           */
@@ -210,6 +211,11 @@ int OGRS57DataSource::Open( const char * pszFilename )
         papszReaderOptions =
             CSLSetNameValue( papszReaderOptions, S57O_RECODE_BY_DSSI,
                              GetOption(S57O_RECODE_BY_DSSI) );
+
+    if( GetOption(S57O_LIST_AS_STRING) != nullptr )
+        papszReaderOptions =
+            CSLSetNameValue( papszReaderOptions, S57O_LIST_AS_STRING,
+                             GetOption(S57O_LIST_AS_STRING) );
 
     S57Reader *poModule = new S57Reader( pszFilename );
     bool bRet = poModule->SetOptions( papszReaderOptions );

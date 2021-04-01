@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements OGRMDBLayer class
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -135,6 +135,7 @@ CPLErr OGRMDBLayer::BuildFeatureDefn()
         {
           case MDB_Boolean:
             oField.SetType( OFTInteger );
+            oField.SetSubType( OFSTBoolean );
             oField.SetWidth(1);
             break;
 
@@ -257,7 +258,8 @@ OGRFeature *OGRMDBLayer::GetNextRawFeature()
     {
         int iSrcField = panFieldOrdinals[iField]-1;
         char *pszValue = poMDBTable->GetColumnAsString( iSrcField );
-        OGRFieldType eType = poFeature->GetFieldDefnRef(iField)->GetType();
+        const auto poFieldDefn = poFeature->GetFieldDefnRef(iField);
+        const OGRFieldType eType = poFieldDefn->GetType();
 
         if( pszValue == nullptr )
             poFeature->SetFieldNull( iField );
@@ -270,9 +272,9 @@ OGRFeature *OGRMDBLayer::GetNextRawFeature()
                                  pData );
             CPLFree(pData);
         }
-        else if ( eType == OFTInteger && EQUAL(pszValue, "true"))
+        else if ( eType == OFTInteger && poFieldDefn->GetSubType() == OFSTBoolean )
         {
-           poFeature->SetField( iField, 1 );
+           poFeature->SetField( iField, EQUAL(pszValue, "true") ? 1 : 0 );
         }
         else
         {
@@ -422,7 +424,7 @@ void OGRMDBLayer::LookupSRID( int nSRID )
 
     if( pszSRText[0] == '{' )
     {
-        CPLDebug( "MDB", "Ignoreing GUID SRTEXT: %s", pszSRText );
+        CPLDebug( "MDB", "Ignoring GUID SRTEXT: %s", pszSRText );
         delete poSRSTable;
         CPLFree(pszSRText);
         return;
@@ -432,19 +434,13 @@ void OGRMDBLayer::LookupSRID( int nSRID )
 /*      Turn it into an OGRSpatialReference.                            */
 /* -------------------------------------------------------------------- */
     poSRS = new OGRSpatialReference();
+    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     if( poSRS->importFromWkt( pszSRText ) != OGRERR_NONE )
     {
         CPLError( CE_Failure, CPLE_AppDefined,
                   "importFromWKT() failed on SRS '%s'.",
                   pszSRText);
-        delete poSRS;
-        poSRS = nullptr;
-    }
-    else if( poSRS->morphFromESRI() != OGRERR_NONE )
-    {
-        CPLError( CE_Failure, CPLE_AppDefined,
-                  "morphFromESRI() failed on SRS." );
         delete poSRS;
         poSRS = nullptr;
     }

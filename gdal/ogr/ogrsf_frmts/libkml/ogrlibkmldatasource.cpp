@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2010, Brian Case
- * Copyright (c) 2010-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -54,19 +54,6 @@ using kmldom::SnippetPtr;
 using kmldom::StyleSelectorPtr;
 using kmlengine::KmzFile;
 
-// This was taken from the kml driver.
-static const char OGRLIBKMLSRSWKT[] =
-    "GEOGCS[\"WGS 84\", "
-    "   DATUM[\"WGS_1984\","
-    "     SPHEROID[\"WGS 84\",6378137,298.257223563,"
-    "           AUTHORITY[\"EPSG\",\"7030\"]],"
-    "           AUTHORITY[\"EPSG\",\"6326\"]],"
-    "       PRIMEM[\"Greenwich\",0,"
-    "           AUTHORITY[\"EPSG\",\"8901\"]],"
-    "       UNIT[\"degree\",0.01745329251994328,"
-    "           AUTHORITY[\"EPSG\",\"9122\"]],"
-    "           AUTHORITY[\"EPSG\",\"4326\"]]";
-
 /************************************************************************/
 /*                           OGRLIBKMLParse()                           */
 /************************************************************************/
@@ -105,7 +92,7 @@ OGRLIBKMLDataSource::OGRLIBKMLDataSource( KmlFactory * poKmlFactory ) :
     m_pszName(nullptr),
     papoLayers(nullptr),
     nLayers(0),
-    nAlloced(0),
+    nAllocated(0),
     bUpdate(false),
     bUpdated(false),
     m_papszOptions(nullptr),
@@ -664,7 +651,7 @@ void OGRLIBKMLDataSource::FlushCache()
 OGRLIBKMLDataSource::~OGRLIBKMLDataSource()
 {
     /***** sync the DS to disk *****/
-    FlushCache();
+    OGRLIBKMLDataSource::FlushCache();
 
     CPLFree( m_pszName );
 
@@ -811,11 +798,11 @@ OGRLIBKMLLayer *OGRLIBKMLDataSource::AddLayer(
     }
 
     /***** check to see if we have enough space to store the layer *****/
-    if( nLayers == nAlloced )
+    if( nLayers == nAllocated )
     {
-        nAlloced += nGuess;
+        nAllocated += nGuess;
         papoLayers = static_cast<OGRLIBKMLLayer **>(
-            CPLRealloc( papoLayers, sizeof(OGRLIBKMLLayer *) * nAlloced ) );
+            CPLRealloc( papoLayers, sizeof(OGRLIBKMLLayer *) * nAllocated ) );
     }
 
     /***** create the layer *****/
@@ -1054,7 +1041,8 @@ int OGRLIBKMLDataSource::OpenKml( const char *pszFilename, int bUpdateIn )
 
     /***** create a SRS *****/
     OGRSpatialReference *poOgrSRS =
-        new OGRSpatialReference( OGRLIBKMLSRSWKT );
+        new OGRSpatialReference( SRS_WKT_WGS84_LAT_LONG );
+    poOgrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     /***** parse the kml into the DOM *****/
     std::string oKmlErrors;
@@ -1173,7 +1161,8 @@ int OGRLIBKMLDataSource::OpenKmz( const char *pszFilename, int bUpdateIn )
 
     /***** create a SRS *****/
     OGRSpatialReference *poOgrSRS =
-        new OGRSpatialReference( OGRLIBKMLSRSWKT );
+        new OGRSpatialReference( SRS_WKT_WGS84_LAT_LONG );
+    poOgrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     /***** parse the kml into the DOM *****/
     std::string oKmlErrors;
@@ -1361,7 +1350,8 @@ int OGRLIBKMLDataSource::OpenDir( const char *pszFilename, int bUpdateIn )
 
     /***** create a SRS *****/
     OGRSpatialReference *poOgrSRS =
-        new OGRSpatialReference( OGRLIBKMLSRSWKT );
+        new OGRSpatialReference( SRS_WKT_WGS84_LAT_LONG );
+    poOgrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     const int nFiles = CSLCount( papszDirList );
 

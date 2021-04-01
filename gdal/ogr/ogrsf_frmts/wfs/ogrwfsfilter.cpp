@@ -2,10 +2,10 @@
  *
  * Project:  WFS Translator
  * Purpose:  Implements OGR SQL into OGC Filter translation.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2010-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -205,13 +205,13 @@ static bool WFS_ExprDumpAsOGCFilter( CPLString& osFilter,
         }
 
         const char* pszFieldname = nullptr;
-        int nIndex = 0;
         const bool bSameTable =
             psOptions->poFDefn != nullptr &&
             ( poExpr->table_name == nullptr ||
               EQUAL(poExpr->table_name, psOptions->poFDefn->GetName()) );
         if( bSameTable )
         {
+            int nIndex;
             if( (nIndex = psOptions->poFDefn->GetFieldIndex(poExpr->string_value)) >= 0 )
             {
                 pszFieldname = psOptions->poFDefn->GetFieldDefn(nIndex)->GetNameRef();
@@ -227,6 +227,7 @@ static bool WFS_ExprDumpAsOGCFilter( CPLString& osFilter,
             if( poLayer )
             {
                 OGRFeatureDefn* poFDefn = poLayer->GetLayerDefn();
+                int nIndex;
                 if( (nIndex = poFDefn->GetFieldIndex(poExpr->string_value)) >= 0 )
                 {
                     pszFieldname = CPLSPrintf("%s/%s",
@@ -296,14 +297,20 @@ static bool WFS_ExprDumpAsOGCFilter( CPLString& osFilter,
         return true;
     }
 
-    if( poExpr->nOperation == SWQ_LIKE )
+    if( poExpr->nOperation == SWQ_LIKE ||
+        poExpr->nOperation == SWQ_ILIKE )
     {
         CPLString osVal;
         char firstCh = 0;
+        const char* pszMatchCase =
+            poExpr->nOperation == SWQ_LIKE &&
+                !CPLTestBool(CPLGetConfigOption("OGR_SQL_LIKE_AS_ILIKE", "FALSE")) ? "true" : "false";
         if (psOptions->nVersion == 100)
-            osFilter += CPLSPrintf("<%sPropertyIsLike wildCard='*' singleChar='_' escape='!'>", psOptions->pszNSPrefix);
+            osFilter += CPLSPrintf("<%sPropertyIsLike wildCard='*' singleChar='_' escape='!' matchCase='%s'>",
+                                   psOptions->pszNSPrefix, pszMatchCase);
         else
-            osFilter += CPLSPrintf("<%sPropertyIsLike wildCard='*' singleChar='_' escapeChar='!'>", psOptions->pszNSPrefix);
+            osFilter += CPLSPrintf("<%sPropertyIsLike wildCard='*' singleChar='_' escapeChar='!' matchCase='%s'>",
+                                   psOptions->pszNSPrefix, pszMatchCase);
         if (!WFS_ExprDumpAsOGCFilter(osFilter, poExpr->papoSubExpr[0], FALSE, psOptions))
             return false;
         if (poExpr->papoSubExpr[1]->eNodeType != SNT_CONSTANT &&
@@ -432,7 +439,8 @@ static bool WFS_ExprDumpAsOGCFilter( CPLString& osFilter,
             osFilter += " srsName=\"";
             osFilter += pszSRSName;
             osFilter += "\"";
-            if( oSRS.EPSGTreatsAsLatLong() || oSRS.EPSGTreatsAsNorthingEasting() )
+            if( !STARTS_WITH_CI(pszSRSName, "EPSG:") &&
+                (oSRS.EPSGTreatsAsLatLong() || oSRS.EPSGTreatsAsNorthingEasting()) )
                 bAxisSwap = true;
         }
         osFilter += ">";
@@ -466,16 +474,7 @@ static bool WFS_ExprDumpAsOGCFilter( CPLString& osFilter,
         papszOptions = CSLSetNameValue(papszOptions, "FORMAT", "GML3");
         if( pszSRSName != nullptr )
         {
-            if( oSRS.EPSGTreatsAsLatLong() || oSRS.EPSGTreatsAsNorthingEasting() )
-            {
-                OGR_SRSNode *poGEOGCS = oSRS.GetAttrNode( "GEOGCS" );
-                if( poGEOGCS != nullptr )
-                    poGEOGCS->StripNodes( "AXIS" );
-
-                OGR_SRSNode *poPROJCS = oSRS.GetAttrNode( "PROJCS" );
-                if (poPROJCS != nullptr && oSRS.EPSGTreatsAsNorthingEasting())
-                    poPROJCS->StripNodes( "AXIS" );
-            }
+            oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
             if( STARTS_WITH_CI(pszSRSName, "urn:ogc:def:crs:EPSG::") )
                 papszOptions = CSLSetNameValue(papszOptions, "GML3_LONGSRS", "YES");

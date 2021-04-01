@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999, Frank Warmerdam
- * Copyright (c) 2008-2010, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2010, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -55,7 +55,7 @@ class PAuxDataset final: public RawDataset
     char        *pszGCPProjection;
 
     void        ScanForGCPs();
-    char       *PCI2WKT( const char *pszGeosys, const char *pszProjParms );
+    char       *PCI2WKT( const char *pszGeosys, const char *pszProjParams );
 
     char       *pszProjection;
 
@@ -70,12 +70,18 @@ class PAuxDataset final: public RawDataset
     char        **papszAuxLines;
     int         bAuxUpdated;
 
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * ) override;
     CPLErr SetGeoTransform( double * ) override;
 
     int    GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
 
     char **GetFileList() override;
@@ -83,7 +89,7 @@ class PAuxDataset final: public RawDataset
     static GDALDataset *Open( GDALOpenInfo * );
     static GDALDataset *Create( const char * pszFilename,
                                 int nXSize, int nYSize, int nBands,
-                                GDALDataType eType, char ** papszParmList );
+                                GDALDataType eType, char ** papszParamList );
 };
 
 /************************************************************************/
@@ -92,7 +98,7 @@ class PAuxDataset final: public RawDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class PAuxRasterBand : public RawRasterBand
+class PAuxRasterBand final: public RawRasterBand
 {
     CPL_DISALLOW_COPY_ASSIGN(PAuxRasterBand)
 
@@ -360,7 +366,7 @@ char **PAuxDataset::GetFileList()
 /************************************************************************/
 
 char *PAuxDataset::PCI2WKT( const char *pszGeosys,
-                            const char *pszProjParms )
+                            const char *pszProjParams )
 
 {
     while( *pszGeosys == ' ' )
@@ -369,16 +375,16 @@ char *PAuxDataset::PCI2WKT( const char *pszGeosys,
 /* -------------------------------------------------------------------- */
 /*      Parse projection parameters array.                              */
 /* -------------------------------------------------------------------- */
-    double adfProjParms[16] = { 0.0 };
+    double adfProjParams[16] = { 0.0 };
 
-    if( pszProjParms != nullptr )
+    if( pszProjParams != nullptr )
     {
-        char **papszTokens = CSLTokenizeString( pszProjParms );
+        char **papszTokens = CSLTokenizeString( pszProjParams );
 
         for( int i = 0;
              i < 16 && papszTokens != nullptr && papszTokens[i] != nullptr;
              i++ )
-            adfProjParms[i] = CPLAtof(papszTokens[i]);
+            adfProjParams[i] = CPLAtof(papszTokens[i]);
 
         CSLDestroy( papszTokens );
     }
@@ -387,7 +393,7 @@ char *PAuxDataset::PCI2WKT( const char *pszGeosys,
 /*      Convert to SRS.                                                 */
 /* -------------------------------------------------------------------- */
     OGRSpatialReference oSRS;
-    if( oSRS.importFromPCI( pszGeosys, nullptr, adfProjParms ) == OGRERR_NONE )
+    if( oSRS.importFromPCI( pszGeosys, nullptr, adfProjParams ) == OGRERR_NONE )
     {
         char *pszResult = nullptr;
 
@@ -418,11 +424,11 @@ void PAuxDataset::ScanForGCPs()
 /* -------------------------------------------------------------------- */
     const char *pszMapUnits =
         CSLFetchNameValue( papszAuxLines, "GCP_1_MapUnits" );
-    const char *pszProjParms =
+    const char *pszProjParams =
         CSLFetchNameValue( papszAuxLines, "GCP_1_ProjParms" );
 
     if( pszMapUnits != nullptr )
-        pszGCPProjection = PCI2WKT( pszMapUnits, pszProjParms );
+        pszGCPProjection = PCI2WKT( pszMapUnits, pszProjParams );
 
 /* -------------------------------------------------------------------- */
 /*      Collect standalone GCPs.  They look like:                       */
@@ -490,7 +496,7 @@ int PAuxDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *PAuxDataset::GetGCPProjection()
+const char *PAuxDataset::_GetGCPProjection()
 
 {
     if( nGCPCount > 0 && pszGCPProjection != nullptr )
@@ -513,13 +519,13 @@ const GDAL_GCP *PAuxDataset::GetGCPs()
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char *PAuxDataset::GetProjectionRef()
+const char *PAuxDataset::_GetProjectionRef()
 
 {
     if( pszProjection )
         return pszProjection;
 
-    return GDALPamDataset::GetProjectionRef();
+    return GDALPamDataset::_GetProjectionRef();
 }
 
 /************************************************************************/
@@ -685,7 +691,9 @@ GDALDataset *PAuxDataset::Open( GDALOpenInfo * poOpenInfo )
 /*      At this point we should be verifying that it refers to our      */
 /*      binary file, but that is a pretty involved test.                */
 /* -------------------------------------------------------------------- */
-    const char *pszLine = CPLReadLineL( fp );
+    CPLPushErrorHandler(CPLQuietErrorHandler);
+    const char *pszLine = CPLReadLine2L( fp, 1024, nullptr );
+    CPLPopErrorHandler();
 
     CPL_IGNORE_RET_VAL(VSIFCloseL( fp ));
 
@@ -693,6 +701,7 @@ GDALDataset *PAuxDataset::Open( GDALOpenInfo * poOpenInfo )
         || (!STARTS_WITH_CI(pszLine, "AuxilaryTarget")
             && !STARTS_WITH_CI(pszLine, "AuxiliaryTarget")) )
     {
+        CPLErrorReset();
         return nullptr;
     }
 
@@ -705,7 +714,7 @@ GDALDataset *PAuxDataset::Open( GDALOpenInfo * poOpenInfo )
 /*      Load the .aux file into a string list suitable to be            */
 /*      searched with CSLFetchNameValue().                              */
 /* -------------------------------------------------------------------- */
-    poDS->papszAuxLines = CSLLoad( osAuxFilename );
+    poDS->papszAuxLines = CSLLoad2( osAuxFilename, 1024, 1024, nullptr );
     poDS->pszAuxFilename = CPLStrdup(osAuxFilename);
 
 /* -------------------------------------------------------------------- */
@@ -851,11 +860,11 @@ GDALDataset *PAuxDataset::Open( GDALOpenInfo * poOpenInfo )
 /* -------------------------------------------------------------------- */
     const char *pszMapUnits =
         CSLFetchNameValue( poDS->papszAuxLines, "MapUnits" );
-    const char *pszProjParms =
-        CSLFetchNameValue( poDS->papszAuxLines, "ProjParms" );
+    const char *pszProjParams =
+        CSLFetchNameValue( poDS->papszAuxLines, "ProjParams" );
 
     if( pszMapUnits != nullptr )
-        poDS->pszProjection = poDS->PCI2WKT( pszMapUnits, pszProjParms );
+        poDS->pszProjection = poDS->PCI2WKT( pszMapUnits, pszProjParams );
 
 /* -------------------------------------------------------------------- */
 /*      Initialize any PAM information.                                 */
@@ -1106,7 +1115,7 @@ void GDALRegister_PAux()
     poDriver->SetDescription( "PAux" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "PCI .aux Labelled" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_various.html#PAux" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/paux.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 UInt16 Float32" );
     poDriver->SetMetadataItem(

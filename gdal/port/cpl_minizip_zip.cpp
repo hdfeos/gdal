@@ -35,7 +35,7 @@
    Oct-2009 - Mathias Svensson - Added support for BZIP2 as compression mode (bzip2 lib is required)
    Jan-2010 - back to unzip and minizip 1.0 name scheme, with compatibility layer
 
-   Copyright (c) 2010-2018, Even Rouault <even dot rouault at mines-paris dot org>
+   Copyright (c) 2010-2018, Even Rouault <even dot rouault at spatialys.com>
 
 */
 
@@ -140,7 +140,7 @@ typedef struct linkedlist_data_s
 typedef struct
 {
     z_stream stream;            /* zLib stream structure for inflate */
-    int  stream_initialised;    /* 1 is stream is initialised */
+    int  stream_initialised;    /* 1 is stream is initialized */
     uInt pos_in_buffered_data;  /* last written byte in buffered_data */
 
     ZPOS64_T pos_local_header;     /* offset of the local header of the file
@@ -637,9 +637,9 @@ static int LoadCentralDirectoryRecord(zip64_internal* pziinit)
   uLong uL;
 
   uLong number_disk;          /* number of the current dist, used for
-                              spaning ZIP, unsupported, always 0*/
+                              spanning ZIP, unsupported, always 0*/
   uLong number_disk_with_CD;  /* number the the disk with central dir, used
-                              for spaning ZIP, unsupported, always 0*/
+                              for spanning ZIP, unsupported, always 0*/
   ZPOS64_T number_entry;
   ZPOS64_T number_entry_CD;      /* total number of entries in
                                 the central dir
@@ -840,6 +840,7 @@ extern zipFile ZEXPORT cpl_zipOpen2 (
     zlib_filefunc_def* pzlib_filefunc_def )
 {
     zip64_internal ziinit;
+    memset(&ziinit, 0, sizeof(ziinit));
 
     if (pzlib_filefunc_def==nullptr)
         cpl_fill_fopen_filefunc(&ziinit.z_filefunc);
@@ -1151,8 +1152,10 @@ extern int ZEXPORT cpl_zipOpenNewFileInZip3 (
     zi->ci.totalUncompressedData = 0;
     zi->ci.pos_zip64extrainfo = 0;
 
-    // For now always generate zip64 extra fields
-    err = Write_LocalFileHeader(zi, filename, size_extrafield_local, extrafield_local, /* zip64 */ 1);
+    // For now default is to generate zip64 extra fields
+    const bool bZip64 = CPLTestBool(CPLGetConfigOption("CPL_CREATE_ZIP64", "ON"));
+    err = Write_LocalFileHeader(zi, filename, size_extrafield_local,
+        extrafield_local, bZip64 ? 1 : 0);
 
     zi->ci.stream.avail_in = 0;
     zi->ci.stream.avail_out = Z_BUFSIZE;
@@ -1208,6 +1211,14 @@ extern int ZEXPORT cpl_zipOpenNewFileInZip3 (
 
     if (err==Z_OK)
         zi->in_opened_file_inzip = 1;
+    else
+    {
+        free(zi->ci.central_header);
+        zi->ci.central_header = nullptr;
+        free(zi->ci.local_header);
+        zi->ci.local_header = nullptr;
+    }
+
     return err;
 }
 
@@ -1474,7 +1485,8 @@ extern int ZEXPORT cpl_zipCloseFileInZipRaw (
 #endif
 
     // update Current Item crc and sizes,
-    if(compressed_size >= 0xffffffff || uncompressed_size >= 0xffffffff || zi->ci.pos_local_header >= 0xffffffff)
+    if( zi->ci.pos_zip64extrainfo ||
+        compressed_size >= 0xffffffff || uncompressed_size >= 0xffffffff || zi->ci.pos_local_header >= 0xffffffff)
     {
       /*version Made by*/
       zip64local_putValue_inmemory(zi->ci.central_header+4,45,2);

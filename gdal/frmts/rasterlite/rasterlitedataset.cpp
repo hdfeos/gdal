@@ -2,10 +2,10 @@
  *
  * Project:  GDAL Rasterlite driver
  * Purpose:  Implement GDAL Rasterlite support using OGR SQLite driver
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  **********************************************************************
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -189,6 +189,11 @@ CPLErr RasterliteBand::IReadBlock( int nBlockXOff, int nBlockYOff, void * pImage
         OGR_G_GetEnvelope(hGeom, &oEnvelope);
 
         const int nTileId = OGR_F_GetFieldAsInteger(hFeat, 1);
+        if( poGDS->m_nLastBadTileId == nTileId )
+        {
+            OGR_F_Destroy(hFeat);
+            continue;
+        }
         const int nTileXSize = OGR_F_GetFieldAsInteger(hFeat, 2);
         const int nTileYSize = OGR_F_GetFieldAsInteger(hFeat, 3);
 
@@ -271,6 +276,7 @@ CPLErr RasterliteBand::IReadBlock( int nBlockXOff, int nBlockYOff, void * pImage
             }
             if (hDSTile == nullptr)
             {
+                poGDS->m_nLastBadTileId = nTileId;
                 CPLError(CE_Failure, CPLE_AppDefined, "Can't open tile %d",
                          nTileId);
             }
@@ -282,6 +288,7 @@ CPLErr RasterliteBand::IReadBlock( int nBlockXOff, int nBlockYOff, void * pImage
                 nReqBand = 1;
             else
             {
+                poGDS->m_nLastBadTileId = nTileId;
                 GDALClose(hDSTile);
                 hDSTile = nullptr;
             }
@@ -293,6 +300,7 @@ CPLErr RasterliteBand::IReadBlock( int nBlockXOff, int nBlockYOff, void * pImage
                 {
                     CPLError(CE_Failure, CPLE_AppDefined, "Invalid dimensions for tile %d",
                              nTileId);
+                    poGDS->m_nLastBadTileId = nTileId;
                     GDALClose(hDSTile);
                     hDSTile = nullptr;
                 }
@@ -744,7 +752,7 @@ char **RasterliteDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "SUBDATASETS", "IMAGE_STRUCTURE", NULL);
+                                   "SUBDATASETS", "IMAGE_STRUCTURE", nullptr);
 }
 
 /************************************************************************/
@@ -809,7 +817,7 @@ CPLErr RasterliteDataset::GetGeoTransform( double* padfGeoTransform )
 /*                         GetProjectionRef()                           */
 /************************************************************************/
 
-const char* RasterliteDataset::GetProjectionRef()
+const char* RasterliteDataset::_GetProjectionRef()
 {
     if (pszSRS)
         return pszSRS;
@@ -863,15 +871,12 @@ int RasterliteDataset::GetBlockParams(OGRLayerH hRasterLyr, int nLevelIn,
         STARTS_WITH_CI(reinterpret_cast<const char *>(pabyData),
                        "StartWaveletsImage$$"))
     {
-        if (GDALGetDriverByName("EPSILON") == nullptr)
-        {
             CPLError(CE_Failure, CPLE_NotSupported,
-                     "Rasterlite driver doesn't support WAVELET compressed "
-                     "images if EPSILON driver is not compiled");
+                     "Rasterlite driver no longer support WAVELET compressed "
+                     "images");
             OGR_F_Destroy(hFeat);
             OGR_DS_ReleaseResultSet(hDS, hSQLLyr);
             return FALSE;
-        }
     }
 
     CPLString osMemFileName;
@@ -1463,7 +1468,7 @@ void GDALRegister_Rasterlite()
     poDriver->SetDescription( "Rasterlite" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Rasterlite" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_rasterlite.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/rasterlite.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "sqlite" );
     poDriver->SetMetadataItem( GDAL_DMD_SUBDATASETS, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
@@ -1475,8 +1480,8 @@ void GDALRegister_Rasterlite()
 "   <Option name='TILED' type='boolean' default='YES' description='Use tiling'/>"
 "   <Option name='BLOCKXSIZE' type='int' default='256' description='Tile Width'/>"
 "   <Option name='BLOCKYSIZE' type='int' default='256' description='Tile Height'/>"
-"   <Option name='DRIVER' type='string' default='GTiff' description='GDAL driver to use for storing tiles' default='GTiff'/>"
-"   <Option name='COMPRESS' type='string' default='(GTiff driver) Compression method' default='NONE'/>"
+"   <Option name='DRIVER' type='string' description='GDAL driver to use for storing tiles' default='GTiff'/>"
+"   <Option name='COMPRESS' type='string' description='(GTiff driver) Compression method' default='NONE'/>"
 "   <Option name='QUALITY' type='int' description='(JPEG-compressed GTiff, JPEG and WEBP drivers) JPEG/WEBP Quality 1-100' default='75'/>"
 "   <Option name='PHOTOMETRIC' type='string-select' description='(GTiff driver) Photometric interpretation'>"
 "       <Value>MINISBLACK</Value>"
@@ -1489,8 +1494,6 @@ void GDALRegister_Rasterlite()
 "       <Value>ICCLAB</Value>"
 "       <Value>ITULAB</Value>"
 "   </Option>"
-"   <Option name='TARGET' type='int' description='(EPSILON driver) target size reduction as a percentage of the original (0-100)' default='96'/>"
-"   <Option name='FILTER' type='string' description='(EPSILON driver) Filter ID' default='daub97lift'/>"
 "</CreationOptionList>" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

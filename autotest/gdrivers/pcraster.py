@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -28,62 +28,49 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 from osgeo import gdal
 
-sys.path.append('../pymod')
 
 import gdaltest
+import pytest
+
+pytestmark = pytest.mark.require_driver('PCRaster')
 
 ###############################################################################
 # Perform simple read test.
 
 
-def pcraster_1():
+def test_pcraster_1():
 
-    gdaltest.pcraster_drv = gdal.GetDriverByName('PCRaster')
-
-    if gdaltest.pcraster_drv is None:
-        return 'skip'
-
-    tst = gdaltest.GDALTest('PCRaster', 'ldd.map', 1, 4528)
+    tst = gdaltest.GDALTest('PCRaster', 'pcraster/ldd.map', 1, 4528)
     return tst.testOpen()
 
 ###############################################################################
 # Verify some auxiliary data.
 
 
-def pcraster_2():
+def test_pcraster_2():
 
-    if gdaltest.pcraster_drv is None:
-        return 'skip'
-
-    ds = gdal.Open('data/ldd.map')
+    ds = gdal.Open('data/pcraster/ldd.map')
 
     gt = ds.GetGeoTransform()
 
-    if gt[0] != 182140.0 or gt[1] != 10 or gt[2] != 0 \
-       or gt[3] != 327880.0 or gt[4] != 0 or gt[5] != -10:
-        gdaltest.post_reason('PCRaster geotransform wrong.')
-        return 'fail'
+    assert gt[0] == 182140.0 and gt[1] == 10 and gt[2] == 0 and gt[3] == 327880.0 and gt[4] == 0 and gt[5] == -10, \
+        'PCRaster geotransform wrong.'
 
     band1 = ds.GetRasterBand(1)
-    if band1.GetNoDataValue() != 255:
-        gdaltest.post_reason('PCRaster NODATA value wrong or missing.')
-        return 'fail'
+    assert band1.GetNoDataValue() == 255, 'PCRaster NODATA value wrong or missing.'
 
-    return 'success'
+###############################################################################
 
+def test_pcraster_createcopy():
 
-gdaltest_list = [
-    pcraster_1,
-    pcraster_2]
+    tst = gdaltest.GDALTest('PCRaster', 'pcraster/ldd.map', 1, 4528)
+    return tst.testCreateCopy(new_filename = 'tmp/ldd.map')
 
+###############################################################################
 
-if __name__ == '__main__':
+def test_pcraster_create():
 
-    gdaltest.setup_run('pcraster')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())
+    tst = gdaltest.GDALTest('PCRaster', 'float32.tif', 1, 4672, options=['PCRASTER_VALUESCALE=VS_SCALAR'])
+    return tst.testCreate(new_filename = 'tmp/float32.map')

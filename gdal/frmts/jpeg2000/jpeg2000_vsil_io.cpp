@@ -2,7 +2,7 @@
  *
  * Project:  JPEG-2000
  * Purpose:  Return a stream for a VSIL file
- * Author:   Even Rouault, even dot rouault at mines dash paris dot org
+ * Author:   Even Rouault, even dot rouault at spatialys.com
  *
  ******************************************************************************/
 
@@ -14,7 +14,7 @@
  *   British Columbia.
  * Copyright (c) 2001-2003 Michael David Adams.
  * All rights reserved.
- * Copyright (c) 2009-2010, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2010, Even Rouault <even dot rouault at spatialys.com>
  */
 
 /* __START_OF_JASPER_LICENSE__
@@ -94,13 +94,25 @@ typedef struct {
 * File stream object.
 \******************************************************************************/
 
+#if defined(PRIjas_seqent)
+// PRIjas_seqent macro is defined since Jasper 2.0.17
+static int JPEG2000_VSIL_read(jas_stream_obj_t *obj, char *buf, unsigned cnt)
+#else
 static int JPEG2000_VSIL_read(jas_stream_obj_t *obj, char *buf, int cnt)
+#endif
 {
     jas_stream_VSIFL_t *fileobj = JAS_CAST(jas_stream_VSIFL_t *, obj);
     return static_cast<int>(VSIFReadL(buf, 1, cnt, fileobj->fp));
 }
 
+#if defined(JAS_INCLUDE_JP2_CODEC)
+// Jasper 2.0.21
+static int JPEG2000_VSIL_write(jas_stream_obj_t *obj, const char *buf, unsigned int cnt)
+#elif defined(PRIjas_seqent)
+static int JPEG2000_VSIL_write(jas_stream_obj_t *obj, char *buf, unsigned int cnt)
+#else
 static int JPEG2000_VSIL_write(jas_stream_obj_t *obj, char *buf, int cnt)
+#endif
 {
     jas_stream_VSIFL_t *fileobj = JAS_CAST(jas_stream_VSIFL_t *, obj);
     return static_cast<int>(VSIFWriteL(buf, 1, cnt, fileobj->fp));

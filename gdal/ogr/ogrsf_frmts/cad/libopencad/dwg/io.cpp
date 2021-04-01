@@ -31,6 +31,7 @@
 #include "io.h"
 
 #include <iostream>
+#include <cstdint>
 #include <cstring>
 
 const size_t DWGConstants::SentinelLength = 16;
@@ -90,7 +91,7 @@ CADBuffer::CADBuffer(size_t size) : m_nBitOffsetFromStart(0)
     m_pBuffer = new char[size];
     // zero memory
     memset(m_pBuffer, 0, size);
-    m_guard = m_pBuffer + size;
+    m_nSize = size;
 }
 
 CADBuffer::~CADBuffer()
@@ -110,15 +111,14 @@ unsigned char CADBuffer::Read2B()
     size_t        nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t        nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * p2BByte = m_pBuffer + nByteOffset;
-    if(p2BByte + 2 > m_guard)
+    if(nByteOffset + 2 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
 
     unsigned char a2BBytes[2];
-    memcpy( a2BBytes, p2BByte, 2 );
+    memcpy( a2BBytes, m_pBuffer + nByteOffset, 2 );
 
     switch( nBitOffsetInByte )
     {
@@ -143,15 +143,14 @@ unsigned char CADBuffer::Read3B()
     size_t        nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t        nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * p3BByte = m_pBuffer + nByteOffset;
-    if(p3BByte + 2 > m_guard)
+    if(nByteOffset + 2 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
 
     unsigned char a3BBytes[2];
-    memcpy( a3BBytes, p3BByte, 2 );
+    memcpy( a3BBytes, m_pBuffer + nByteOffset, 2 );
 
     switch( nBitOffsetInByte )
     {
@@ -182,15 +181,14 @@ unsigned char CADBuffer::Read4B()
     size_t        nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t        nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * p4BByte = m_pBuffer + nByteOffset;
-    if(p4BByte + 2 > m_guard)
+    if(nByteOffset + 2 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
 
     unsigned char a4BBytes[2];
-    memcpy( a4BBytes, p4BByte, 2 );
+    memcpy( a4BBytes, m_pBuffer + nByteOffset, 2 );
 
     switch( nBitOffsetInByte )
     {
@@ -227,15 +225,14 @@ double CADBuffer::ReadBITDOUBLE()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pDoubleFirstByte = m_pBuffer + nByteOffset;
-    if(pDoubleFirstByte + 9 > m_guard)
+    if(nByteOffset + 9 > m_nSize)
     {
         m_bEOB = true;
         return 0.0;
     }
 
     unsigned char aDoubleBytes[9]; // maximum bytes a single double can take.
-    memcpy( aDoubleBytes, pDoubleFirstByte, 9 );
+    memcpy( aDoubleBytes, m_pBuffer + nByteOffset, 9 );
 
     switch( BITCODE )
     {
@@ -260,10 +257,10 @@ double CADBuffer::ReadBITDOUBLE()
 
             m_nBitOffsetFromStart += 64;
 
-            void   * ptr    = aDoubleBytes;
-            double * result = static_cast< double *> ( ptr );
-
-            return * result;
+            double result;
+            memcpy(&result, aDoubleBytes, sizeof(result));
+            FromLSB(result);
+            return result;
         }
 
         case BITDOUBLE_ONE_VALUE:
@@ -295,8 +292,7 @@ void CADBuffer::SkipBITDOUBLE()
 {
     unsigned char BITCODE = Read2B();
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
-    const char * pDoubleFirstByte = m_pBuffer + nByteOffset;
-    if(pDoubleFirstByte + 9 > m_guard)
+    if(nByteOffset + 9 > m_nSize)
     {
         m_bEOB = true;
         return;
@@ -321,14 +317,13 @@ short CADBuffer::ReadRAWSHORT()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pShortFirstByte = m_pBuffer + nByteOffset;
-    if(pShortFirstByte + 3 > m_guard)
+    if(nByteOffset + 3 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
     unsigned char aShortBytes[3];
-    memcpy( aShortBytes, pShortFirstByte, 3 );
+    memcpy( aShortBytes, m_pBuffer + nByteOffset, 3 );
 
     switch( nBitOffsetInByte )
     {
@@ -343,12 +338,13 @@ short CADBuffer::ReadRAWSHORT()
             break;
     }
 
-    void  * ptr    = aShortBytes;
-    short * result = static_cast<short *>(ptr);
+    int16_t result;
+    memcpy(&result, aShortBytes, sizeof(result));
+    FromLSB(result);
 
     m_nBitOffsetFromStart += 16;
 
-    return * result;
+    return result;
 }
 
 double CADBuffer::ReadRAWDOUBLE()
@@ -356,15 +352,14 @@ double CADBuffer::ReadRAWDOUBLE()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pDoubleFirstByte = m_pBuffer + nByteOffset;
-    if(pDoubleFirstByte + 9 > m_guard)
+    if(nByteOffset + 9 > m_nSize)
     {
         m_bEOB = true;
         return 0.0;
     }
 
     unsigned char aDoubleBytes[9];
-    memcpy( aDoubleBytes, pDoubleFirstByte, 9 );
+    memcpy( aDoubleBytes, m_pBuffer + nByteOffset, 9 );
 
     switch( nBitOffsetInByte )
     {
@@ -391,12 +386,13 @@ double CADBuffer::ReadRAWDOUBLE()
             break;
     }
 
-    void   * ptr    = aDoubleBytes;
-    double * result = static_cast<double *>(ptr);
+    double result;
+    memcpy(&result, aDoubleBytes, sizeof(result));
+    FromLSB(result);
 
     m_nBitOffsetFromStart += 64;
 
-    return * result;
+    return result;
 }
 
 int CADBuffer::ReadRAWLONG()
@@ -404,15 +400,14 @@ int CADBuffer::ReadRAWLONG()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pLongFirstByte = m_pBuffer + nByteOffset;
-    if(pLongFirstByte + 5 > m_guard)
+    if(nByteOffset + 5 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
 
     unsigned char aLongBytes[5];
-    memcpy( aLongBytes, pLongFirstByte, 5 );
+    memcpy( aLongBytes, m_pBuffer + nByteOffset, 5 );
 
     switch( nBitOffsetInByte )
     {
@@ -431,12 +426,13 @@ int CADBuffer::ReadRAWLONG()
             break;
     }
 
-    void * ptr    = aLongBytes;
-    int  * result = static_cast<int *>(ptr);
+    int32_t result;
+    memcpy(&result, aLongBytes, sizeof(result));
+    FromLSB(result);
 
     m_nBitOffsetFromStart += 32;
 
-    return * result;
+    return result;
 }
 
 bool CADBuffer::ReadBIT()
@@ -444,14 +440,13 @@ bool CADBuffer::ReadBIT()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pBoolByte = m_pBuffer + nByteOffset;
-    if(pBoolByte >= m_guard)
+    if(nByteOffset >= m_nSize)
     {
         m_bEOB = true;
         return false;
     }
 
-    unsigned char resultVal = ( pBoolByte[0] >> ( 7 - nBitOffsetInByte ) ) & binary( 00000001 );
+    unsigned char resultVal = ( m_pBuffer[nByteOffset] >> ( 7 - nBitOffsetInByte ) ) & binary( 00000001 );
     ++m_nBitOffsetFromStart;
 
     return resultVal == 0 ? false : true;
@@ -464,15 +459,14 @@ short CADBuffer::ReadBITSHORT()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pShortFirstByte = m_pBuffer + nByteOffset;
-    if(pShortFirstByte + 4 > m_guard)
+    if(nByteOffset + 4 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
 
     unsigned char aShortBytes[4]; // maximum bytes a single short can take.
-    memcpy( aShortBytes, pShortFirstByte, 4 );
+    memcpy( aShortBytes, m_pBuffer + nByteOffset, 4 );
 
     switch( BITCODE )
     {
@@ -485,10 +479,11 @@ short CADBuffer::ReadBITSHORT()
 
             m_nBitOffsetFromStart += 16;
 
-            void  * ptr    = aShortBytes;
-            short * result = static_cast < short * > ( ptr );
+            int16_t result;
+            memcpy(&result, aShortBytes, sizeof(result));
+            FromLSB(result);
 
-            return * result;
+            return result;
         }
 
         case BITSHORT_UNSIGNED_CHAR:
@@ -523,15 +518,14 @@ unsigned char CADBuffer::ReadCHAR()
     size_t        nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t        nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pCharFirstByte = m_pBuffer + nByteOffset;
-    if(pCharFirstByte + 2 > m_guard)
+    if(nByteOffset + 2 > m_nSize)
     {
         m_bEOB = true;
         return result;
     }
 
     unsigned char aCharBytes[2]; // maximum bytes a single char can take.
-    memcpy( aCharBytes, pCharFirstByte, 2 );
+    memcpy( aCharBytes, m_pBuffer + nByteOffset, 2 );
 
     result = ( aCharBytes[0] << nBitOffsetInByte );
     result |= ( aCharBytes[1] >> ( 8 - nBitOffsetInByte ) );
@@ -562,14 +556,13 @@ long CADBuffer::ReadUMCHAR()
     // TODO: bit offset is calculated, but function has nothing to do with it.
     /*size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;*/
 
-    const char * pMCharFirstByte = m_pBuffer + nByteOffset;
-    if(pMCharFirstByte + 8 > m_guard)
+    if(nByteOffset + 8 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
     unsigned char aMCharBytes[8]; // 8 bytes is maximum.
-    //memcpy( aMCharBytes, pMCharFirstByte, 8 );
+    //memcpy( aMCharBytes, m_pBuffer + nByteOffset, 8 );
 
     unsigned char nMCharBytesCount = 0;
     for( unsigned char i = 0; i < 8; ++i )
@@ -602,8 +595,7 @@ long CADBuffer::ReadMCHAR()
     // TODO: bit offset is calculated, but function has nothing to do with it.
     /*size_t nBitOffsetInByte = nBitOffsetFromStart % 8;*/
 
-    const char * pMCharFirstByte = m_pBuffer + nByteOffset;
-    if(pMCharFirstByte + 8 > m_guard)
+    if(nByteOffset + 8 > m_nSize)
     {
         m_bEOB = true;
         return 0;
@@ -646,7 +638,6 @@ long CADBuffer::ReadMCHAR()
 
 unsigned int CADBuffer::ReadMSHORT()
 {
-    unsigned int  result = 0;
     unsigned char aMShortBytes[8]; // 8 bytes is maximum.
 
     // TODO: this function does not support MSHORTS longer than 4 bytes. ODA says
@@ -667,7 +658,7 @@ unsigned int CADBuffer::ReadMSHORT()
     {
         aMShortBytes[0] &= binary( 01111111 ); // drop high order flag bit.
     }
-    else if ( MShortBytesCount == 4 )
+    else
     {
         aMShortBytes[0] &= binary( 01111111 );
         aMShortBytes[2] &= binary( 01111111 );
@@ -677,8 +668,18 @@ unsigned int CADBuffer::ReadMSHORT()
         aMShortBytes[1] |= ( aMShortBytes[0] << 7 );
         aMShortBytes[0] = ( aMShortBytes[0] >> 1 );
     }
-    SwapEndianness( aMShortBytes, MShortBytesCount ); // MSB to LSB
-    memcpy( & result, aMShortBytes, MShortBytesCount );
+
+    unsigned int result;
+    if( MShortBytesCount == 2 )
+    {
+        result = (aMShortBytes[0] << 8) | aMShortBytes[1];
+    }
+    else
+    {
+        result = (static_cast<unsigned>(aMShortBytes[0]) << 24) |
+                 (aMShortBytes[1] << 16) | (aMShortBytes[2] << 8) | aMShortBytes[3];
+    }
+
     return result;
 }
 
@@ -705,10 +706,10 @@ double CADBuffer::ReadBITDOUBLEWD(double defaultvalue )
             aDefaultValueBytes[2] = ReadCHAR();
             aDefaultValueBytes[3] = ReadCHAR();
 
-            void   * ptr    = aDefaultValueBytes;
-            double * result = static_cast< double *> ( ptr );
-
-            return * result;
+            double result;
+            memcpy(&result, aDefaultValueBytes, sizeof(result));
+            FromLSB(result);
+            return result;
         }
 
         case BITDOUBLEWD_6BYTES_PATCHED:
@@ -720,10 +721,10 @@ double CADBuffer::ReadBITDOUBLEWD(double defaultvalue )
             aDefaultValueBytes[2] = ReadCHAR();
             aDefaultValueBytes[3] = ReadCHAR();
 
-            void   * ptr    = aDefaultValueBytes;
-            double * result = static_cast< double *> ( ptr );
-
-            return * result;
+            double result;
+            memcpy(&result, aDefaultValueBytes, sizeof(result));
+            FromLSB(result);
+            return result;
         }
 
         case BITDOUBLEWD_FULL_RD:
@@ -737,10 +738,10 @@ double CADBuffer::ReadBITDOUBLEWD(double defaultvalue )
             aDefaultValueBytes[6] = ReadCHAR();
             aDefaultValueBytes[7] = ReadCHAR();
 
-            void   * ptr    = aDefaultValueBytes;
-            double * result = static_cast< double *> ( ptr );
-
-            return * result;
+            double result;
+            memcpy(&result, aDefaultValueBytes, sizeof(result));
+            FromLSB(result);
+            return result;
         }
     }
 
@@ -787,14 +788,13 @@ int CADBuffer::ReadBITLONG()
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
     size_t nBitOffsetInByte = m_nBitOffsetFromStart % 8;
 
-    const char * pLongFirstByte = m_pBuffer + nByteOffset;
-    if(pLongFirstByte + 5 > m_guard)
+    if(nByteOffset + 5 > m_nSize)
     {
         m_bEOB = true;
         return 0;
     }
     unsigned char aLongBytes[5]; // maximum bytes a single short can take.
-    memcpy( aLongBytes, pLongFirstByte, 5 );
+    memcpy( aLongBytes, m_pBuffer + nByteOffset, 5 );
 
     switch( BITCODE )
     {
@@ -811,10 +811,10 @@ int CADBuffer::ReadBITLONG()
 
             m_nBitOffsetFromStart += 32;
 
-            void * ptr    = aLongBytes;
-            int  * result = static_cast < int * > ( ptr );
-
-            return * result;
+            int32_t result;
+            memcpy(&result, aLongBytes, sizeof(result));
+            FromLSB(result);
+            return result;
         }
 
         case BITLONG_UNSIGNED_CHAR:
@@ -835,8 +835,10 @@ int CADBuffer::ReadBITLONG()
 
         case BITLONG_NOT_USED:
         {
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
             std::cerr <<
             "THAT SHOULD NEVER HAPPENED! BUG. (in file, or reader, or both.) ReadBITLONG(), case BITLONG_NOT_USED\n";
+#endif
             m_nBitOffsetFromStart += 0;
             return 0;
         }
@@ -848,6 +850,13 @@ int CADBuffer::ReadBITLONG()
 void CADBuffer::SkipTV()
 {
     short stringLength = ReadBITSHORT();
+    if( stringLength < 0 )
+    {
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+        std::cerr << "Negative string length" << std::endl;
+#endif
+        return;
+    }
     m_nBitOffsetFromStart += size_t( stringLength * 8 );
 }
 
@@ -855,8 +864,7 @@ void CADBuffer::SkipBITLONG()
 {
     unsigned char BITCODE = Read2B();
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
-    const char * pLongFirstByte = m_pBuffer + nByteOffset;
-    if(pLongFirstByte + 5 > m_guard)
+    if(nByteOffset + 5 > m_nSize)
     {
         m_bEOB = true;
         return;
@@ -881,8 +889,7 @@ void CADBuffer::SkipBITSHORT()
 {
     unsigned char BITCODE = Read2B();
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
-    const char * pShortFirstByte = m_pBuffer + nByteOffset;
-    if(pShortFirstByte + 4 > m_guard)
+    if(nByteOffset + 4 > m_nSize)
     {
         m_bEOB = true;
         return;
@@ -906,8 +913,7 @@ void CADBuffer::SkipBITSHORT()
 void CADBuffer::SkipBIT()
 {
     size_t nByteOffset      = m_nBitOffsetFromStart / 8;
-    const char * pBoolByte = m_pBuffer + nByteOffset;
-    if(pBoolByte >= m_guard)
+    if(nByteOffset >= m_nSize)
     {
         m_bEOB = true;
         return;
@@ -944,7 +950,7 @@ void CADBuffer::Seek(size_t offset, CADBuffer::SeekPosition position)
         m_nBitOffsetFromStart += offset;
         break;
     case END:
-        m_nBitOffsetFromStart = m_guard - m_pBuffer - offset;
+        m_nBitOffsetFromStart = m_nSize - offset;
         break;
     default:
         break;

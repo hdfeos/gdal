@@ -137,8 +137,11 @@ bool OGRSQLiteDataSource::OpenRaster()
 
     if( m_aosSubDatasets.size() == 2 )
     {
-        return OpenRasterSubDataset(
-                    m_aosSubDatasets.FetchNameValue( "SUBDATASET_1_NAME" ));
+        const char* pszSubDSName = m_aosSubDatasets.FetchNameValue( "SUBDATASET_1_NAME" );
+        if( pszSubDSName )
+        {
+            return OpenRasterSubDataset(pszSubDSName);
+        }
     }
 
     return !m_aosSubDatasets.empty();
@@ -363,8 +366,8 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(CPL_UNUSED
             if( oSRS.exportToWkt( &pszWKT ) == OGRERR_NONE )
             {
                 m_osProjection = pszWKT;
-                CPLFree(pszWKT);
             }
+            CPLFree(pszWKT);
         }
     }
 
@@ -506,9 +509,6 @@ bool OGRSQLiteDataSource::OpenRasterSubDataset(CPL_UNUSED
             break;
         case RL2_COMPRESSION_LZW:
             pszCompression = "LZW";
-            break;
-        case RL2_COMPRESSION_CHARLS:
-            pszCompression = "CHARLS";
             break;
         case RL2_COMPRESSION_LOSSY_JP2:
             pszCompression = "JPEG2000";
@@ -1778,8 +1778,6 @@ GDALDataset *OGRSQLiteDriverCreateCopy( const char* pszName,
             nCompression = RL2_COMPRESSION_LOSSY_WEBP;
             nQuality = 75;
         }
-        else if( EQUAL( pszCompression, "CHARLS") )
-            nCompression = RL2_COMPRESSION_CHARLS;
         else if( EQUAL( pszCompression, "JPEG2000") )
         {
             nCompression = RL2_COMPRESSION_LOSSY_JP2;
@@ -2105,14 +2103,10 @@ GDALDataset *OGRSQLiteDriverCreateCopy( const char* pszName,
     }
     else
     {
-        const char* pszProjectionRef = poSrcDS->GetProjectionRef();
-        if( pszProjectionRef != nullptr && !EQUAL(pszProjectionRef, "") )
+        const OGRSpatialReference* poSRS = poSrcDS->GetSpatialRef();
+        if( poSRS )
         {
-            OGRSpatialReference oSRS;
-            if( oSRS.importFromWkt(pszProjectionRef) == OGRERR_NONE )
-            {
-                nSRSId = poDS->FetchSRSId( &oSRS );
-            }
+            nSRSId = poDS->FetchSRSId( poSRS );
         }
     }
 
@@ -2280,7 +2274,9 @@ GDALDataset *OGRSQLiteDriverCreateCopy( const char* pszName,
     memcpy( &cbk_data.adfGeoTransform, adfGeoTransform,
             sizeof(adfGeoTransform) );
 
-    if( rl2_load_raw_tiles_into_dbms(poDS->GetDB(), cvg,
+    if( rl2_load_raw_tiles_into_dbms(poDS->GetDB(),
+                                     poDS->GetRL2Context(),
+                                     cvg,
                                      osSectionName,
                                      poSrcDS->GetRasterXSize(),
                                      poSrcDS->GetRasterYSize(),
@@ -2370,7 +2366,6 @@ CPLErr OGRSQLiteDataSource::IBuildOverviews(
             }
         }
 
-        const int nMaxThreads = 1;
         const int bForcedRebuild = 1;
         const int bVerbose = 0;
         const int bVirtualLevels = 1;
@@ -2379,13 +2374,14 @@ CPLErr OGRSQLiteDataSource::IBuildOverviews(
         {
             if( m_nSectionId >= 0 )
             {
-                ret = rl2_build_section_pyramid( hDB, nMaxThreads,
+                ret = rl2_build_section_pyramid( hDB, GetRL2Context(),
                                            m_osCoverageName, m_nSectionId,
                                            bForcedRebuild, bVerbose);
             }
             else
             {
-                ret = rl2_build_monolithic_pyramid (hDB, m_osCoverageName,
+                ret = rl2_build_monolithic_pyramid (hDB, GetRL2Context(),
+                                                    m_osCoverageName,
                                                     bVirtualLevels,
                                                     bVerbose);
 
@@ -2393,7 +2389,9 @@ CPLErr OGRSQLiteDataSource::IBuildOverviews(
         }
         else
         {
-            ret = rl2_build_monolithic_pyramid (hDB, m_osCoverageName,
+            ret = rl2_build_monolithic_pyramid (hDB,
+                                                GetRL2Context(),
+                                                m_osCoverageName,
                                                 bVirtualLevels,
                                                 bVerbose);
         }
@@ -2447,9 +2445,9 @@ CPLErr OGRSQLiteDataSource::GetGeoTransform( double* padfGeoTransform )
 /*                           GetProjectionRef()                         */
 /************************************************************************/
 
-const char* OGRSQLiteDataSource::GetProjectionRef()
+const char* OGRSQLiteDataSource::_GetProjectionRef()
 {
     if( !m_osProjection.empty() )
         return m_osProjection.c_str();
-    return GDALPamDataset::GetProjectionRef();
+    return GDALPamDataset::_GetProjectionRef();
 }

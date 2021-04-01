@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR Test Suite
 # Purpose:  Test Python threading
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
 # Copyright (c) 2016, Even Rouault <even dot rouault at spatialys dot com>
@@ -29,13 +29,10 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 import threading
 
-sys.path.append('../pymod')
-
-import gdaltest
 from osgeo import gdal
+import pytest
 
 
 def my_error_handler(err_type, err_no, err_msg):
@@ -57,13 +54,9 @@ def thread_test_1_worker(args_dict):
         gdal.PopErrorHandler()
 
 
-def thread_test_1():
+def test_thread_test_1():
 
-    try:
-        from osgeo import gdalnumeric
-        gdalnumeric.zeros
-    except (ImportError, AttributeError):
-        return 'skip'
+    pytest.importorskip('numpy')
 
     threads = []
     args_array = []
@@ -83,13 +76,5 @@ def thread_test_1():
     return ret
 
 
-gdaltest_list = [thread_test_1]
 
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('thread_test')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())

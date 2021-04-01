@@ -47,7 +47,7 @@ void GDALRegister_KEA()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "KEA Image Format (.kea)" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "kea" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_kea.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/kea.html" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte Int16 UInt16 Int32 UInt32 "
                                "Float32 Float64" );
@@ -75,11 +75,13 @@ void GDALRegister_KEA()
         static_cast<int>(kealib::KEA_SIEVE_BUF),
         static_cast<int>(kealib::KEA_META_BLOCKSIZE),
         kealib::KEA_DEFLATE ) );
+    poDriver->SetMetadataItem(GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = KEADataset::Open;
     poDriver->pfnIdentify = KEADataset::Identify;
     poDriver->pfnCreate = KEADataset::Create;
     poDriver->pfnCreateCopy = KEADataset::CreateCopy;
+    poDriver->pfnUnloadDriver = KEADatasetDriverUnload;
 
     GetGDALDriverManager()->RegisterDriver( poDriver );
 }

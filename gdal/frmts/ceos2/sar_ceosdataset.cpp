@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2000, Atlantis Scientific Inc.
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -123,7 +123,7 @@ class SAR_CEOSRasterBand;
 class CCPRasterBand;
 class PALSARRasterBand;
 
-class SAR_CEOSDataset : public GDALPamDataset
+class SAR_CEOSDataset final: public GDALPamDataset
 {
     friend class SAR_CEOSRasterBand;
     friend class CCPRasterBand;
@@ -147,7 +147,10 @@ class SAR_CEOSDataset : public GDALPamDataset
     ~SAR_CEOSDataset() override;
 
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
 
     char **GetMetadataDomainList() override;
@@ -162,7 +165,7 @@ class SAR_CEOSDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class CCPRasterBand : public GDALPamRasterBand
+class CCPRasterBand final: public GDALPamRasterBand
 {
     friend class SAR_CEOSDataset;
 
@@ -178,7 +181,7 @@ class CCPRasterBand : public GDALPamRasterBand
 /* ==================================================================== */
 /************************************************************************/
 
-class PALSARRasterBand : public GDALPamRasterBand
+class PALSARRasterBand final: public GDALPamRasterBand
 {
     friend class SAR_CEOSDataset;
 
@@ -194,7 +197,7 @@ class PALSARRasterBand : public GDALPamRasterBand
 /* ==================================================================== */
 /************************************************************************/
 
-class SAR_CEOSRasterBand : public GDALPamRasterBand
+class SAR_CEOSRasterBand final: public GDALPamRasterBand
 {
     friend class SAR_CEOSDataset;
 
@@ -716,11 +719,11 @@ int SAR_CEOSDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *SAR_CEOSDataset::GetGCPProjection()
+const char *SAR_CEOSDataset::_GetGCPProjection()
 
 {
     if( nGCPCount > 0 )
-        return SRS_WKT_WGS84;
+        return SRS_WKT_WGS84_LAT_LONG;
 
     return "";
 }
@@ -2193,7 +2196,7 @@ void GDALRegister_SAR_CEOS()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "CEOS SAR Image" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#SAR_CEOS" );
+                               "drivers/raster/sar_ceos.html" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 
     poDriver->pfnOpen = SAR_CEOSDataset::Open;

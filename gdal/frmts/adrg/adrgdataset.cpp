@@ -1,10 +1,10 @@
 /******************************************************************************
  *
  * Purpose:  ADRG reader
- * Author:   Even Rouault, even.rouault at mines-paris.org
+ * Author:   Even Rouault, even.rouault at spatialys.com
  *
  ******************************************************************************
- * Copyright (c) 2007-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -40,7 +40,7 @@ CPL_CVSID("$Id$")
 
 #define DIGIT_ZERO '0'
 
-class ADRGDataset : public GDALPamDataset
+class ADRGDataset final: public GDALPamDataset
 {
     friend class ADRGRasterBand;
 
@@ -81,7 +81,10 @@ class ADRGDataset : public GDALPamDataset
     ADRGDataset();
     ~ADRGDataset() override;
 
-    const char *GetProjectionRef(void) override;
+    const char *_GetProjectionRef(void) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * padfGeoTransform ) override;
     CPLErr SetGeoTransform( double * padfGeoTransform ) override;
 
@@ -110,7 +113,7 @@ class ADRGDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class ADRGRasterBand : public GDALPamRasterBand
+class ADRGRasterBand final: public GDALPamRasterBand
 {
     friend class ADRGDataset;
 
@@ -714,7 +717,7 @@ char **ADRGDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALPamDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "SUBDATASETS", NULL);
+                                   "SUBDATASETS", nullptr);
 }
 
 /************************************************************************/
@@ -734,7 +737,7 @@ char **ADRGDataset::GetMetadata( const char *pszDomain )
 /*                        GetProjectionRef()                            */
 /************************************************************************/
 
-const char* ADRGDataset::GetProjectionRef()
+const char* ADRGDataset::_GetProjectionRef()
 {
     return osSRS;
 }
@@ -1093,7 +1096,7 @@ ADRGDataset* ADRGDataset::OpenDataset(
         {
             TILEINDEX = new int [NFL * NFC];
         }
-        catch( const std::bad_alloc& )
+        catch( const std::exception& )
         {
             return nullptr;
         }
@@ -1214,7 +1217,8 @@ ADRGDataset* ADRGDataset::OpenDataset(
                 "PARAMETER[\"latitude_of_center\",90],"
                 "PARAMETER[\"longitude_of_center\",0],"
                 "PARAMETER[\"false_easting\",0],"
-                "PARAMETER[\"false_northing\",0]]";
+                "PARAMETER[\"false_northing\",0],"
+                "UNIT[\"metre\",1]]";
     }
     else if (ZNA == 18)
     {
@@ -1232,7 +1236,8 @@ ADRGDataset* ADRGDataset::OpenDataset(
                 "PARAMETER[\"latitude_of_center\",-90],"
                 "PARAMETER[\"longitude_of_center\",0],"
                 "PARAMETER[\"false_easting\",0],"
-                "PARAMETER[\"false_northing\",0]]";
+                "PARAMETER[\"false_northing\",0],"
+                "UNIT[\"metre\",1]]";
     }
     else
     {
@@ -1242,7 +1247,7 @@ ADRGDataset* ADRGDataset::OpenDataset(
         poDS->adfGeoTransform[3] = PSO;
         poDS->adfGeoTransform[4] = 0.0;
         poDS->adfGeoTransform[5] = - 360. / BRV;
-        poDS->osSRS = SRS_WKT_WGS84;
+        poDS->osSRS = SRS_WKT_WGS84_LAT_LONG;
     }
 
     // if( isGIN )
@@ -1417,6 +1422,14 @@ char** ADRGDataset::GetIMGListFromGEN(const char* pszFileName,
             // TODO: Fix the non-GIN section or remove it.
             if( strcmp(RTY, "GIN") != 0 )
                 continue;
+
+            /* make sure that the GEN file is part of an ADRG dataset, not a SRP dataset, by checking that the GEN field contains a NWO subfield */
+            const char* NWO = record->GetStringSubfield("GEN", 0, "NWO", 0);
+            if( NWO == nullptr )
+            {
+                CSLDestroy(papszFileNames);
+                return nullptr;
+            }
 
             field = record->GetField(3);
             if( field == nullptr )
@@ -2095,7 +2108,7 @@ void ADRGDataset::WriteTHFFile()
                                                   "RTY!RID",
                                                   "(A(3),A(2))");
         sizeOfFields[nFields++] += WriteFieldDecl(fd, '1', '6', "TRANSMITTAL_HEADER_FIELD", /* VDR */
-                                                  "MSD!VOO!ADR!NOV!SQN!NOF!URF!EDN!DAT",
+                                                  "MSD!VOO!ADR!NOV!SQN!NOF!URF!END!DAT",
                                                   "(A(1),A(200),A(1),I(1),I(1),I(3),A(16),I(3),A(12))");
         sizeOfFields[nFields++] += WriteFieldDecl(fd, '1', '6', "DATA_SET_DESCRIPTION_FIELD", /* FDR */
                                                   "NAM!STR!PRT!SWO!SWA!NEO!NEA",
@@ -2153,7 +2166,7 @@ void ADRGDataset::WriteTHFFile()
         sizeOfFields[nFields] += WriteSubFieldInt(fd, 1, 3); /* NOF */
         // URF - DMA stock number for this CDROM
         sizeOfFields[nFields] += WriteSubFieldStr(fd, "", 16);
-        sizeOfFields[nFields] += WriteSubFieldInt(fd, 1, 3); /* EDN */
+        sizeOfFields[nFields] += WriteSubFieldInt(fd, 1, 3); /* END */
         sizeOfFields[nFields] +=
             WriteSubFieldStr(fd, "017,19940101", 12); // DAT - Publication date
         sizeOfFields[nFields] += WriteFieldTerminator(fd);
@@ -2364,7 +2377,7 @@ void GDALRegister_ADRG()
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME,
                                "ARC Digitized Raster Graphics" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#ADRG" );
+                               "drivers/raster/adrg.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "gen" );
     poDriver->SetMetadataItem( GDAL_DMD_CREATIONDATATYPES,
                                "Byte" );

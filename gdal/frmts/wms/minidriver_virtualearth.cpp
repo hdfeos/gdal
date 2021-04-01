@@ -6,7 +6,7 @@
  * Author:   Even Rouault
  *
  ******************************************************************************
- * Copyright (c) 2011, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -59,10 +59,10 @@ CPLErr WMSMiniDriver_VirtualEarth::Initialize(CPLXMLNode *config, CPL_UNUSED cha
 
     m_parent_dataset->WMSSetDefaultBlockSize(256, 256);
     m_parent_dataset->WMSSetDefaultDataWindowCoordinates(-MAX_GM, MAX_GM, MAX_GM, -MAX_GM);
-    m_parent_dataset->WMSSetDefaultTileLevel(19);
-    m_parent_dataset->WMSSetDefaultOverviewCount(18);
+    m_parent_dataset->WMSSetDefaultTileLevel(21);
+    m_parent_dataset->WMSSetDefaultOverviewCount(20);
     m_parent_dataset->WMSSetNeedsDataWindow(FALSE);
-    m_projection_wkt = ProjToWKT("EPSG:900913");
+    m_projection_wkt = ProjToWKT("EPSG:3857");
     return CE_None;
 }
 

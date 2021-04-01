@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1999,  Les Technologies SoftMap Inc.
- * Copyright (c) 2007-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,11 +48,14 @@ void OGRRegisterAllInternal()
 #ifdef SHAPE_ENABLED
     RegisterOGRShape();
 #endif
-#ifdef TAB_ENABLED
+#ifdef MITAB_ENABLED
     RegisterOGRTAB();
 #endif
 #ifdef NTF_ENABLED
     RegisterOGRNTF();
+#endif
+#ifdef LVBAG_ENABLED
+    RegisterOGRLVBAG();
 #endif
 #ifdef SDTS_ENABLED
     RegisterOGRSDTS();
@@ -71,9 +74,6 @@ void OGRRegisterAllInternal()
 #endif
 #ifdef MEM_ENABLED
     RegisterOGRMEM();
-#endif
-#ifdef BNA_ENABLED
-    RegisterOGRBNA();
 #endif
 #ifdef CSV_ENABLED
     RegisterOGRCSV();
@@ -106,8 +106,10 @@ void OGRRegisterAllInternal()
 #ifdef GMT_ENABLED
     RegisterOGRGMT();
 #endif
-#ifdef SQLITE_ENABLED
+#ifdef GPKG_ENABLED
     RegisterOGRGeoPackage();
+#endif
+#ifdef SQLITE_ENABLED
     RegisterOGRSQLite();
 #endif
 #ifdef DODS_ENABLED
@@ -147,18 +149,12 @@ void OGRRegisterAllInternal()
 #ifdef INGRES_ENABLED
     RegisterOGRIngres();
 #endif
-#ifdef SDE_ENABLED
-    RegisterOGRSDE();
-#endif
 /* Register OpenFileGDB before FGDB as it is more capable for read-only */
 #ifdef OPENFILEGDB_ENABLED
     RegisterOGROpenFileGDB();
 #endif
 #ifdef FGDB_ENABLED
     RegisterOGRFileGDB();
-#endif
-#ifdef XPLANE_ENABLED
-    RegisterOGRXPlane();
 #endif
 #ifdef DWG_ENABLED
     RegisterOGRDWG();
@@ -174,6 +170,9 @@ void OGRRegisterAllInternal()
 #endif
 #ifdef GRASS_ENABLED
     RegisterOGRGRASS();
+#endif
+#ifdef FLATGEOBUF_ENABLED
+    RegisterOGRFlatGeobuf();
 #endif
 #ifdef FME_ENABLED
     RegisterOGRFME();
@@ -203,36 +202,21 @@ void OGRRegisterAllInternal()
 #ifdef GPSBABEL_ENABLED
     RegisterOGRGPSBabel();
 #endif
-#ifdef SUA_ENABLED
-    RegisterOGRSUA();
-#endif
-#ifdef OPENAIR_ENABLED
-    RegisterOGROpenAir();
-#endif
 #ifdef PDS_ENABLED
     RegisterOGRPDS();
 #endif
 #ifdef WFS_ENABLED
     RegisterOGRWFS();
-    RegisterOGRWFS3();
+    RegisterOGROAPIF();
 #endif
 #ifdef SOSI_ENABLED
     RegisterOGRSOSI();
-#endif
-#ifdef HTF_ENABLED
-    RegisterOGRHTF();
-#endif
-#ifdef AERONAVFAA_ENABLED
-    RegisterOGRAeronavFAA();
 #endif
 #ifdef GEOMEDIA_ENABLED
     RegisterOGRGeomedia();
 #endif
 #ifdef EDIGEO_ENABLED
     RegisterOGREDIGEO();
-#endif
-#ifdef GFT_ENABLED
-    RegisterOGRGFT();
 #endif
 #ifdef SVG_ENABLED
     RegisterOGRSVG();
@@ -249,13 +233,7 @@ void OGRRegisterAllInternal()
 #ifdef ARCGEN_ENABLED
     RegisterOGRARCGEN();
 #endif
-#ifdef SEGUKOOA_ENABLED
-    RegisterOGRSEGUKOOA();
-#endif
-#ifdef SEGY_ENABLED
-    RegisterOGRSEGY();
-#endif
-#ifdef FREEXL_ENABLED
+#ifdef XLS_ENABLED
     RegisterOGRXLS();
 #endif
 #ifdef ODS_ENABLED
@@ -291,6 +269,9 @@ void OGRRegisterAllInternal()
 #ifdef CSW_ENABLED
     RegisterOGRCSW();
 #endif
+#ifdef MONGODBV3_ENABLED
+    RegisterOGRMongoDBv3();
+#endif
 #ifdef MONGODB_ENABLED
     RegisterOGRMongoDB();
 #endif
@@ -303,14 +284,21 @@ void OGRRegisterAllInternal()
 #ifdef MVT_ENABLED
     RegisterOGRMVT();
 #endif
+#ifdef NGW_ENABLED
+    RegisterOGRNGW();
+#endif // NGW_ENABLED
+#ifdef MAPML_ENABLED
+    RegisterOGRMapML();
+#endif
 
 /* Put TIGER and AVCBIN at end since they need poOpenInfo->GetSiblingFiles() */
 #ifdef TIGER_ENABLED
     RegisterOGRTiger();
 #endif
-#ifdef AVCBIN_ENABLED
+#ifdef AVC_ENABLED
     RegisterOGRAVCBin();
     RegisterOGRAVCE00();
 #endif
+
 
 } /* OGRRegisterAll */

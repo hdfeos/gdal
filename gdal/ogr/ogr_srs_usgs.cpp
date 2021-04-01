@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Andrey Kiselev <dron@ak4719.spb.edu>
- * Copyright (c) 2008-2009, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2009, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -210,7 +210,7 @@ static double OGRSpatialReferenceUSGSUnpackRadian( double dfVal )
  * parameters differs for different projections.
  *
  * <h4>Projection Transformation Package Projection Parameters</h4>
- * <pre>
+ * \code{.unparsed}
  * ----------------------------------------------------------------------------
  *                         |                    Array Element
  *  Code & Projection Id   |---------------------------------------------------
@@ -348,12 +348,12 @@ static double OGRSpatialReferenceUSGSUnpackRadian( double dfVal )
  *
  * Array elements 13 and 14 are set to zero. All array elements with blank
  * fields are set to zero too.
- * </pre>
+ * \endcode
  *
  * @param iDatum Input spheroid.<p>
  *
  * If the datum code is negative, the first two values in the parameter array
- * (parm) are used to define the values as follows:
+ * (param) are used to define the values as follows:
  *
  * <ul>
  *
@@ -388,7 +388,7 @@ static double OGRSpatialReferenceUSGSUnpackRadian( double dfVal )
  * defined by the datum code as found in the following table:
  *
  * <h4>Supported Datums</h4>
- * <pre>
+ * \code{.unparsed}
  *       0: Clarke 1866 (default)
  *       1: Clarke 1880
  *       2: Bessel
@@ -409,7 +409,7 @@ static double OGRSpatialReferenceUSGSUnpackRadian( double dfVal )
  *      17: Mercury 1960
  *      18: Modified Mercury 1968
  *      19: Sphere of Radius 6370997 meters
- * </pre>
+ * \endcode
  *
  * @param nUSGSAngleFormat one of USGS_ANGLE_DECIMALDEGREES,
  *    USGS_ANGLE_PACKEDDMS, or USGS_ANGLE_RADIANS (default is
@@ -759,8 +759,7 @@ OGRErr OGRSpatialReference::importFromUSGS( long iProjSys, long iZone,
             else
             {
                 CPLError( CE_Warning, CPLE_AppDefined,
-                          "Failed to lookup datum code %d, likely due to "
-                          "missing GDAL gcs.csv file.  "
+                          "Failed to lookup datum code %d. "
                           "Falling back to use WGS84.",
                           static_cast<int>(iDatum) );
                 SetWellKnownGeogCS("WGS84");
@@ -783,8 +782,6 @@ OGRErr OGRSpatialReference::importFromUSGS( long iProjSys, long iZone,
 /* -------------------------------------------------------------------- */
     if( IsLocal() || IsProjected() )
         SetLinearUnits( SRS_UL_METER, 1.0 );
-
-    FixupOrdering();
 
     return OGRERR_NONE;
 }

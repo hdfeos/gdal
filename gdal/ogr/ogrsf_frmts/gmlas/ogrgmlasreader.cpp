@@ -254,7 +254,7 @@ GMLASBaseEntityResolver::~GMLASBaseEntityResolver()
 
 /* Called by GMLASInputSource destructor. This is useful for use to */
 /* know where a .xsd has been finished from processing. Note that we */
-/* strongly depend on Xerces behaviour here... */
+/* strongly depend on Xerces behavior here... */
 void GMLASBaseEntityResolver::notifyClosing(const CPLString& osFilename )
 {
     CPLDebug("GMLAS", "Closing %s", osFilename.c_str());
@@ -596,6 +596,7 @@ bool GMLASReader::Init(const char* pszFilename,
         m_poSAXReader->setFeature (XMLUni::fgXercesSchema, true);
 
         // We want all errors to be reported
+        // coverity[unsafe_xml_parse_config]
         m_poSAXReader->setFeature (XMLUni::fgXercesValidationErrorAsFatal, false);
 
         CPLString osBaseDirname( CPLGetDirname(pszFilename) );
@@ -2096,15 +2097,19 @@ void GMLASReader::ProcessXLinkHref( int nAttrIdx,
                     const int nLinkFieldOGRId =
                         m_oCurCtxt.m_poLayer->GetOGRFieldIndexFromXPath(
                             osLinkFieldXPath);
-                    const auto oIter2 = m_oMapElementIdToPKID.find(osId);
-                    if( oIter2 != m_oMapElementIdToPKID.end() )
+                    if( nLinkFieldOGRId >= 0 )
                     {
-                        m_oCurCtxt.m_poFeature->SetField(nLinkFieldOGRId,
-                                                         oIter2->second);
-                    }
-                    else
-                    {
-                        m_oCurCtxt.m_poFeature->SetField(nLinkFieldOGRId, osId);
+                        const auto oIter2 = m_oMapElementIdToPKID.find(osId);
+                        if( oIter2 != m_oMapElementIdToPKID.end() )
+                        {
+                            m_oCurCtxt.m_poFeature->SetField(nLinkFieldOGRId,
+                                                             oIter2->second);
+                        }
+                        else
+                        {
+                            m_oCurCtxt.m_poFeature->SetField(nLinkFieldOGRId,
+                                                             osId);
+                        }
                     }
                 }
             }
@@ -2635,8 +2640,8 @@ void GMLASReader::ProcessSWEDataArray(CPLXMLNode* psRoot)
                                                "encoding.TextEncoding");
     if( psTextEncoding == nullptr )
         return;
-    CPLString osDecimalSeparator =
-        CPLGetXMLValue(psTextEncoding, "decimalSeparator", ".");
+    //CPLString osDecimalSeparator =
+    //    CPLGetXMLValue(psTextEncoding, "decimalSeparator", ".");
     CPLString osBlockSeparator =
         CPLGetXMLValue(psTextEncoding, "blockSeparator", "");
     CPLString osTokenSeparator =
@@ -2860,19 +2865,10 @@ void GMLASReader::ProcessGeometry(CPLXMLNode* psRoot)
             {
                 OGRSpatialReference* poSRS =
                                 new OGRSpatialReference();
+                poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
                 if( poSRS->SetFromUserInput( pszSRSName ) == OGRERR_NONE )
                 {
-                    OGR_SRSNode *poGEOGCS = poSRS->GetAttrNode( "GEOGCS" );
-                    if( poGEOGCS != nullptr )
-                        poGEOGCS->StripNodes( "AXIS" );
-
-                    OGR_SRSNode *poPROJCS = poSRS->GetAttrNode( "PROJCS" );
-                    if (poPROJCS != nullptr &&
-                        poSRS->EPSGTreatsAsNorthingEasting())
-                    {
-                        poPROJCS->StripNodes( "AXIS" );
-                    }
-
                     m_oMapGeomFieldDefnToSRSName[poGeomFieldDefn] = pszSRSName;
                     poGeomFieldDefn->SetSpatialRef(poSRS);
                 }
@@ -2907,8 +2903,9 @@ void GMLASReader::ProcessGeometry(CPLXMLNode* psRoot)
             {
                 OGRSpatialReference oSRS;
                 oSRS.SetFromUserInput( pszSRSName );
-                bSwapXY = CPL_TO_BOOL(oSRS.EPSGTreatsAsLatLong()) ||
-                            CPL_TO_BOOL(oSRS.EPSGTreatsAsNorthingEasting());
+                bSwapXY = !STARTS_WITH_CI(pszSRSName, "EPSG:") &&
+                    (CPL_TO_BOOL(oSRS.EPSGTreatsAsLatLong()) ||
+                     CPL_TO_BOOL(oSRS.EPSGTreatsAsNorthingEasting()));
                 m_oMapSRSNameToInvertedAxis[ pszSRSName ] = bSwapXY;
             }
             else
@@ -2942,7 +2939,7 @@ void GMLASReader::ProcessGeometry(CPLXMLNode* psRoot)
             if( !bReprojectionOK )
             {
                 CPLError(CE_Warning, CPLE_AppDefined,
-                         "Reprojection fom %s to %s failed",
+                         "Reprojection from %s to %s failed",
                          pszSRSName,
                          m_oMapGeomFieldDefnToSRSName[poGeomFieldDefn].c_str());
                 delete poGeom;

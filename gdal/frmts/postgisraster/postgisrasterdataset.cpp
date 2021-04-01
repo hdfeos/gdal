@@ -57,7 +57,7 @@ CPL_CVSID("$Id$")
 
      1) the table is registered in the raster_columns table and number of bands, minx,miny,maxx,maxy are available
         a) no where clause, the table has a primary key and a GIST index on the raster column.
-            If the raster_columns advertize a scale_x and scale_y, use it.
+            If the raster_columns advertise a scale_x and scale_y, use it.
             Otherwise take the metadata of 10 rasters and compute and average scale_x, scale_y
             With above information, we can build the dataset definition.
 
@@ -148,8 +148,10 @@ PostGISRasterDataset::PostGISRasterDataset() :
     adfGeoTransform[GEOTRSFRM_ROTATION_PARAM1] = 0.0;
     adfGeoTransform[GEOTRSFRM_TOPLEFT_Y] = 0.0;
     adfGeoTransform[GEOTRSFRM_ROTATION_PARAM2] = 0.0;
+    // coverity[tainted_data]
     adfGeoTransform[GEOTRSFRM_WE_RES] =
         CPLAtof(CPLGetConfigOption("PR_WE_RES", NO_VALID_RES));
+    // coverity[tainted_data]
     adfGeoTransform[GEOTRSFRM_NS_RES] =
         CPLAtof(CPLGetConfigOption("PR_NS_RES", NO_VALID_RES));
 
@@ -698,6 +700,7 @@ void PostGISRasterDataset::BuildOverviews()
         for(iOV = 0; iOV < nOV; iOV++)
         {
             PostGISRasterDataset* poOvrDS = new PostGISRasterDataset();
+            poOvrDS->ShareLockWithParentDataset(this);
             poOvrDS->nOverviewFactor = poOV[iOV].nFactor;
             poOvrDS->poConn = poConn;
             poOvrDS->eAccess = eAccess;
@@ -1760,6 +1763,7 @@ PostGISRasterTileDataset* PostGISRasterDataset::BuildRasterTileDataset(const cha
 
     PostGISRasterTileDataset* poRTDS =
         new PostGISRasterTileDataset(this, l_nTileWidth, l_nTileHeight);
+    poRTDS->ShareLockWithParentDataset(this);
 
     if (GetPrimaryKeyRef() != nullptr)
     {
@@ -2100,8 +2104,6 @@ const char * pszValidConnectionString)
 {
     int l_nTiles = PQntuples(poResult);
     int i = 0;
-    double dfTileUpperLeftX = 0;
-    double dfTileUpperLeftY = 0;
 
     papszSubdatasets = static_cast<char**>(VSICalloc(2 * l_nTiles + 1, sizeof(char*)));
     if( papszSubdatasets == nullptr )
@@ -2149,8 +2151,8 @@ const char * pszValidConnectionString)
 
             CPLFree(pszRes);
 
-            dfTileUpperLeftX = CPLAtof(papszParams[POS_UPPERLEFTX]);
-            dfTileUpperLeftY = CPLAtof(papszParams[POS_UPPERLEFTY]);
+            const double dfTileUpperLeftX = CPLAtof(papszParams[POS_UPPERLEFTX]);
+            const double dfTileUpperLeftY = CPLAtof(papszParams[POS_UPPERLEFTY]);
 
             papszSubdatasets[2 * i] =
                 CPLStrdup(CPLSPrintf("SUBDATASET_%d_NAME=PG:%s schema=%s table=%s column=%s "
@@ -2898,6 +2900,21 @@ GetConnectionInfo(const char * pszFilename,
         osConnectionString += papszParams[i];
         osConnectionString += " ";
     }
+
+    /**********************************************************
+     * Set application name if not found in connection string
+     **********************************************************/
+
+    if (CSLFindName(papszParams, "application_name") == -1 &&
+        getenv("PGAPPNAME") == nullptr) {
+        osConnectionString += "application_name=";
+        osConnectionString += "'";
+        osConnectionString += "GDAL ";
+        osConnectionString += GDALVersionInfo("RELEASE_NAME");
+        osConnectionString += "'";
+        osConnectionString += " ";
+    }
+
     *ppszConnectionString = CPLStrdup(osConnectionString);
 
     nPos = CSLFindName(papszParams, "host");
@@ -3225,7 +3242,7 @@ char **PostGISRasterDataset::GetMetadataDomainList()
 {
     return BuildMetadataDomainList(GDALDataset::GetMetadataDomainList(),
                                    TRUE,
-                                   "SUBDATASETS", NULL);
+                                   "SUBDATASETS", nullptr);
 }
 
 /*****************************************
@@ -3246,7 +3263,7 @@ char** PostGISRasterDataset::GetMetadata(const char *pszDomain) {
  * be suitable for use with the OGRSpatialReference
  * class.
  *****************************************************/
-const char* PostGISRasterDataset::GetProjectionRef() {
+const char* PostGISRasterDataset::_GetProjectionRef() {
     CPLString osCommand;
 
     if (nSrid == -1)
@@ -3276,11 +3293,10 @@ const char* PostGISRasterDataset::GetProjectionRef() {
  * \brief Set projection definition. The input string must
  * be in OGC WKT or PROJ.4 format
  **********************************************************/
-CPLErr PostGISRasterDataset::SetProjection(const char * pszProjectionRef) {
+CPLErr PostGISRasterDataset::_SetProjection(const char * pszProjectionRef) {
     VALIDATE_POINTER1(pszProjectionRef, "SetProjection", CE_Failure);
 
     CPLString osCommand;
-    int nFetchedSrid = -1;
 
     /*****************************************************************
      * Check if the dataset allows updating
@@ -3303,7 +3319,7 @@ CPLErr PostGISRasterDataset::SetProjection(const char * pszProjectionRef) {
     if (poResult && PQresultStatus(poResult) == PGRES_TUPLES_OK
             && PQntuples(poResult) > 0) {
 
-        nFetchedSrid = atoi(PQgetvalue(poResult, 0, 0));
+        const int nFetchedSrid = atoi(PQgetvalue(poResult, 0, 0));
 
         // update class attribute
         nSrid = nFetchedSrid;
@@ -3334,7 +3350,7 @@ CPLErr PostGISRasterDataset::SetProjection(const char * pszProjectionRef) {
         if (poResult && PQresultStatus(poResult) == PGRES_TUPLES_OK
                 && PQntuples(poResult) > 0) {
 
-            nFetchedSrid = atoi(PQgetvalue(poResult, 0, 0));
+            const int nFetchedSrid = atoi(PQgetvalue(poResult, 0, 0));
 
             // update class attribute
             nSrid = nFetchedSrid;
@@ -3491,14 +3507,10 @@ PostGISRasterDataset::CreateCopy( CPL_UNUSED const char * pszFilename,
             PQerrorMessage(poConn));
         if (poResult != nullptr)
             PQclear(poResult);
-        if (pszSchema)
-            CPLFree(pszSchema);
-        if (pszTable)
-            CPLFree(pszTable);
-        if (pszColumn)
-            CPLFree(pszColumn);
-        if (pszWhere)
-            CPLFree(pszWhere);
+        CPLFree(pszSchema);
+        CPLFree(pszTable);
+        CPLFree(pszColumn);
+        CPLFree(pszWhere);
 
         CPLFree(pszConnectionString);
 
@@ -3894,14 +3906,10 @@ PostGISRasterDataset::Delete(const char* pszFilename)
             PQclear(poResult);
     }
 
-    if (pszSchema)
-        CPLFree(pszSchema);
-    if (pszTable)
-        CPLFree(pszTable);
-    if (pszColumn)
-        CPLFree(pszColumn);
-    if (pszWhere)
-        CPLFree(pszWhere);
+    CPLFree(pszSchema);
+    CPLFree(pszTable);
+    CPLFree(pszColumn);
+    CPLFree(pszWhere);
 
     // clean up connection string
     CPLFree(pszConnectionString);

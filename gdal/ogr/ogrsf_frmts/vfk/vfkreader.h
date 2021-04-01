@@ -83,8 +83,9 @@ public:
     explicit VFKProperty(CPLString const&);
     virtual ~VFKProperty();
 
-    VFKProperty(VFKProperty const& other);
-    VFKProperty& operator=(VFKProperty const& other);
+    VFKProperty(VFKProperty const& other) = default;
+    VFKProperty& operator=(VFKProperty const&) = default;
+    VFKProperty& operator=(VFKProperty&&) = default;
 
     bool                    IsNull()      const { return m_bIsNull; }
     int                     GetValueI()   const { return static_cast<int> (m_iValue); }
@@ -256,6 +257,8 @@ protected:
     virtual int        LoadGeometryLineStringHP() = 0;
     virtual int        LoadGeometryPolygon() = 0;
 
+    static void        FillPointList(PointList* poList, const OGRLineString *poLine);
+
 public:
     IVFKDataBlock(const char *, const IVFKReader *);
     virtual ~IVFKDataBlock();
@@ -307,7 +310,7 @@ private:
 public:
     VFKDataBlock(const char *pszName, const IVFKReader *poReader) : IVFKDataBlock(pszName, poReader) {}
 
-    VFKFeature        *GetFeature(int, GUIntBig, VFKFeatureList* = nullptr);
+    VFKFeature        *GetFeature(int, GUIntBig, VFKFeatureList* poList = nullptr);
     VFKFeatureList     GetFeatures(int, GUIntBig);
     VFKFeatureList     GetFeatures(int, int, GUIntBig);
 

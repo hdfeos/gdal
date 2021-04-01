@@ -149,8 +149,8 @@ bool OGRPLScenesDataV1Dataset::ParseItemTypes(json_object* poObj,
                 "Missing item_types object, or not of type array");
         return false;
     }
-    const int nCatalogsLength = json_object_array_length(poItemTypes);
-    for( int i=0; i<nCatalogsLength; i++ )
+    const auto nCatalogsLength = json_object_array_length(poItemTypes);
+    for( auto i=decltype(nCatalogsLength){0}; i<nCatalogsLength; i++ )
     {
         json_object* poItemType = json_object_array_get_idx(poItemTypes, i);
         ParseItemType(poItemType);
@@ -455,54 +455,47 @@ retry:
     if( poObj == nullptr )
         return nullptr;
 
-    json_object* poSubObj = nullptr;
-    if( pszProductType != nullptr &&
-        (poSubObj = CPL_json_object_object_get(poObj, pszProductType)) != nullptr )
+    json_object* poSubObj = CPL_json_object_object_get(poObj,
+                               pszProductType ? pszProductType : "visual");
+    if( poSubObj == nullptr )
     {
-       /* do nothing */
-    }
-    else if( pszProductType != nullptr && !EQUAL(pszProductType, "LIST") &&
-        (poSubObj = CPL_json_object_object_get(poObj, pszProductType)) == nullptr )
-    {
-       CPLError(CE_Failure, CPLE_AppDefined, "Cannot find asset %s", pszProductType);
-       json_object_put(poObj);
-       return nullptr;
-    }
-    else if( pszProductType == nullptr &&
-             (poSubObj = CPL_json_object_object_get(poObj, "visual")) != nullptr )
-    {
-        /* do nothing */
-    }
-    else
-    {
-        json_object_iter it;
-        it.key = nullptr;
-        it.val = nullptr;
-        it.entry = nullptr;
-        char** papszSubdatasets = nullptr;
-        int nSubDataset = 0;
-        json_object_object_foreachC( poObj, it )
+        if( pszProductType != nullptr && !EQUAL(pszProductType, "LIST") )
         {
-            ++nSubDataset;
-            papszSubdatasets = CSLSetNameValue(papszSubdatasets,
-                    CPLSPrintf("SUBDATASET_%d_NAME", nSubDataset),
-                    CPLSPrintf("Scene=%s of item types %s, asset %s",
-                               osScene.c_str(), pszCatalog, it.key));
-            papszSubdatasets = CSLSetNameValue(papszSubdatasets,
-                    CPLSPrintf("SUBDATASET_%d_DESC", nSubDataset),
-                    CPLSPrintf("PLScenes:version=Data_V1,itemtypes=%s,scene=%s,asset=%s",
-                               pszCatalog, osScene.c_str(), it.key));
+           CPLError(CE_Failure, CPLE_AppDefined, "Cannot find asset %s", pszProductType);
+           json_object_put(poObj);
         }
-        json_object_put(poObj);
-        if( nSubDataset != 0 )
+        else
         {
-            GDALDataset* poDS = new OGRPLScenesDataV1Dataset();
-            poDS->SetMetadata(papszSubdatasets, "SUBDATASETS");
-            CSLDestroy(papszSubdatasets);
-            return poDS;
+            json_object_iter it;
+            it.key = nullptr;
+            it.val = nullptr;
+            it.entry = nullptr;
+            char** papszSubdatasets = nullptr;
+            int nSubDataset = 0;
+            json_object_object_foreachC( poObj, it )
+            {
+                ++nSubDataset;
+                papszSubdatasets = CSLSetNameValue(papszSubdatasets,
+                        CPLSPrintf("SUBDATASET_%d_NAME", nSubDataset),
+                        CPLSPrintf("Scene=%s of item types %s, asset %s",
+                                   osScene.c_str(), pszCatalog, it.key));
+                papszSubdatasets = CSLSetNameValue(papszSubdatasets,
+                        CPLSPrintf("SUBDATASET_%d_DESC", nSubDataset),
+                        CPLSPrintf("PLScenes:version=Data_V1,itemtypes=%s,scene=%s,asset=%s",
+                                   pszCatalog, osScene.c_str(), it.key));
+            }
+            json_object_put(poObj);
+            if( nSubDataset != 0 )
+            {
+                GDALDataset* poDS = new OGRPLScenesDataV1Dataset();
+                poDS->SetMetadata(papszSubdatasets, "SUBDATASETS");
+                CSLDestroy(papszSubdatasets);
+                return poDS;
+            }
         }
         return nullptr;
     }
+
     if( json_object_get_type(poSubObj) != json_type_object )
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot find link");

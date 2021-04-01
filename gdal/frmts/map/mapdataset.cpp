@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2012, Jean-Claude Repetto
- * Copyright (c) 2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2012, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -41,7 +41,7 @@ CPL_CVSID("$Id$")
 /* ==================================================================== */
 /************************************************************************/
 
-class MAPDataset : public GDALDataset
+class MAPDataset final: public GDALDataset
 {
     GDALDataset *poImageDS;
 
@@ -57,10 +57,16 @@ class MAPDataset : public GDALDataset
     MAPDataset();
     virtual ~MAPDataset();
 
-    virtual const char* GetProjectionRef() override;
+    virtual const char* _GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     virtual CPLErr      GetGeoTransform( double * ) override;
     virtual int GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
     virtual char **GetFileList() override;
 
@@ -75,7 +81,7 @@ class MAPDataset : public GDALDataset
 /*                         MAPWrapperRasterBand                         */
 /* ==================================================================== */
 /************************************************************************/
-class MAPWrapperRasterBand : public GDALProxyRasterBand
+class MAPWrapperRasterBand final: public GDALProxyRasterBand
 {
   GDALRasterBand* poBaseBand;
 
@@ -359,13 +365,16 @@ GDALDataset *MAPDataset::Open( GDALOpenInfo * poOpenInfo )
             if ( pszWKT != nullptr )
             {
                 OGRSpatialReference oSRS;
-                OGRSpatialReference *poLatLong = nullptr;
+                OGRSpatialReference *poLongLat = nullptr;
                 if ( OGRERR_NONE == oSRS.importFromWkt ( pszWKT ))
-                    poLatLong = oSRS.CloneGeogCS();
-                if ( poLatLong )
-                    poTransform = OGRCreateCoordinateTransformation( poLatLong, &oSRS );
-                if ( poLatLong )
-                    delete poLatLong;
+                    poLongLat = oSRS.CloneGeogCS();
+                if ( poLongLat )
+                {
+                    oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    poLongLat->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                    poTransform = OGRCreateCoordinateTransformation( poLongLat, &oSRS );
+                    delete poLongLat;
+                }
             }
 
             for ( int iLine = 10; iLine < nLines; iLine++ )
@@ -417,7 +426,7 @@ GDALDataset *MAPDataset::Open( GDALOpenInfo * poOpenInfo )
 /*                          GetProjectionRef()                          */
 /************************************************************************/
 
-const char* MAPDataset::GetProjectionRef()
+const char* MAPDataset::_GetProjectionRef()
 {
     return (pszWKT && nGCPCount == 0) ? pszWKT : "";
 }
@@ -447,7 +456,7 @@ int MAPDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char * MAPDataset::GetGCPProjection()
+const char * MAPDataset::_GetGCPProjection()
 {
     return (pszWKT && nGCPCount != 0) ? pszWKT : "";
 }
@@ -489,7 +498,7 @@ void GDALRegister_MAP()
     poDriver->SetDescription( "MAP" );
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "OziExplorer .MAP" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_map.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/raster/map.html" );
 
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

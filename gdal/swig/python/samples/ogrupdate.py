@@ -1,14 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
 #
 # Project:  GDAL/OGR samples
 # Purpose:  Update an existing datasource with features from another one
-# Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+# Author:   Even Rouault <even dot rouault at spatialys.com>
 #
 ###############################################################################
-# Copyright (c) 2012, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2012, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -195,7 +195,7 @@ def ogrupdate_analyse_args(argv, progress=None, progress_arg=None):
         return 1
 
     if matchfieldname is None and dst_layer.TestCapability(ogr.OLCRandomRead) == 0 and not quiet:
-        print('Warning: target layer does not advertize fast random read capability. Update might be slow')
+        print('Warning: target layer does not advertise fast random read capability. Update might be slow')
 
     if papszSelFields is not None and compare_before_update:
         print('Warning: -select and -compare_before_update are not compatible. Ignoring -compare_before_update')
@@ -459,10 +459,11 @@ def ogrupdate_process(src_layer, dst_layer, matchfieldname=None, update_mode=DEF
 
     return ret
 
-###############################################################
-# Entry point
+
+def main(argv):
+    argv = ogr.GeneralCmdLineProcessor(argv)
+    return ogrupdate_analyse_args(argv[1:])
 
 
 if __name__ == '__main__':
-    argv = ogr.GeneralCmdLineProcessor(sys.argv)
-    sys.exit(ogrupdate_analyse_args(argv[1:]))
+    sys.exit(main(sys.argv))

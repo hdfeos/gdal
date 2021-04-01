@@ -136,7 +136,7 @@ class GeoRasterWrapper;
 //  GeoRasterDataset, extends GDALDataset to support GeoRaster Datasets
 //  ---------------------------------------------------------------------------
 
-class GeoRasterDataset : public GDALDataset
+class GeoRasterDataset final: public GDALDataset
 {
     friend class GeoRasterRasterBand;
 
@@ -191,8 +191,15 @@ public:
                                     void* pProgressData );
     CPLErr GetGeoTransform( double* padfTransform ) override;
     CPLErr SetGeoTransform( double* padfTransform ) override;
-    const char *GetProjectionRef() override;
-    CPLErr SetProjection( const char* pszProjString ) override;
+    const char *_GetProjectionRef() override;
+    CPLErr _SetProjection( const char* pszProjString ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
+
     char **GetMetadataDomainList() override;
     char **GetMetadata( const char* pszDomain ) override;
     void FlushCache() override;
@@ -205,13 +212,23 @@ public:
                       GSpacing nBandSpace,
                       GDALRasterIOExtraArg* psExtraArg ) override;
     int GetGCPCount() override;
-    const char* GetGCPProjection() override;
+    const char* _GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP*
                 GetGCPs() override;
-    CPLErr SetGCPs(
+    CPLErr _SetGCPs(
                int nGCPCount,
                const GDAL_GCP *pasGCPList,
                const char *pszGCPProjection ) override;
+    using GDALDataset::SetGCPs;
+    CPLErr SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
+                    const OGRSpatialReference* poSRS ) override {
+        return OldSetGCPsFromNew(nGCPCount, pasGCPList, poSRS);
+    }
+
+
     CPLErr IBuildOverviews(
                const char* pszResampling,
                int nOverviews,
@@ -226,7 +243,7 @@ public:
         { return CE_None; }
     OGRErr CommitTransaction() override { return CE_None; }
     OGRErr RollbackTransaction() override { return CE_None; }
-    
+
     char** GetFileList() override;
 
     void                AssignGeoRaster( GeoRasterWrapper* poGRW );
@@ -236,7 +253,7 @@ public:
 //  GeoRasterRasterBand, extends GDALRasterBand to support GeoRaster Band
 //  ---------------------------------------------------------------------------
 
-class GeoRasterRasterBand : public GDALRasterBand
+class GeoRasterRasterBand final: public GDALRasterBand
 {
     friend class GeoRasterDataset;
 
@@ -269,7 +286,7 @@ private:
     int                 nNoDataArraySz;
     bool                bHasNoDataArray;
 
-    void                ApplyNoDataArry( void* pBuffer ) const;
+    void                ApplyNoDataArray( void* pBuffer ) const;
 
 public:
     double GetNoDataValue( int *pbSuccess = nullptr ) override;
@@ -422,7 +439,7 @@ public:
                             int nLevels,
                             const char* pszResampling,
                             bool bInternal = false );
-    bool                DeletePyramid();
+    void                DeletePyramid();
     void                PrepareToOverwrite();
     bool                InitializeMask( int nLevel,
                                                 int nBlockColumns,
@@ -501,7 +518,7 @@ public:
     int                 eModelCoordLocation;
     unsigned int        anULTCoordinate[3];
 
-    GDALRPCInfo*        phRPC;
+    GDALRPCInfoV2*      phRPC;
 };
 
 #endif /* ifndef GEORASTER_PRIV_H_INCLUDED */

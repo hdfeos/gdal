@@ -2,10 +2,10 @@
  *
  * Project:  PDF driver
  * Purpose:  GDALDataset driver for PDF dataset (writable vector dataset)
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2010-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "gdal_pdf.h"
 #include "pdfcreatecopy.h"
 #include "memdataset.h"
+#include "pdfcreatefromcomposition.h"
 
 CPL_CVSID("$Id$")
 
@@ -62,12 +63,26 @@ PDFWritableVectorDataset::~PDFWritableVectorDataset()
 /************************************************************************/
 
 GDALDataset* PDFWritableVectorDataset::Create( const char * pszName,
-                                               CPL_UNUSED int nXSize,
-                                               CPL_UNUSED int nYSize,
+                                               int nXSize,
+                                               int nYSize,
                                                int nBands,
-                                               CPL_UNUSED GDALDataType eType,
+                                               GDALDataType eType,
                                                char ** papszOptions )
 {
+    if( nBands == 0 && nXSize == 0 && nYSize == 0 && eType == GDT_Unknown )
+    {
+        const char* pszFilename = CSLFetchNameValue(papszOptions, "COMPOSITION_FILE");
+        if( pszFilename )
+        {
+            if( CSLCount(papszOptions) != 1 )
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "All others options than COMPOSITION_FILE are ignored");
+            }
+            return GDALPDFCreateFromCompositionFile(pszName, pszFilename);
+        }
+    }
+
     if( nBands != 0 )
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -96,7 +111,15 @@ PDFWritableVectorDataset::ICreateLayer( const char * pszLayerName,
 /* -------------------------------------------------------------------- */
 /*      Create the layer object.                                        */
 /* -------------------------------------------------------------------- */
-    OGRLayer* poLayer = new OGRPDFWritableLayer(this, pszLayerName, poSRS, eType);
+    auto poSRSClone = poSRS;
+    if( poSRSClone )
+    {
+        poSRSClone = poSRSClone->Clone();
+        poSRSClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    OGRLayer* poLayer = new OGRPDFWritableLayer(this, pszLayerName, poSRSClone, eType);
+    if( poSRSClone )
+        poSRSClone->Release();
 
     papoLayers = (OGRLayer**)CPLRealloc(papoLayers, (nLayers + 1) * sizeof(OGRLayer*));
     papoLayers[nLayers] = poLayer;
@@ -165,6 +188,50 @@ OGRErr PDFWritableVectorDataset::SyncToDisk()
     if (!bHasExtent ||
         sGlobalExtent.MinX == sGlobalExtent.MaxX ||
         sGlobalExtent.MinY == sGlobalExtent.MaxY)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined,
+                 "Cannot compute spatial extent of features");
+        return OGRERR_FAILURE;
+    }
+
+    double dfRatio = (sGlobalExtent.MaxY - sGlobalExtent.MinY) / (sGlobalExtent.MaxX - sGlobalExtent.MinX);
+
+    int nWidth, nHeight;
+
+    if (dfRatio < 1)
+    {
+        nWidth = 1024;
+        const double dfHeight = nWidth * dfRatio;
+        if( dfHeight < 1 || dfHeight > INT_MAX || CPLIsNan(dfHeight) )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "Invalid image dimensions");
+            return OGRERR_FAILURE;
+        }
+        nHeight = static_cast<int>(dfHeight);
+    }
+    else
+    {
+        nHeight = 1024;
+        const double dfWidth = nHeight / dfRatio;
+        if( dfWidth < 1 || dfWidth > INT_MAX || CPLIsNan(dfWidth) )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "Invalid image dimensions");
+            return OGRERR_FAILURE;
+        }
+        nWidth = static_cast<int>(dfWidth);
+    }
+
+    double adfGeoTransform[6];
+    adfGeoTransform[0] = sGlobalExtent.MinX;
+    adfGeoTransform[1] = (sGlobalExtent.MaxX - sGlobalExtent.MinX) / nWidth;
+    adfGeoTransform[2] = 0;
+    adfGeoTransform[3] = sGlobalExtent.MaxY;
+    adfGeoTransform[4] = 0;
+    adfGeoTransform[5] = - (sGlobalExtent.MaxY - sGlobalExtent.MinY) / nHeight;
+
+    // Do again a check against 0, because the above divisions might
+    // transform a difference close to 0, to plain 0.
+    if (adfGeoTransform[1] == 0 || adfGeoTransform[5] == 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Cannot compute spatial extent of features");
@@ -261,30 +328,7 @@ OGRErr PDFWritableVectorDataset::SyncToDisk()
 
     GDALPDFWriter oWriter(fp);
 
-    double dfRatio = (sGlobalExtent.MaxY - sGlobalExtent.MinY) / (sGlobalExtent.MaxX - sGlobalExtent.MinX);
-
-    int nWidth, nHeight;
-
-    if (dfRatio < 1)
-    {
-        nWidth = 1024;
-        nHeight = static_cast<int>(nWidth * dfRatio);
-    }
-    else
-    {
-        nHeight = 1024;
-        nWidth = static_cast<int>(nHeight / dfRatio);
-    }
-
     GDALDataset* poSrcDS = MEMDataset::Create( "MEM:::", nWidth, nHeight, 0, GDT_Byte, nullptr );
-
-    double adfGeoTransform[6];
-    adfGeoTransform[0] = sGlobalExtent.MinX;
-    adfGeoTransform[1] = (sGlobalExtent.MaxX - sGlobalExtent.MinX) / nWidth;
-    adfGeoTransform[2] = 0;
-    adfGeoTransform[3] = sGlobalExtent.MaxY;
-    adfGeoTransform[4] = 0;
-    adfGeoTransform[5] = - (sGlobalExtent.MaxY - sGlobalExtent.MinY) / nHeight;
 
     poSrcDS->SetGeoTransform(adfGeoTransform);
 

@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2001, Atlantis Scientific, Inc.
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -46,7 +46,7 @@ CPL_C_END
 /*                        MerisL2FlagBand                         */
 /* ==================================================================== */
 /************************************************************************/
-class MerisL2FlagBand : public GDALPamRasterBand
+class MerisL2FlagBand final: public GDALPamRasterBand
 {
   public:
     MerisL2FlagBand( GDALDataset *, int, VSILFILE*, vsi_l_offset, int );
@@ -155,7 +155,7 @@ CPLErr MerisL2FlagBand::IReadBlock( CPL_UNUSED int nBlockXOff,
 /* ==================================================================== */
 /************************************************************************/
 
-class EnvisatDataset : public RawDataset
+class EnvisatDataset final: public RawDataset
 {
     EnvisatFile *hEnvisatFile;
     VSILFILE    *fpImage;
@@ -179,7 +179,10 @@ class EnvisatDataset : public RawDataset
     virtual ~EnvisatDataset();
 
     virtual int    GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
     virtual char      **GetMetadataDomainList() override;
     virtual char **GetMetadata( const char * pszDomain ) override;
@@ -243,11 +246,11 @@ int EnvisatDataset::GetGCPCount()
 /*                          GetGCPProjection()                          */
 /************************************************************************/
 
-const char *EnvisatDataset::GetGCPProjection()
+const char *EnvisatDataset::_GetGCPProjection()
 
 {
     if( nGCPCount > 0 )
-        return SRS_WKT_WGS84;
+        return SRS_WKT_WGS84_LAT_LONG;
 
     return "";
 }
@@ -503,7 +506,7 @@ void EnvisatDataset::ScanForGCPs_MERIS()
     }
     else
     {
-        CPLDebug( "EnvisatDataset", "Unexpectd size of 'Tie points ADS' !"
+        CPLDebug( "EnvisatDataset", "Unexpected size of 'Tie points ADS' !"
                 " received=%d expected=%d or %d" , nDSRSize ,
                 50*nTPPerLine+13, 8*nTPPerLine+13 ) ;
         return;
@@ -1156,7 +1159,7 @@ void GDALRegister_Envisat()
     poDriver->SetMetadataItem( GDAL_DCAP_RASTER, "YES" );
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Envisat Image Format" );
     poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC,
-                               "frmt_various.html#Envisat" );
+                               "drivers/raster/esat.html" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "n1" );
     poDriver->SetMetadataItem( GDAL_DCAP_VIRTUALIO, "YES" );
 

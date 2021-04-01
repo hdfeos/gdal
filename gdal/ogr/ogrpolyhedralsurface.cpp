@@ -34,6 +34,8 @@
 #include "ogr_api.h"
 #include "ogr_libs.h"
 
+#include <new>
+
 CPL_CVSID("$Id$")
 
 /************************************************************************/
@@ -86,6 +88,16 @@ OGRPolyhedralSurface& OGRPolyhedralSurface::operator=(
         oMP = other.oMP;
     }
     return *this;
+}
+
+/************************************************************************/
+/*                               clone()                                */
+/************************************************************************/
+
+OGRPolyhedralSurface *OGRPolyhedralSurface::clone() const
+
+{
+    return new (std::nothrow) OGRPolyhedralSurface(*this);
 }
 
 /************************************************************************/
@@ -157,32 +169,6 @@ void OGRPolyhedralSurface::empty()
     }
     oMP.nGeomCount = 0;
     oMP.papoGeoms = nullptr;
-}
-
-/************************************************************************/
-/*                               clone()                                */
-/************************************************************************/
-
-OGRGeometry* OGRPolyhedralSurface::clone() const
-{
-    OGRPolyhedralSurface *poNewPS =
-        OGRGeometryFactory::createGeometry(getGeometryType())->
-            toPolyhedralSurface();
-
-    poNewPS->assignSpatialReference(getSpatialReference());
-    poNewPS->flags = flags;
-
-    for( auto&& poSubGeom: *this )
-    {
-        if( poNewPS->oMP._addGeometryWithExpectedSubGeometryType(
-                      poSubGeom, getSubGeometryType()) != OGRERR_NONE )
-        {
-            delete poNewPS;
-            return nullptr;
-        }
-    }
-
-    return poNewPS;
 }
 
 /************************************************************************/
@@ -436,6 +422,9 @@ OGRErr OGRPolyhedralSurface::importFromWkt( const char ** ppszInput )
     if( szToken[0] != ')' )
         return OGRERR_CORRUPT_DATA;
 
+    set3D(oMP.Is3D());
+    setMeasured(oMP.IsMeasured());
+
     *ppszInput = pszInput;
     return OGRERR_NONE;
 }
@@ -445,164 +434,67 @@ OGRErr OGRPolyhedralSurface::importFromWkt( const char ** ppszInput )
 /************************************************************************/
 
 
-OGRErr OGRPolyhedralSurface::exportToWkt ( char ** ppszDstText,
-                                           OGRwkbVariant ) const
+std::string OGRPolyhedralSurface::exportToWkt(const OGRWktOptions& opts,
+                                              OGRErr *err) const
 {
-    return exportToWktInternal(ppszDstText, wkbVariantIso, getSubGeometryName());
+    OGRWktOptions optsModified(opts);
+    optsModified.variant = wkbVariantIso;
+    return exportToWktInternal(optsModified, err);
 }
 
 //! @cond Doxygen_Suppress
-OGRErr OGRPolyhedralSurface::exportToWktInternal ( char ** ppszDstText,
-                                                   OGRwkbVariant eWkbVariant,
-                                                   const char* pszSkipPrefix ) const
+std::string OGRPolyhedralSurface::exportToWktInternal(const OGRWktOptions& opts,
+                                                      OGRErr *err) const
 {
-    char        **papszGeoms;
-    int         iGeom;
-    size_t      nCumulativeLength = 0;
-    OGRErr      eErr;
-    bool bMustWriteComma = false;
-
-/* -------------------------------------------------------------------- */
-/*      Build a list of strings containing the stuff for each Geom.     */
-/* -------------------------------------------------------------------- */
-    papszGeoms = (oMP.nGeomCount) ? static_cast<char**>(
-        CPLCalloc(sizeof(char *), oMP.nGeomCount)) : nullptr;
-
-    for( iGeom = 0; iGeom < oMP.nGeomCount; iGeom++ )
+    try
     {
-        eErr = oMP.papoGeoms[iGeom]->exportToWkt( &(papszGeoms[iGeom]),
-                                                  eWkbVariant );
-        if( eErr != OGRERR_NONE )
-            goto error;
+        std::string wkt(getGeometryName());
+        wkt += wktTypeString(opts.variant);
+        bool first = true;
 
-        size_t nSkip = 0;
-        if( pszSkipPrefix != nullptr &&
-            EQUALN(papszGeoms[iGeom], pszSkipPrefix, strlen(pszSkipPrefix)) &&
-            papszGeoms[iGeom][strlen(pszSkipPrefix)] == ' ' )
+        for (int i = 0; i < oMP.nGeomCount; ++i)
         {
-            nSkip = strlen(pszSkipPrefix) + 1;
-            if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "ZM ") )
-                nSkip += 3;
-            else if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "M ") )
-                nSkip += 2;
-            if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "Z ") )
-                nSkip += 2;
+            OGRGeometry *geom = oMP.papoGeoms[i];
 
-            /* skip empty subgeoms */
-            if( papszGeoms[iGeom][nSkip] != '(' )
+            OGRErr subgeomErr = OGRERR_NONE;
+            std::string tempWkt = geom->exportToWkt(opts, &subgeomErr);
+            if (subgeomErr != OGRERR_NONE)
             {
-                CPLDebug( "OGR", "OGR%s::exportToWkt() - skipping %s.",
-                          getGeometryName(), papszGeoms[iGeom] );
-                CPLFree( papszGeoms[iGeom] );
-                papszGeoms[iGeom] = nullptr;
-                continue;
+                if( err )
+                    *err = subgeomErr;
+                return std::string();
             }
-        }
-        else if( eWkbVariant != wkbVariantIso )
-        {
-            char *substr;
-            if( (substr = strstr(papszGeoms[iGeom], " Z")) != nullptr )
-                memmove(substr, substr+strlen(" Z"),
-                        1 + strlen(substr+strlen(" Z")));
-        }
 
-        nCumulativeLength += strlen(papszGeoms[iGeom] + nSkip);
-    }
+            auto pos = tempWkt.find('(');
 
-/* -------------------------------------------------------------------- */
-/*      Return XXXXXXXXXXXXXXX EMPTY if we get no valid line string.    */
-/* -------------------------------------------------------------------- */
-    if( nCumulativeLength == 0 )
-    {
-        CPLFree( papszGeoms );
-        CPLString osEmpty;
-        if( eWkbVariant == wkbVariantIso )
-        {
-            if( Is3D() && IsMeasured() )
-                osEmpty.Printf("%s ZM EMPTY",getGeometryName());
-            else if( IsMeasured() )
-                osEmpty.Printf("%s M EMPTY",getGeometryName());
-            else if( Is3D() )
-                osEmpty.Printf("%s Z EMPTY",getGeometryName());
+            // Skip empty geoms
+            if (pos == std::string::npos)
+                continue;
+            if (first)
+                wkt += '(';
             else
-                osEmpty.Printf("%s EMPTY",getGeometryName());
+                wkt += ',';
+            first = false;
+
+            // Extract the '( ... )' part of the child geometry.
+            wkt += tempWkt.substr(pos);
         }
+
+        if (err)
+            *err = OGRERR_NONE;
+        if( first )
+            wkt += "EMPTY";
         else
-            osEmpty.Printf("%s EMPTY",getGeometryName());
-        *ppszDstText = CPLStrdup(osEmpty);
-        return OGRERR_NONE;
+            wkt += ')';
+        return wkt;
     }
-
-/* -------------------------------------------------------------------- */
-/*      Allocate the right amount of space for the aggregated string    */
-/* -------------------------------------------------------------------- */
-    *ppszDstText = static_cast<char*>(VSI_MALLOC_VERBOSE(
-                                   nCumulativeLength + oMP.nGeomCount + 26));
-
-    if( *ppszDstText == nullptr )
+    catch( const std::bad_alloc& e )
     {
-        eErr = OGRERR_NOT_ENOUGH_MEMORY;
-        goto error;
+        CPLError(CE_Failure, CPLE_OutOfMemory, "%s", e.what());
+        if (err)
+            *err = OGRERR_FAILURE;
+        return std::string();
     }
-
-/* -------------------------------------------------------------------- */
-/*      Build up the string, freeing temporary strings as we go.        */
-/* -------------------------------------------------------------------- */
-    strcpy( *ppszDstText, getGeometryName() );
-    if( eWkbVariant == wkbVariantIso )
-    {
-        if( (flags & OGR_G_3D) && (flags & OGR_G_MEASURED) )
-            strcat( *ppszDstText, " ZM" );
-        else if( flags & OGR_G_3D )
-            strcat( *ppszDstText, " Z" );
-        else if( flags & OGR_G_MEASURED )
-            strcat( *ppszDstText, " M" );
-    }
-    strcat( *ppszDstText, " (" );
-    nCumulativeLength = strlen(*ppszDstText);
-
-    for( iGeom = 0; iGeom < oMP.nGeomCount; iGeom++ )
-    {
-        if( papszGeoms[iGeom] == nullptr )
-            continue;
-
-        if( bMustWriteComma )
-            (*ppszDstText)[nCumulativeLength++] = ',';
-        bMustWriteComma = true;
-
-        size_t nSkip = 0;
-        if( pszSkipPrefix != nullptr &&
-            EQUALN(papszGeoms[iGeom], pszSkipPrefix, strlen(pszSkipPrefix)) &&
-            papszGeoms[iGeom][strlen(pszSkipPrefix)] == ' ' )
-        {
-            nSkip = strlen(pszSkipPrefix) + 1;
-            if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "ZM ") )
-                nSkip += 3;
-            else if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "M ") )
-                nSkip += 2;
-            else if( STARTS_WITH_CI(papszGeoms[iGeom] + nSkip, "Z ") )
-                nSkip += 2;
-        }
-
-        size_t nGeomLength = strlen(papszGeoms[iGeom] + nSkip);
-        memcpy( *ppszDstText + nCumulativeLength, papszGeoms[iGeom] + nSkip,
-                nGeomLength );
-        nCumulativeLength += nGeomLength;
-        VSIFree( papszGeoms[iGeom] );
-    }
-
-    (*ppszDstText)[nCumulativeLength++] = ')';
-    (*ppszDstText)[nCumulativeLength] = '\0';
-
-    CPLFree( papszGeoms );
-
-    return OGRERR_NONE;
-
-error:
-    for( iGeom = 0; iGeom < oMP.nGeomCount; iGeom++ )
-        CPLFree( papszGeoms[iGeom] );
-    CPLFree( papszGeoms );
-    return eErr;
 }
 //! @endcond
 
@@ -925,9 +817,9 @@ int OGRPolyhedralSurface::getNumGeometries() const
  * @return pointer to requested geometry.
  */
 
-OGRGeometry* OGRPolyhedralSurface::getGeometryRef(int i)
+OGRPolygon* OGRPolyhedralSurface::getGeometryRef(int i)
 {
-    return oMP.papoGeoms[i];
+    return oMP.papoGeoms[i]->toPolygon();
 }
 
 /************************************************************************/
@@ -947,9 +839,9 @@ OGRGeometry* OGRPolyhedralSurface::getGeometryRef(int i)
  * @return pointer to requested geometry.
  */
 
-const OGRGeometry* OGRPolyhedralSurface::getGeometryRef(int i) const
+const OGRPolygon* OGRPolyhedralSurface::getGeometryRef(int i) const
 {
-    return oMP.papoGeoms[i];
+    return oMP.papoGeoms[i]->toPolygon();
 }
 
 /************************************************************************/

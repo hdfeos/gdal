@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1998, Frank Warmerdam
- * Copyright (c) 2009-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -45,6 +45,7 @@
 #include "gdal.h"
 #include "gdal_pam.h"
 #include "gdal_version.h"
+#include "gdal_thread_pool.h"
 #include "ogr_srs_api.h"
 #include "ograpispy.h"
 #ifdef HAVE_XERCES
@@ -117,6 +118,8 @@ GDALDriverManager * GetGDALDriverManager()
 GDALDriverManager::GDALDriverManager()
 {
     CPLAssert( poDM == nullptr );
+
+    CPLLoadConfigOptionsFromPredefinedFiles();
 
 /* -------------------------------------------------------------------- */
 /*      We want to push a location to search for data files             */
@@ -220,7 +223,9 @@ GDALDriverManager::~GDALDriverManager()
         delete poDriver;
     }
 
-    delete GDALGetAPIPROXYDriver();
+    CleanupPythonDrivers();
+
+    GDALDestroyGlobalThreadPool();
 
 /* -------------------------------------------------------------------- */
 /*      Cleanup local memory.                                           */
@@ -233,6 +238,12 @@ GDALDriverManager::~GDALDriverManager()
     PamCleanProxyDB();
 
 /* -------------------------------------------------------------------- */
+/*      Cleanup any memory allocated by the OGRSpatialReference         */
+/*      related subsystem.                                              */
+/* -------------------------------------------------------------------- */
+    OSRCleanup();
+
+/* -------------------------------------------------------------------- */
 /*      Blow away all the finder hints paths.  We really should not     */
 /*      be doing all of them, but it is currently hard to keep track    */
 /*      of those that actually belong to us.                            */
@@ -240,12 +251,6 @@ GDALDriverManager::~GDALDriverManager()
     CPLFinderClean();
     CPLFreeConfig();
     CPLCleanupSharedFileMutex();
-
-/* -------------------------------------------------------------------- */
-/*      Cleanup any memory allocated by the OGRSpatialReference         */
-/*      related subsystem.                                              */
-/* -------------------------------------------------------------------- */
-    OSRCleanup();
 
 #ifdef HAVE_XERCES
     OGRCleanupXercesMutex();
@@ -460,11 +465,15 @@ int GDALDriverManager::RegisterDriver( GDALDriver * poDriver )
         poDriver->pfnOpenWithDriverArg != nullptr )
         poDriver->SetMetadataItem( GDAL_DCAP_OPEN, "YES" );
 
-    if( poDriver->pfnCreate != nullptr )
+    if( poDriver->pfnCreate != nullptr ||
+        poDriver->pfnCreateEx != nullptr )
         poDriver->SetMetadataItem( GDAL_DCAP_CREATE, "YES" );
 
     if( poDriver->pfnCreateCopy != nullptr )
         poDriver->SetMetadataItem( GDAL_DCAP_CREATECOPY, "YES" );
+
+    if( poDriver->pfnCreateMultiDimensional != nullptr )
+        poDriver->SetMetadataItem( GDAL_DCAP_CREATE_MULTIDIMENSIONAL, "YES" );
 
     // Backward compatibility for GDAL raster out-of-tree drivers:
     // If a driver hasn't explicitly set a vector capability, assume it is
@@ -481,6 +490,7 @@ int GDALDriverManager::RegisterDriver( GDALDriver * poDriver )
 
     if( poDriver->GetMetadataItem( GDAL_DMD_OPENOPTIONLIST ) != nullptr &&
         poDriver->pfnIdentify == nullptr &&
+        poDriver->pfnIdentifyEx == nullptr &&
         !STARTS_WITH_CI(poDriver->GetDescription(), "Interlis") )
     {
         CPLDebug( "GDAL",
@@ -683,6 +693,64 @@ void GDALDriverManager::AutoSkipDrivers()
 }
 
 /************************************************************************/
+/*                          GetSearchPaths()                            */
+/************************************************************************/
+
+char** GDALDriverManager::GetSearchPaths(const char* pszGDAL_DRIVER_PATH)
+{
+    char **papszSearchPaths = nullptr;
+    CPL_IGNORE_RET_VAL(pszGDAL_DRIVER_PATH);
+#ifndef GDAL_NO_AUTOLOAD
+    if( pszGDAL_DRIVER_PATH != nullptr )
+    {
+#ifdef WIN32
+        papszSearchPaths =
+            CSLTokenizeStringComplex( pszGDAL_DRIVER_PATH, ";", TRUE, FALSE );
+#else
+        papszSearchPaths =
+            CSLTokenizeStringComplex( pszGDAL_DRIVER_PATH, ":", TRUE, FALSE );
+#endif
+    }
+    else
+    {
+#ifdef GDAL_PREFIX
+        papszSearchPaths = CSLAddString( papszSearchPaths,
+    #ifdef MACOSX_FRAMEWORK
+                                        GDAL_PREFIX "/PlugIns");
+    #else
+                                        GDAL_PREFIX "/lib/gdalplugins" );
+    #endif
+#else
+        char szExecPath[1024];
+
+        if( CPLGetExecPath( szExecPath, sizeof(szExecPath) ) )
+        {
+            char szPluginDir[sizeof(szExecPath)+50];
+            strcpy( szPluginDir, CPLGetDirname( szExecPath ) );
+            strcat( szPluginDir, "\\gdalplugins" );
+            papszSearchPaths = CSLAddString( papszSearchPaths, szPluginDir );
+        }
+        else
+        {
+            papszSearchPaths = CSLAddString( papszSearchPaths,
+                                            "/usr/local/lib/gdalplugins" );
+        }
+#endif
+
+   #ifdef MACOSX_FRAMEWORK
+   #define num2str(x) str(x)
+   #define str(x) #x
+     papszSearchPaths = CSLAddString( papszSearchPaths,
+                                     "/Library/Application Support/GDAL/"
+                                     num2str(GDAL_VERSION_MAJOR) "."
+                                     num2str(GDAL_VERSION_MINOR) "/PlugIns" );
+#endif
+    }
+#endif // GDAL_NO_AUTOLOAD
+    return papszSearchPaths;
+}
+
+/************************************************************************/
 /*                          AutoLoadDrivers()                           */
 /************************************************************************/
 
@@ -731,53 +799,7 @@ void GDALDriverManager::AutoLoadDrivers()
 /* -------------------------------------------------------------------- */
 /*      Where should we look for stuff?                                 */
 /* -------------------------------------------------------------------- */
-    char **papszSearchPath = nullptr;
-
-    if( pszGDAL_DRIVER_PATH != nullptr )
-    {
-#ifdef WIN32
-        papszSearchPath =
-            CSLTokenizeStringComplex( pszGDAL_DRIVER_PATH, ";", TRUE, FALSE );
-#else
-        papszSearchPath =
-            CSLTokenizeStringComplex( pszGDAL_DRIVER_PATH, ":", TRUE, FALSE );
-#endif
-    }
-    else
-    {
-#ifdef GDAL_PREFIX
-        papszSearchPath = CSLAddString( papszSearchPath,
-    #ifdef MACOSX_FRAMEWORK
-                                        GDAL_PREFIX "/PlugIns");
-    #else
-                                        GDAL_PREFIX "/lib/gdalplugins" );
-    #endif
-#else
-        char szExecPath[1024];
-
-        if( CPLGetExecPath( szExecPath, sizeof(szExecPath) ) )
-        {
-            char szPluginDir[sizeof(szExecPath)+50];
-            strcpy( szPluginDir, CPLGetDirname( szExecPath ) );
-            strcat( szPluginDir, "\\gdalplugins" );
-            papszSearchPath = CSLAddString( papszSearchPath, szPluginDir );
-        }
-        else
-        {
-            papszSearchPath = CSLAddString( papszSearchPath,
-                                            "/usr/local/lib/gdalplugins" );
-        }
-#endif
-
-   #ifdef MACOSX_FRAMEWORK
-   #define num2str(x) str(x)
-   #define str(x) #x
-     papszSearchPath = CSLAddString( papszSearchPath,
-                                     "/Library/Application Support/GDAL/"
-                                     num2str(GDAL_VERSION_MAJOR) "."
-                                     num2str(GDAL_VERSION_MINOR) "/PlugIns" );
-#endif
-    }
+    char **papszSearchPaths = GetSearchPaths(pszGDAL_DRIVER_PATH);
 
 /* -------------------------------------------------------------------- */
 /*      Format the ABI version specific subdirectory to look in.        */
@@ -789,14 +811,15 @@ void GDALDriverManager::AutoLoadDrivers()
 /* -------------------------------------------------------------------- */
 /*      Scan each directory looking for files starting with gdal_       */
 /* -------------------------------------------------------------------- */
-    for( int iDir = 0; iDir < CSLCount(papszSearchPath); ++iDir )
+    const int nSearchPaths = CSLCount(papszSearchPaths);
+    for( int iDir = 0; iDir < nSearchPaths; ++iDir )
     {
         CPLString osABISpecificDir =
-            CPLFormFilename( papszSearchPath[iDir], osABIVersion, nullptr );
+            CPLFormFilename( papszSearchPaths[iDir], osABIVersion, nullptr );
 
         VSIStatBufL sStatBuf;
         if( VSIStatL( osABISpecificDir, &sStatBuf ) != 0 )
-            osABISpecificDir = papszSearchPath[iDir];
+            osABISpecificDir = papszSearchPaths[iDir];
 
         char **papszFiles = VSIReadDir( osABISpecificDir );
         const int nFileCount = CSLCount(papszFiles);
@@ -857,7 +880,7 @@ void GDALDriverManager::AutoLoadDrivers()
         CSLDestroy( papszFiles );
     }
 
-    CSLDestroy( papszSearchPath );
+    CSLDestroy( papszSearchPaths );
 
 #endif  // GDAL_NO_AUTOLOAD
 }
@@ -890,4 +913,32 @@ void CPL_STDCALL GDALDestroyDriverManager( void )
         delete poDM;
         poDM = nullptr;
     }
+}
+
+/************************************************************************/
+/*        GDALIsDriverDeprecatedForGDAL35StillEnabled()                 */
+/************************************************************************/
+
+/**
+ * \brief Returns whether a deprecated driver is explicitly enabled by the user
+ */
+
+bool GDALIsDriverDeprecatedForGDAL35StillEnabled(const char* pszDriverName, const char* pszExtraMsg)
+{
+    CPLString osConfigOption;
+    osConfigOption.Printf("GDAL_ENABLE_DEPRECATED_DRIVER_%s", pszDriverName);
+    if( CPLTestBool(CPLGetConfigOption(osConfigOption.c_str(), "NO")) )
+    {
+        return true;
+    }
+    CPLError(CE_Failure, CPLE_AppDefined,
+        "Driver %s is considered for removal in GDAL 3.5.%s You are invited "
+        "to convert any dataset in that format to another more common one ."
+        "If you need this driver in future GDAL versions, create a ticket at "
+        "https://github.com/OSGeo/gdal (look first for an existing one first) to "
+        "explain how critical it is for you (but the GDAL project may still "
+        "remove it), and to enable it now, set the %s "
+        "configuration option / environment variable to YES",
+        pszDriverName, pszExtraMsg, osConfigOption.c_str());
+    return false;
 }

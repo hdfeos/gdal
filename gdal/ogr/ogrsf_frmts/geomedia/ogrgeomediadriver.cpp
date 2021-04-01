@@ -2,10 +2,10 @@
  *
  * Project:  OpenGIS Simple Features Reference Implementation
  * Purpose:  Implements Personal Geodatabase driver.
- * Author:   Even Rouault, <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault, <even dot rouault at spatialys.com>
  *
  ******************************************************************************
- * Copyright (c) 2011-2012, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2012, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -130,8 +130,14 @@ OGRDataSource *OGRGeomediaDriver::Open( const char * pszFilename,
         delete poDS;
         return nullptr;
     }
-    else
-        return poDS;
+
+    if( !GDALIsDriverDeprecatedForGDAL35StillEnabled("GEOMEDIA") )
+    {
+        delete poDS;
+        return nullptr;
+    }
+
+    return poDS;
 }
 
 /************************************************************************/
@@ -153,6 +159,6 @@ void RegisterOGRGeomedia()
     OGRSFDriver* poDriver = new OGRGeomediaDriver;
     poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "Geomedia .mdb" );
     poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "mdb" );
-    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drv_geomedia.html" );
+    poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "drivers/vector/geomedia.html" );
     OGRSFDriverRegistrar::GetRegistrar()->RegisterDriver(poDriver);
 }

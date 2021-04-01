@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 1998, 2002, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2010-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 
 #include "cpl_port.h"
 #include "cpl_string.h"
+#include <cstdint>
 
 #include "gdal.h"
 #include "tiffio.h"
@@ -43,8 +44,9 @@ void CPL_DLL LibgeotiffOneTimeInit();
 CPL_C_END
 
 void    GTIFFSetInExternalOvr( bool b );
-void    GTIFFGetOverviewBlockSize( int* pnBlockXSize, int* pnBlockYSize );
+void    GTIFFGetOverviewBlockSize( GDALRasterBandH hBand, int* pnBlockXSize, int* pnBlockYSize );
 void    GTIFFSetJpegQuality( GDALDatasetH hGTIFFDS, int nJpegQuality );
+void    GTIFFSetWebPLevel( GDALDatasetH hGTIFFDS, int nWebPLevel );
 void    GTIFFSetJpegTablesMode( GDALDatasetH hGTIFFDS, int nJpegTablesMode );
 int     GTIFFGetCompressionMethod( const char* pszValue,
                                    const char* pszVariableName );
@@ -61,9 +63,21 @@ CPLString GTiffFormatGDALNoDataTagValue( double dfNoData );
 const int knGTIFFJpegTablesModeDefault = 1; /* JPEGTABLESMODE_QUANT */
 
 // Note: Was EXTRASAMPLE_ASSOCALPHA in GDAL < 1.10.
-constexpr uint16 DEFAULT_ALPHA_TYPE = EXTRASAMPLE_UNASSALPHA;
+constexpr uint16_t DEFAULT_ALPHA_TYPE = EXTRASAMPLE_UNASSALPHA;
 
-uint16 GTiffGetAlphaValue(const char* pszValue, uint16 nDefault);
+uint16_t GTiffGetAlphaValue(const char* pszValue, uint16_t nDefault);
+
+CPLString CPL_DLL GTiffGetCompressValues(bool& bHasLZW,
+                                 bool& bHasDEFLATE,
+                                 bool& bHasLZMA,
+                                 bool& bHasZSTD,
+                                 bool& bHasJPEG,
+                                 bool& bHasWebP,
+                                 bool& bHasLERC,
+                                 bool bForCOG);
+
+#if !defined(TIFFTAG_GDAL_METADATA)
+// The following 5 tags are now defined in tiff.h of libtiff > 4.1.0
 
 #define TIFFTAG_GDAL_METADATA  42112
 #define TIFFTAG_GDAL_NODATA    42113
@@ -75,13 +89,6 @@ uint16 GTiffGetAlphaValue(const char* pszValue, uint16 nDefault);
 /* https://www.awaresystems.be/imaging/tiff/tifftags/geo_metadata.html */
 #define TIFFTAG_GEO_METADATA   50909
 
-#if defined(TIFFLIB_VERSION) && TIFFLIB_VERSION >= 20081217 && defined(BIGTIFF_SUPPORT)
-#  define HAVE_UNSETFIELD
-#endif
-
-#if defined(TIFFLIB_VERSION) && TIFFLIB_VERSION > 20041016
-/* We need at least TIFF 3.7.0 for TIFFGetSizeProc and TIFFClientdata */
-#  define HAVE_TIFFGETSIZEPROC
 #endif
 
 #if !defined(PREDICTOR_NONE)
@@ -97,19 +104,34 @@ uint16 GTiffGetAlphaValue(const char* pszValue, uint16 nDefault);
 #endif
 
 #if !defined(COMPRESSION_ZSTD)
-#define     COMPRESSION_ZSTD        34926   /* ZSTD */
+#define     COMPRESSION_ZSTD        50000   /* ZSTD */
 #endif
 
 #if !defined(TIFFTAG_ZSTD_LEVEL)
 #define TIFFTAG_ZSTD_LEVEL      65564    /* ZSTD compression level */
 #endif
- 
+
 #if !defined(COMPRESSION_LERC)
 #define     COMPRESSION_LERC        34887   /* LERC */
 #endif
 
+#ifndef TIFFTAG_LERC_VERSION
+#define TIFFTAG_LERC_PARAMETERS         50674   /* Stores LERC version and additional compression method */
+#endif
+
+#ifndef TIFFTAG_LERC_VERSION
+/* Pseudo tags */
+#define TIFFTAG_LERC_VERSION            65565 /* LERC version */
+#define     LERC_VERSION_2_4            4
+#define TIFFTAG_LERC_ADD_COMPRESSION    65566 /* LERC additional compression */
+#define     LERC_ADD_COMPRESSION_NONE    0
+#define     LERC_ADD_COMPRESSION_DEFLATE 1
+#define     LERC_ADD_COMPRESSION_ZSTD    2
+#define TIFFTAG_LERC_MAXZERROR      65567    /* LERC maximum error */
+#endif
+
 #if !defined(COMPRESSION_WEBP)
-#define     COMPRESSION_WEBP        34927   /* WebP */
+#define     COMPRESSION_WEBP        50001   /* WebP */
 #endif
 
 #if !defined(TIFFTAG_WEBP_LEVEL)

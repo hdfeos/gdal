@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2002, Frank Warmerdam
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Portions Copyright (c) Her majesty the Queen in right of Canada as
  * represented by the Minister of National Defence, 2006.
@@ -88,9 +88,9 @@ class NITFDataset final: public GDALPamDataset
 
 #ifdef ESRI_BUILD
     void         InitializeNITFDESMetadata();
-    void         InitializeNITFDESs();
     void         InitializeNITFTREs();
 #endif
+    void         InitializeNITFDESs();
     void         InitializeNITFMetadata();
     void         InitializeCGMMetadata();
     void         InitializeTextMetadata();
@@ -142,15 +142,30 @@ class NITFDataset final: public GDALPamDataset
                               GSpacing nBandSpace,
                               GDALRasterIOExtraArg* psExtraArg ) override;
 
-    virtual const char *GetProjectionRef() override;
-    virtual CPLErr SetProjection( const char * ) override;
+    virtual const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    virtual CPLErr _SetProjection( const char * ) override;
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
+
     virtual CPLErr GetGeoTransform( double * ) override;
     virtual CPLErr SetGeoTransform( double * ) override;
-    virtual CPLErr SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
+    virtual CPLErr _SetGCPs( int nGCPCount, const GDAL_GCP *pasGCPList,
                             const char *pszGCPProjection ) override;
+    using GDALPamDataset::SetGCPs;
+    CPLErr SetGCPs( int nGCPCountIn, const GDAL_GCP *pasGCPListIn,
+                    const OGRSpatialReference* poSRS ) override {
+        return OldSetGCPsFromNew(nGCPCountIn, pasGCPListIn, poSRS);
+    }
 
     virtual int    GetGCPCount() override;
-    virtual const char *GetGCPProjection() override;
+    virtual const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     virtual const GDAL_GCP *GetGCPs() override;
     virtual char **GetFileList() override;
 
@@ -221,7 +236,7 @@ class NITFRasterBand final: public GDALPamRasterBand
 /* then to the underlying band if no value exist in PAM. The setters aren't */
 /* overridden, so they go to PAM */
 
-class NITFProxyPamRasterBand: public GDALPamRasterBand
+class NITFProxyPamRasterBand CPL_NON_FINAL: public GDALPamRasterBand
 {
     private:
         std::map<CPLString, char**> oMDMap;
@@ -324,7 +339,7 @@ class NITFProxyPamRasterBand: public GDALPamRasterBand
 /* to make sure they keep the proper pointer to their "natural" dataset */
 /* This trick is no longer necessary with the NITFWrapperRasterBand */
 /* We just override the few specific methods where we want that */
-/* the NITFWrapperRasterBand behaviour differs from the JPEG/JPEG2000 one */
+/* the NITFWrapperRasterBand behavior differs from the JPEG/JPEG2000 one */
 
 class NITFWrapperRasterBand final: public NITFProxyPamRasterBand
 {

@@ -3,10 +3,10 @@
  *
  * Project:  GIF Driver
  * Purpose:  GIF Abstract Dataset
- * Author:   Even Rouault <even dot rouault at mines dash paris dot org>
+ * Author:   Even Rouault <even dot rouault at spatialys.com>
  *
  ****************************************************************************
- * Copyright (c) 2011-2013, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -42,7 +42,7 @@ CPL_C_END
 /* ==================================================================== */
 /************************************************************************/
 
-class GIFAbstractDataset : public GDALPamDataset
+class GIFAbstractDataset CPL_NON_FINAL: public GDALPamDataset
 {
   protected:
     friend class    GIFAbstractRasterBand;
@@ -69,10 +69,16 @@ class GIFAbstractDataset : public GDALPamDataset
     GIFAbstractDataset();
     ~GIFAbstractDataset() override;
 
-    const char *GetProjectionRef() override;
+    const char *_GetProjectionRef() override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
     CPLErr GetGeoTransform( double * ) override;
     int GetGCPCount() override;
-    const char *GetGCPProjection() override;
+    const char *_GetGCPProjection() override;
+    const OGRSpatialReference* GetGCPSpatialRef() const override {
+        return GetGCPSpatialRefFromOldGetGCPProjection();
+    }
     const GDAL_GCP *GetGCPs() override;
 
     char **GetMetadataDomainList() override;
@@ -96,7 +102,7 @@ class GIFAbstractDataset : public GDALPamDataset
 /* ==================================================================== */
 /************************************************************************/
 
-class GIFAbstractRasterBand : public GDALPamRasterBand
+class GIFAbstractRasterBand CPL_NON_FINAL: public GDALPamRasterBand
 {
   protected:
     SavedImage  *psImage;
@@ -110,7 +116,7 @@ class GIFAbstractRasterBand : public GDALPamRasterBand
   public:
     GIFAbstractRasterBand(GIFAbstractDataset *poDS, int nBand,
                           SavedImage *psSavedImage, int nBackground,
-                          int bAdvertizeInterlacedMDI );
+                          int bAdvertiseInterlacedMDI );
     ~GIFAbstractRasterBand() override;
 
     double GetNoDataValue( int *pbSuccess = nullptr ) override;

@@ -130,6 +130,7 @@ typedef struct
 typedef struct
 {
     GInt32      nEllipsoid;
+    GInt32      nVertDatum;
     GInt32      nDatum;
     GInt32      nZone;
 } RMFExtHeader;
@@ -138,7 +139,7 @@ typedef struct
 /*                            RMFCompressionJob                         */
 /************************************************************************/
 
-typedef struct
+struct RMFCompressionJob
 {
     RMFDataset* poDS = nullptr;
     CPLErr eResult = CE_None;
@@ -150,7 +151,7 @@ typedef struct
     size_t nCompressedBytes = 0;
     GUInt32 nXSize = 0;
     GUInt32 nYSize = 0;
-} RMFCompressionJob;
+};
 
 /************************************************************************/
 /*                            RMFCompressData                           */
@@ -176,11 +177,11 @@ struct RMFCompressData
 /*                            RMFTileData                               */
 /************************************************************************/
 
-typedef struct
+struct RMFTileData
 {
     std::vector<GByte>  oData;
     int                 nBandsWritten = 0;
-} RMFTileData;
+};
 
 /************************************************************************/
 /*                              RMFDataset                              */
@@ -198,6 +199,7 @@ private:
     GUInt32         *paiTiles;
     GByte           *pabyDecompressBuffer;
     GByte           *pabyCurrentTile;
+    bool            bCurrentTileIsNull;
     int             nCurrentTileXOff;
     int             nCurrentTileYOff;
     GUInt32         nCurrentTileBytes;
@@ -271,7 +273,7 @@ private:
 
     static int          Identify( GDALOpenInfo * poOpenInfo );
     static GDALDataset  *Open( GDALOpenInfo * );
-    static GDALDataset  *Open(GDALOpenInfo *, RMFDataset* poParentDS, vsi_l_offset nNextHeaderOffset );
+    static RMFDataset   *Open(GDALOpenInfo *, RMFDataset* poParentDS, vsi_l_offset nNextHeaderOffset );
     static GDALDataset  *Create( const char *, int, int, int,
                                  GDALDataType, char ** );
     static GDALDataset  *Create( const char *, int, int, int,
@@ -281,8 +283,15 @@ private:
 
     virtual CPLErr      GetGeoTransform( double * padfTransform ) override;
     virtual CPLErr      SetGeoTransform( double * ) override;
-    virtual const char  *GetProjectionRef() override;
-    virtual CPLErr      SetProjection( const char * ) override;
+    virtual const char  *_GetProjectionRef() override;
+    virtual CPLErr      _SetProjection( const char * ) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
+
     virtual CPLErr      IBuildOverviews( const char * pszResampling,
                                          int nOverviews, int * panOverviewList,
                                          int nBandsIn, int * panBandList,
@@ -305,7 +314,7 @@ private:
     int                 SetupCompression(GDALDataType eType,
                                          const char* pszFilename);
     static void         WriteTileJobFunc(void* pData);
-    CPLErr              InitCompressorData(char **papszParmList);
+    CPLErr              InitCompressorData(char **papszParamList);
     CPLErr              WriteTile(int nBlockXOff, int nBlockYOff,
                                   GByte* pabyData, size_t nBytes,
                                   GUInt32 nRawXSize, GUInt32 nRawYSize);
@@ -313,7 +322,8 @@ private:
                                      GByte* pabyData, size_t nBytes);
     CPLErr              ReadTile(int nBlockXOff, int nBlockYOff,
                                  GByte* pabyData, size_t nBytes,
-                                 GUInt32 nRawXSize, GUInt32 nRawYSize);
+                                 GUInt32 nRawXSize, GUInt32 nRawYSize,
+                                 bool& bNullTile);
     void                SetupNBits();
 };
 

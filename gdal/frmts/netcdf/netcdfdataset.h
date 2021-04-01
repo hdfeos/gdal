@@ -30,15 +30,22 @@
 #ifndef NETCDFDATASET_H_INCLUDED_
 #define NETCDFDATASET_H_INCLUDED_
 
+#include <ctime>
 #include <cfloat>
+#include <cstdlib>
+#include <functional>
 #include <map>
+#include <memory>
 #include <vector>
 
+#include "cpl_mem_cache.h"
 #include "cpl_string.h"
 #include "gdal_frmts.h"
 #include "gdal_pam.h"
 #include "gdal_priv.h"
 #include "netcdf.h"
+#include "netcdfsg.h"
+#include "netcdfsgwriterutil.h"
 #include "ogr_spatialref.h"
 #include "ogrsf_frmts.h"
 #include "netcdfuffd.h"
@@ -49,6 +56,11 @@
 #define ENABLE_NCDUMP
 #endif
 
+#if CPL_IS_LSB
+#define PLATFORM_HEADER 1
+#else
+#define PLATFORM_HEADER 0
+#endif
 
 /************************************************************************/
 /* ==================================================================== */
@@ -84,8 +96,10 @@
 
 /* NETCDF driver defs */
 static const size_t NCDF_MAX_STR_LEN = 8192;
+#define NCDF_CONVENTIONS     "Conventions"
 #define NCDF_CONVENTIONS_CF_V1_5  "CF-1.5"
 #define NCDF_CONVENTIONS_CF_V1_6  "CF-1.6"
+#define NCDF_CONVENTIONS_CF_V1_8  "CF-1.8"
 #define NCDF_SPATIAL_REF     "spatial_ref"
 #define NCDF_GEOTRANSFORM    "GeoTransform"
 #define NCDF_DIMNAME_X       "x"
@@ -104,7 +118,7 @@ typedef enum
     NCDF_FORMAT_NC4C    = 4,   /* netCDF version 4 (classic) */
 /* HDF files (HDF5 or HDF4) not supported because of lack of support */
 /* in libnetcdf installation or conflict with other drivers */
-    NCDF_FORMAT_HDF5    = 5,   /* HDF4 file, not supported */
+    NCDF_FORMAT_HDF5    = 5,   /* HDF5 file, not supported */
     NCDF_FORMAT_HDF4    = 6,   /* HDF4 file, not supported */
     NCDF_FORMAT_UNKNOWN = 10  /* Format not determined (yet) */
 } NetCDFFormatEnum;
@@ -123,10 +137,34 @@ typedef enum
 static const int NCDF_DEFLATE_LEVEL    = 1;  /* best time/size ratio */
 
 /* helper for libnetcdf errors */
-#define NCDF_ERR(status) if ( status != NC_NOERR ){ \
-CPLError( CE_Failure,CPLE_AppDefined, \
-"netcdf error #%d : %s .\nat (%s,%s,%d)\n",status, nc_strerror(status), \
-__FILE__, __FUNCTION__, __LINE__ ); }
+#define NCDF_ERR(status)                                                \
+    do {                                                                \
+        int NCDF_ERR_status_ = (status);                                \
+        if( NCDF_ERR_status_ != NC_NOERR )                              \
+        {                                                               \
+            CPLError(CE_Failure, CPLE_AppDefined,                       \
+                     "netcdf error #%d : %s .\nat (%s,%s,%d)\n",        \
+                     status, nc_strerror(NCDF_ERR_status_),             \
+                     __FILE__, __FUNCTION__, __LINE__);                 \
+        }                                                               \
+    } while(0)
+
+#define NCDF_ERR_RET(status)                    \
+    do {                                        \
+        int NCDF_ERR_RET_status_ = (status);    \
+        if( NCDF_ERR_RET_status_ != NC_NOERR )  \
+        {                                       \
+            NCDF_ERR(NCDF_ERR_RET_status_);     \
+            return CE_Failure;                  \
+        }                                       \
+    } while(0)
+
+#define ERR_RET(eErr)                           \
+    do {                                        \
+        CPLErr ERR_RET_eErr_ = (eErr);          \
+        if( ERR_RET_eErr_ != CE_None )          \
+            return ERR_RET_eErr_;               \
+    } while(0)
 
 /* Check for NC2 support in case it was not enabled at compile time. */
 /* NC4 has to be detected at compile as it requires a special build of netcdf-4. */
@@ -226,6 +264,25 @@ __FILE__, __FUNCTION__, __LINE__ ); }
 #define CF_PP_GRID_NORTH_POLE_LATITUDE  "grid_north_pole_latitude"
 #define CF_PP_NORTH_POLE_GRID_LONGITUDE "north_pole_grid_longitude"
 
+/* Simple Geometries Special Names from CF-1.8 Draft - Chapter 7 section Geometries */
+#define CF_SG_GEOMETRY               "geometry"
+#define CF_SG_GEOMETRY_DIMENSION     "geometry_dimension"
+#define CF_SG_GEOMETRY_TYPE          "geometry_type"
+#define CF_SG_INTERIOR_RING          "interior_ring"
+#define CF_SG_NODES                  "nodes"
+#define CF_SG_NODE_COORDINATES       "node_coordinates"
+#define CF_SG_NODE_COUNT             "node_count"
+#define CF_SG_PART_NODE_COUNT        "part_node_count"
+#define CF_SG_TYPE_LINE              "line"
+#define CF_SG_TYPE_POINT             "point"
+#define CF_SG_TYPE_POLY              "polygon"
+#define CF_SG_X_AXIS                 "X"
+#define CF_SG_Y_AXIS                 "Y"
+#define CF_SG_Z_AXIS                 "Z"
+
+/* Some additional metadata */
+#define OGR_SG_ORIGINAL_LAYERNAME        "ogr_layer_name"
+
 /* -------------------------------------------------------------------- */
 /*         CF-1 Coordinate Type Naming (Chapter 4.  Coordinate Types )  */
 /* -------------------------------------------------------------------- */
@@ -269,8 +326,8 @@ static const char* const papszCFVerticalStandardNameValues[] = {
     "ocean_s_coordinate", "ocean_sigma_z_coordinate",
     "ocean_double_sigma_coordinate", nullptr };
 
-static const char* const papszCFTimeAttribNames[] = { CF_AXIS, nullptr };
-static const char* const papszCFTimeAttribValues[] = { "T", nullptr };
+static const char* const papszCFTimeAttribNames[] = { CF_AXIS, CF_STD_NAME, nullptr };
+static const char* const papszCFTimeAttribValues[] = { "T", "time", nullptr };
 static const char* const papszCFTimeUnitsValues[] = {
     "days since", "day since", "d since",
     "hours since", "hour since", "h since", "hr since",
@@ -324,7 +381,7 @@ static const oNetcdfSRS_PP poGenericMappings[] = {
 //
 // grid_mapping_name = albers_conical_equal_area
 // WKT: Albers_Conic_Equal_Area
-// ESPG:9822
+// EPSG:9822
 //
 // Map parameters:
 //
@@ -757,13 +814,14 @@ class netCDFDataset final: public GDALPamDataset
 {
     friend class netCDFRasterBand; //TMP
     friend class netCDFLayer;
+    friend class netCDFVariable;
 
     typedef enum
     {
         SINGLE_LAYER,
         SEPARATE_FILES,
         SEPARATE_GROUPS
-    } MultipleLayerBehaviour;
+    } MultipleLayerBehavior;
 
     /* basic dataset vars */
     CPLString     osFilename;
@@ -774,6 +832,8 @@ class netCDFDataset final: public GDALPamDataset
 #ifdef ENABLE_UFFD
     cpl_uffd_context *pCtx = nullptr;
 #endif
+    VSILFILE     *fpVSIMEM = nullptr;
+    int           nSubDatasets;
     char          **papszSubDatasets;
     char          **papszMetadata;
     CPLStringList papszDimName;
@@ -783,8 +843,16 @@ class netCDFDataset final: public GDALPamDataset
     bool          bIsGdalCfFile; /* was this file created by the (new) CF-compliant driver? */
     char         *pszCFProjection;
     const char   *pszCFCoordinates;
-    MultipleLayerBehaviour eMultipleLayerBehaviour;
+    double        nCFVersion;
+    bool          bSGSupport;
+    MultipleLayerBehavior eMultipleLayerBehavior;
     std::vector<netCDFDataset*> apoVectorDatasets;
+    std::string logHeader;
+    int logCount;
+    nccfdriver::netCDFVID vcdf;
+    nccfdriver::OGR_NCScribe GeometryScribe;
+    nccfdriver::OGR_NCScribe FieldScribe;
+    nccfdriver::WBufferManager bufManager;
 
     /* projection/GT */
     double       adfGeoTransform[6];
@@ -793,6 +861,7 @@ class netCDFDataset final: public GDALPamDataset
     int          nYDimID;
     bool         bIsProjected;
     bool         bIsGeographic;
+    bool         bSwitchedXY = false;
 
     /* state vars */
     bool         bDefineMode;
@@ -812,17 +881,60 @@ class netCDFDataset final: public GDALPamDataset
     int          nCreateMode;
     bool         bSignedData;
 
-    int          nLayers;
-    netCDFLayer   **papoLayers;
+    std::vector<std::shared_ptr<OGRLayer>> papoLayers;
 
     netCDFWriterConfiguration oWriterConfig;
 
+    struct ChunkKey
+    {
+        size_t xChunk; // netCDF chunk number along X axis
+        size_t yChunk; // netCDF chunk number along Y axis
+        int    nBand;
+
+        ChunkKey(size_t xChunkIn, size_t yChunkIn, int nBandIn):
+            xChunk(xChunkIn), yChunk(yChunkIn), nBand(nBandIn) {}
+
+        bool operator==(const ChunkKey &other) const {
+            return xChunk == other.xChunk &&
+                   yChunk == other.yChunk &&
+                   nBand == other.nBand;
+        }
+
+        bool operator!=(const ChunkKey &other) const {
+            return !(operator==(other));
+        }
+    };
+
+    struct KeyHasher {
+        std::size_t operator()(const ChunkKey &k) const {
+            return std::hash<size_t>{}(k.xChunk) ^
+                   (std::hash<size_t>{}(k.yChunk) << 1) ^
+                   (std::hash<size_t>{}(k.nBand) << 2);
+        }
+    };
+
+    typedef lru11::Cache<
+        ChunkKey,
+        std::shared_ptr<std::vector<GByte>>,
+        lru11::NullLock,
+        std::unordered_map<
+            ChunkKey,
+            typename std::list<lru11::KeyValuePair<
+                ChunkKey, std::shared_ptr<std::vector<GByte>>>>::iterator,
+            KeyHasher>> ChunkCacheType;
+
+    std::unique_ptr<ChunkCacheType> poChunkCache;
+
     static double       rint( double );
 
-    double       FetchCopyParm( const char *pszGridMappingValue,
-                                const char *pszParm, double dfDefault );
+    double       FetchCopyParam( const char *pszGridMappingValue,
+                                const char *pszParam, double dfDefault,
+                                bool *pbFound=nullptr );
 
     char **      FetchStandardParallels( const char *pszGridMappingValue );
+
+    const char *FetchAttr( const char *pszVarFullName, const char *pszAttr );
+    const char *FetchAttr( int nGroupId, int nVarId, const char *pszAttr );
 
     void ProcessCreationOptions( );
     int DefVarDeflate( int nVarId, bool bChunkingArg=true );
@@ -836,12 +948,13 @@ class netCDFDataset final: public GDALPamDataset
 
     CPLErr      ReadAttributes( int, int );
 
-    void  CreateSubDatasetList( );
+    void  CreateSubDatasetList( int nGroupId );
 
-    void  SetProjectionFromVar( int, bool bReadSRSOnly );
+    void  SetProjectionFromVar( int nGroupId, int nVarId, bool bReadSRSOnly, const char * pszGivenGM, std::string*, nccfdriver::SGeometry_Reader*);
+    void  SetProjectionFromVar( int nGroupId, int nVarId, bool bReadSRSOnly );
 
-    int ProcessCFGeolocation( int );
-    CPLErr Set1DGeolocation( int nVarId, const char *szDimName );
+    int ProcessCFGeolocation( int nGroupId, int nVarId );
+    CPLErr Set1DGeolocation( int nGroupId, int nVarId, const char *szDimName );
     double * Get1DGeolocation( const char *szDimName, int &nVarLen );
 
     static bool CloneAttributes(int old_cdfid, int new_cdfid, int nSrcVarId, int nDstVarId);
@@ -849,6 +962,29 @@ class netCDFDataset final: public GDALPamDataset
     static bool CloneGrp(int nOldGrpId, int nNewGrpId, bool bIsNC4, int nLayerId,
                          int nDimIdToGrow, size_t nNewSize);
     bool GrowDim(int nLayerId, int nDimIdToGrow, size_t nNewSize);
+
+#ifdef NETCDF_HAS_NC4
+    void   ProcessSentinel3_SRAL_MWR();
+#endif
+
+    CPLErr FilterVars( int nCdfId, bool bKeepRasters, bool bKeepVectors,
+                       char **papszIgnoreVars, int *pnRasterVars,
+                       int *pnGroupId, int *pnVarId, int *pnIgnoredVars );
+    CPLErr CreateGrpVectorLayers( int nCdfId, CPLString osFeatureType,
+                                  std::vector<int> anPotentialVectorVarID,
+                                  std::map<int, int> oMapDimIdToCount,
+                                  int nVarXId, int nVarYId, int nVarZId,
+                                  int nProfileDimId, int nParentIndexVarID,
+                                  bool bKeepRasters );
+
+    CPLErr DetectAndFillSGLayers( int ncid );
+    CPLErr LoadSGVarIntoLayer( int ncid, int nc_basevarId );
+
+
+#ifdef NETCDF_HAS_NC4
+    static GDALDataset *OpenMultiDim( GDALOpenInfo * );
+    std::shared_ptr<GDALGroup> m_poRootGroup{};
+#endif
 
   protected:
 
@@ -863,22 +999,37 @@ class netCDFDataset final: public GDALPamDataset
 
     netCDFDataset();
     virtual ~netCDFDataset();
+    void SGCommitPendingTransaction();
+    void SGLogPendingTransaction();
+    static std::string generateLogName();
 
     /* Projection/GT */
     CPLErr      GetGeoTransform( double * ) override;
     CPLErr      SetGeoTransform (double *) override;
-    const char * GetProjectionRef() override;
-    CPLErr      SetProjection (const char *) override;
+    const char * _GetProjectionRef() override;
+    CPLErr      _SetProjection (const char *) override;
+    const OGRSpatialReference* GetSpatialRef() const override {
+        return GetSpatialRefFromOldGetProjectionRef();
+    }
+    CPLErr SetSpatialRef(const OGRSpatialReference* poSRS) override {
+        return OldSetProjectionFromSetSpatialRef(poSRS);
+    }
 
     virtual char      **GetMetadataDomainList() override;
     char ** GetMetadata( const char * ) override;
 
     virtual int  TestCapability(const char* pszCap) override;
 
-    virtual int  GetLayerCount() override { return nLayers; }
+    virtual int  GetLayerCount() override { return static_cast<int>(this->papoLayers.size()); }
     virtual OGRLayer* GetLayer(int nIdx) override;
 
+#ifdef NETCDF_HAS_NC4
+    std::shared_ptr<GDALGroup> GetRootGroup() const override;
+#endif
+
     int GetCDFID() const { return cdfid; }
+
+    inline bool HasInfiniteRecordDim() { return !bSGSupport; }
 
     /* static functions */
     static int Identify( GDALOpenInfo * );
@@ -895,6 +1046,12 @@ class netCDFDataset final: public GDALPamDataset
     static GDALDataset* CreateCopy( const char * pszFilename, GDALDataset *poSrcDS,
                                     int bStrict, char ** papszOptions,
                                     GDALProgressFunc pfnProgress, void * pProgressData );
+
+#ifdef NETCDF_HAS_NC4
+    static GDALDataset *CreateMultiDimensional( const char * pszFilename,
+                                                CSLConstList papszRootGroupOptions,
+                                                CSLConstList papzOptions );
+#endif
 };
 
 class netCDFLayer final: public OGRLayer
@@ -949,6 +1106,7 @@ class netCDFLayer final: public OGRLayer
         nc_type         m_nWKTNCDFType;
         CPLString       m_osCoordinatesValue;
         std::vector<FieldDesc> m_aoFieldDesc;
+        bool            m_bLegacyCreateMode;
         int             m_nCurFeatureId;
         CPLString       m_osGridMapping;
         bool            m_bWriteGDALTags;
@@ -961,8 +1119,15 @@ class netCDFLayer final: public OGRLayer
         int             m_nProfileVarID;
         bool            m_bProfileVarUnlimited;
         int             m_nParentIndexVarID;
+        std::shared_ptr<nccfdriver::SGeometry_Reader>       m_simpleGeometryReader;
+        std::unique_ptr<nccfdriver::netCDFVID>              layerVID_alloc; // Allocation wrapper for group specific netCDFVID
+        nccfdriver::netCDFVID& layerVID; // refers to the "correct" VID
+        std::string     m_sgCRSname;
+        size_t          m_SGeometryFeatInd;
 
         const netCDFWriterConfigLayer* m_poLayerConfig;
+
+        nccfdriver::ncLayer_SG_Metadata m_layerSGDefn;
 
         OGRFeature     *GetNextRawFeature();
         double          Get1DVarAsDouble( int nVarId, nc_type nVarType,
@@ -974,9 +1139,13 @@ class netCDFLayer final: public OGRLayer
         void            GetNoDataValueForFloat( int nVarId, NCDFNoDataUnion* puNoData );
         void            GetNoDataValueForDouble( int nVarId, NCDFNoDataUnion* puNoData );
         void            GetNoDataValue( int nVarId, nc_type nVarType, NCDFNoDataUnion* puNoData );
-        bool            FillFeatureFromVar(OGRFeature* poFeature, int nMainDimId, size_t nIndex);
         bool            FillVarFromFeature(OGRFeature* poFeature, int nMainDimId, size_t nIndex);
+        OGRFeature*     buildSGeometryFeature(size_t featureInd);
+        void            netCDFWriteAttributesFromConf(int cdfid, int varid,
+                             const std::vector<netCDFWriterConfigAttribute> &aoAttributes);
 
+    protected:
+        bool            FillFeatureFromVar(OGRFeature* poFeature, int nMainDimId, size_t nIndex);
     public:
                 netCDFLayer(netCDFDataset* poDS,
                             int nLayerCDFId,
@@ -991,10 +1160,13 @@ class netCDFLayer final: public OGRLayer
         void            SetWKTGeometryField(const char* pszWKTVarName);
         void            SetGridMapping(const char* pszGridMapping);
         void            SetProfile(int nProfileDimID, int nParentIndexVarID);
+        void            EnableSGBypass() { this-> m_bLegacyCreateMode = false; }
         bool            AddField(int nVarId);
 
         int             GetCDFID() const { return m_nLayerCDFId; }
         void            SetCDFID(int nId) { m_nLayerCDFId = nId; }
+        void            SetSGeometryRepresentation(const std::shared_ptr<nccfdriver::SGeometry_Reader>& sg) { m_simpleGeometryReader = sg; }
+        nccfdriver::ncLayer_SG_Metadata& getLayerSGMetadata() { return m_layerSGDefn; }
 
         virtual void ResetReading() override;
         virtual OGRFeature* GetNextFeature() override;
@@ -1009,15 +1181,45 @@ class netCDFLayer final: public OGRLayer
         virtual OGRErr CreateField(OGRFieldDefn* poFieldDefn, int bApproxOK) override;
 };
 
-void NCDFWriteLonLatVarsAttributes(int cdfid, int nVarLonID, int nVarLatID);
-void NCDFWriteXYVarsAttributes(int cdfid, int nVarXID, int nVarYID,
+const char* NCDFGetProjectedCFUnit(const OGRSpatialReference *poSRS);
+void NCDFWriteLonLatVarsAttributes(nccfdriver::netCDFVID& vcdf, int nVarLonID, int nVarLatID);
+void NCDFWriteXYVarsAttributes(nccfdriver::netCDFVID& vcdf, int nVarXID, int nVarYID,
                                       OGRSpatialReference* poSRS);
-int NCDFWriteSRSVariable(int cdfid, OGRSpatialReference* poSRS,
-                                char** ppszCFProjection, bool bWriteGDALTags);
+int NCDFWriteSRSVariable(int cdfid, const OGRSpatialReference* poSRS,
+                         char** ppszCFProjection, bool bWriteGDALTags, const std::string& = std::string());
 CPLErr NCDFGetAttr( int nCdfId, int nVarId, const char *pszAttrName,
                     double *pdfValue );
 CPLErr NCDFGetAttr( int nCdfId, int nVarId, const char *pszAttrName,
                     char **pszValue );
 bool NCDFIsUnlimitedDim(bool bIsNC4, int cdfid, int nDimId);
+bool NCDFIsUserDefinedType(int ncid, int type);
+
+CPLString NCDFGetGroupFullName(int nGroupId);
+
+CPLErr NCDFResolveVar( int nStartGroupId, const char *pszVar,
+                       int *pnGroupId, int *pnVarId,
+                       bool bMandatory = false );
+
+// Dimension check functions.
+bool NCDFIsVarLongitude( int nCdfId, int nVarId,
+                                const char *pszVarName );
+bool NCDFIsVarLatitude( int nCdfId, int nVarId,
+                                const char *pszVarName );
+bool NCDFIsVarProjectionX( int nCdfId, int nVarId,
+                                  const char * pszVarName );
+bool NCDFIsVarProjectionY( int nCdfId, int nVarId,
+                                  const char *pszVarName );
+bool NCDFIsVarVerticalCoord( int nCdfId, int nVarId,
+                                    const char *pszVarName );
+bool NCDFIsVarTimeCoord( int nCdfId, int nVarId,
+                                const char *pszVarName );
+
+extern CPLMutex *hNCMutex;
+
+#ifdef ENABLE_NCDUMP
+bool netCDFDatasetCreateTempFile( NetCDFFormatEnum eFormat,
+                                         const char* pszTmpFilename,
+                                         VSILFILE* fpSrc );
+#endif
 
 #endif

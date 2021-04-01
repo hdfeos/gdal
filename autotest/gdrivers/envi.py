@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 # -*- coding: utf-8 -*-
 ###############################################################################
 # $Id$
@@ -11,7 +11,7 @@
 #
 ###############################################################################
 # Copyright (c) 2007, Frank Warmerdam <warmerdam@pobox.com>
-# Copyright (c) 2009-2012, Even Rouault <even dot rouault at mines-paris dot org>
+# Copyright (c) 2009-2012, Even Rouault <even dot rouault at spatialys.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -32,10 +32,8 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 from osgeo import gdal
 
-sys.path.append('../pymod')
 
 import gdaltest
 
@@ -43,9 +41,9 @@ import gdaltest
 # Perform simple read test.
 
 
-def envi_1():
+def test_envi_1():
 
-    tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 14823)
+    tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 14823)
 
     prj = """PROJCS["unnamed",
     GEOGCS["Ellipse Based",
@@ -70,16 +68,16 @@ def envi_1():
 # Verify this can be exported losslessly.
 
 
-def envi_2():
+def test_envi_2():
 
-    tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 14823)
+    tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 14823)
     return tst.testCreateCopy(check_gt=1)
 
 ###############################################################################
 # Try the Create interface with an RGB image.
 
 
-def envi_3():
+def test_envi_3():
 
     tst = gdaltest.GDALTest('envi', 'rgbsmall.tif', 2, 21053)
     return tst.testCreate()
@@ -88,9 +86,9 @@ def envi_3():
 # Test LCC Projection.
 
 
-def envi_4():
+def test_envi_4():
 
-    tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 24)
+    tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 24)
 
     prj = """PROJCS["unnamed",
     GEOGCS["NAD83",
@@ -105,7 +103,8 @@ def envi_4():
     PARAMETER["latitude_of_origin",33.76446202775696],
     PARAMETER["central_meridian",-117.4745428888127],
     PARAMETER["false_easting",20000],
-    PARAMETER["false_northing",30000]]"""
+    PARAMETER["false_northing",30000],
+    UNIT["Meter",1]]"""
 
     return tst.testSetProjection(prj=prj)
 
@@ -113,9 +112,9 @@ def envi_4():
 # Test TM Projection.
 
 
-def envi_5():
+def test_envi_5():
 
-    tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 24)
+    tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 24)
     prj = """PROJCS["OSGB 1936 / British National Grid",
     GEOGCS["OSGB 1936",
         DATUM["OSGB_1936",
@@ -159,21 +158,25 @@ def envi_5():
 # Test LAEA Projection.
 
 
-def envi_6():
+def test_envi_6():
 
-    gdaltest.envi_tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 24)
+    gdaltest.envi_tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 24)
 
     prj = """PROJCS["unnamed",
-    GEOGCS["Sphere",
-        DATUM["Ellipse Based",
+    GEOGCS["Unknown datum based upon the Authalic Sphere",
+        DATUM["D_Ellipse_Based",
             SPHEROID["Sphere",6370997,0]],
         PRIMEM["Greenwich",0],
-        UNIT["degree",0.0174532925199433]],
+        UNIT["Degree",0.0174532925199433]],
     PROJECTION["Lambert_Azimuthal_Equal_Area"],
-    PARAMETER["latitude_of_center",33.76446202775696],
-    PARAMETER["longitude_of_center",-117.4745428888127],
+    PARAMETER["latitude_of_center",33.764462027757],
+    PARAMETER["longitude_of_center",-117.474542888813],
     PARAMETER["false_easting",0],
-    PARAMETER["false_northing",0]]"""
+    PARAMETER["false_northing",0],
+    UNIT["metre",1,
+        AUTHORITY["EPSG","9001"]],
+    AXIS["Easting",EAST],
+    AXIS["Northing",NORTH]]"""
 
     return gdaltest.envi_tst.testSetProjection(prj=prj)
 
@@ -181,47 +184,42 @@ def envi_6():
 # Verify VSIF*L capacity
 
 
-def envi_7():
+def test_envi_7():
 
-    tst = gdaltest.GDALTest('envi', 'aea.dat', 1, 14823)
+    tst = gdaltest.GDALTest('envi', 'envi/aea.dat', 1, 14823)
     return tst.testCreateCopy(check_gt=1, vsimem=1)
 
 ###############################################################################
 # Test fix for #3751
 
 
-def envi_8():
+def test_envi_8():
 
     ds = gdal.GetDriverByName('ENVI').Create('/vsimem/foo.bsq', 10, 10, 1)
     set_gt = (50000, 1, 0, 4500000, 0, -1)
     ds.SetGeoTransform(set_gt)
     got_gt = ds.GetGeoTransform()
-    if set_gt != got_gt:
-        gdaltest.post_reason('did not get expected geotransform')
-        print(got_gt)
-        return 'fail'
+    assert set_gt == got_gt, 'did not get expected geotransform'
     ds = None
 
     gdal.GetDriverByName('ENVI').Delete('/vsimem/foo.bsq')
-
-    return 'success'
 
 ###############################################################################
 # Verify reading a compressed file
 
 
-def envi_9():
+def test_envi_9():
 
-    tst = gdaltest.GDALTest('envi', 'aea_compressed.dat', 1, 14823)
+    tst = gdaltest.GDALTest('envi', 'envi/aea_compressed.dat', 1, 14823)
     return tst.testCreateCopy(check_gt=1)
 
 ###############################################################################
 # Test RPC reading and writing
 
 
-def envi_10():
+def test_envi_10():
 
-    src_ds = gdal.Open('data/envirpc.img')
+    src_ds = gdal.Open('data/envi/envirpc.img')
     out_ds = gdal.GetDriverByName('ENVI').CreateCopy('/vsimem/envirpc.img', src_ds)
     src_ds = None
     del out_ds
@@ -234,36 +232,27 @@ def envi_10():
 
     gdal.GetDriverByName('ENVI').Delete('/vsimem/envirpc.img')
 
-    if md['HEIGHT_OFF'] != '3355':
-        print(md)
-        return 'fail'
-
-    return 'success'
+    assert md['HEIGHT_OFF'] == '3355'
 
 ###############################################################################
 # Check .sta reading
 
 
-def envi_11():
+def test_envi_11():
 
-    ds = gdal.Open('data/envistat')
+    ds = gdal.Open('data/envi/envistat')
     val = ds.GetRasterBand(1).GetStatistics(0, 0)
     ds = None
 
-    if val != [1.0, 3.0, 2.0, 0.5]:
-        gdaltest.post_reason('bad stats')
-        print(val)
-        return 'fail'
-
-    return 'success'
+    assert val == [1.0, 3.0, 2.0, 0.5], 'bad stats'
 
 ###############################################################################
 # Test category names reading and writing
 
 
-def envi_12():
+def test_envi_12():
 
-    src_ds = gdal.Open('data/testenviclasses')
+    src_ds = gdal.Open('data/envi/testenviclasses')
     out_ds = gdal.GetDriverByName('ENVI').CreateCopy('/vsimem/testenviclasses', src_ds)
     src_ds = None
     del out_ds
@@ -274,31 +263,20 @@ def envi_12():
     category = ds.GetRasterBand(1).GetCategoryNames()
     ct = ds.GetRasterBand(1).GetColorTable()
 
-    if category != ['Black', 'White']:
-        gdaltest.post_reason('bad category names')
-        print(category)
-        return 'fail'
+    assert category == ['Black', 'White'], 'bad category names'
 
-    if ct.GetCount() != 2:
-        gdaltest.post_reason('bad color entry count')
-        print(ct.GetCount())
-        return 'fail'
+    assert ct.GetCount() == 2, 'bad color entry count'
 
-    if ct.GetColorEntry(0) != (0, 0, 0, 255):
-        gdaltest.post_reason('bad color entry')
-        print(ct.GetColorEntry(0))
-        return 'fail'
+    assert ct.GetColorEntry(0) == (0, 0, 0, 255), 'bad color entry'
 
     ds = None
     gdal.GetDriverByName('ENVI').Delete('/vsimem/testenviclasses')
-
-    return 'success'
 
 ###############################################################################
 # Test writing of metadata from the ENVI metadata domain and read it back (#4957)
 
 
-def envi_13():
+def test_envi_13():
 
     ds = gdal.GetDriverByName('ENVI').Create('/vsimem/envi_13.dat', 1, 1)
     ds.SetMetadata(['lines=100', 'sensor_type=Landsat TM', 'foo'], 'ENVI')
@@ -312,64 +290,51 @@ def envi_13():
     ds = None
     gdal.GetDriverByName('ENVI').Delete('/vsimem/envi_13.dat')
 
-    if lines != 1:
-        return 'fail'
+    assert lines == 1
 
-    if val != 'Landsat TM':
-        return 'fail'
-
-    return 'success'
+    assert val == 'Landsat TM'
 
 ###############################################################################
 # Test that the image file is at the expected size on closing (#6662)
 
 
-def envi_14():
+def test_envi_14():
 
     gdal.GetDriverByName('ENVI').Create('/vsimem/envi_14.dat', 3, 4, 5, gdal.GDT_Int16)
 
     gdal.Unlink('/vsimem/envi_14.dat.aux.xml')
 
-    if gdal.VSIStatL('/vsimem/envi_14.dat').size != 3 * 4 * 5 * 2:
-        return 'fail'
+    assert gdal.VSIStatL('/vsimem/envi_14.dat').size == 3 * 4 * 5 * 2
 
     gdal.GetDriverByName('ENVI').Delete('/vsimem/envi_14.dat')
-
-    return 'success'
 
 ###############################################################################
 # Test reading and writing geotransform matrix with rotation
 
 
-def envi_15():
+def test_envi_15():
 
-    src_ds = gdal.Open('data/rotation.img')
+    src_ds = gdal.Open('data/envi/rotation.img')
     got_gt = src_ds.GetGeoTransform()
     expected_gt = [736600.089, 1.0981889363046606, -2.4665727356350224,
                    4078126.75, -2.4665727356350224, -1.0981889363046606]
-    if max([abs((got_gt[i] - expected_gt[i]) / expected_gt[i]) for i in range(6)]) > 1e-5:
-        gdaltest.post_reason('did not get expected geotransform')
-        print(got_gt)
-        return 'fail'
+    assert max([abs((got_gt[i] - expected_gt[i]) / expected_gt[i]) for i in range(6)]) <= 1e-5, \
+        'did not get expected geotransform'
 
     gdal.GetDriverByName('ENVI').CreateCopy('/vsimem/envi_15.dat', src_ds)
 
     ds = gdal.Open('/vsimem/envi_15.dat')
     got_gt = ds.GetGeoTransform()
-    if max([abs((got_gt[i] - expected_gt[i]) / expected_gt[i]) for i in range(6)]) > 1e-5:
-        gdaltest.post_reason('did not get expected geotransform')
-        print(got_gt)
-        return 'fail'
+    assert max([abs((got_gt[i] - expected_gt[i]) / expected_gt[i]) for i in range(6)]) <= 1e-5, \
+        'did not get expected geotransform'
     ds = None
     gdal.GetDriverByName('ENVI').Delete('/vsimem/envi_15.dat')
-
-    return 'success'
 
 ###############################################################################
 # Test reading a truncated ENVI dataset (see #915)
 
 
-def envi_truncated():
+def test_envi_truncated():
 
     gdal.GetDriverByName('ENVI').CreateCopy('/vsimem/envi_truncated.dat',
                                             gdal.Open('data/byte.tif'))
@@ -384,37 +349,114 @@ def envi_truncated():
     ds = None
     gdal.GetDriverByName('ENVI').Delete('/vsimem/envi_truncated.dat')
 
-    if cs != 2315:
-        print(cs)
-        return 'fail'
+    assert cs == 2315
 
-    return 'success'
-
-
-gdaltest_list = [
-    envi_1,
-    envi_2,
-    envi_3,
-    envi_4,
-    envi_5,
-    envi_6,
-    envi_7,
-    envi_8,
-    envi_9,
-    envi_10,
-    envi_11,
-    envi_12,
-    envi_13,
-    envi_14,
-    envi_15,
-    envi_truncated,
-]
+###############################################################################
+# Test writing & reading GCPs (#1528)
 
 
-if __name__ == '__main__':
+def test_envi_gcp():
 
-    gdaltest.setup_run('envi')
+    filename = '/vsimem/test_envi_gcp.dat'
+    ds = gdal.GetDriverByName('ENVI').Create(filename, 1, 1)
+    gcp = gdal.GCP()
+    gcp.GCPPixel = 1
+    gcp.GCPLine = 2
+    gcp.GCPX = 3
+    gcp.GCPY = 4
+    ds.SetGCPs([gcp], None)
+    ds = None
+    gdal.Unlink(filename + ".aux.xml")
 
-    gdaltest.run_tests(gdaltest_list)
+    ds = gdal.Open(filename)
+    assert ds.GetGCPCount() == 1
+    gcps = ds.GetGCPs()
+    assert len(gcps) == 1
+    gcp = gcps[0]
+    ds = None
+    assert gcp.GCPPixel == 1
+    assert gcp.GCPLine == 2
+    assert gcp.GCPX == 3
+    assert gcp.GCPY == 4
 
-    sys.exit(gdaltest.summarize())
+    gdal.GetDriverByName('ENVI').Delete(filename)
+
+###############################################################################
+# Test updating big endian ordered (#1796)
+
+
+def test_envi_bigendian():
+
+    ds = gdal.Open('data/envi/uint16_envi_bigendian.dat')
+    assert ds.GetRasterBand(1).Checksum() == 4672
+    ds = None
+
+    for ext in ('dat', 'hdr'):
+        filename = 'uint16_envi_bigendian.' + ext
+        gdal.FileFromMemBuffer('/vsimem/' + filename,
+                            open('data/envi/' + filename, 'rb').read())
+
+    filename = '/vsimem/uint16_envi_bigendian.dat'
+    ds = gdal.Open(filename, gdal.GA_Update)
+    ds.SetGeoTransform([0, 2, 0, 0, 0, -2])
+    ds = None
+
+    ds = gdal.Open(filename)
+    assert ds.GetRasterBand(1).Checksum() == 4672
+    ds = None
+
+    gdal.GetDriverByName('ENVI').Delete(filename)
+
+###############################################################################
+# Test different interleaving
+
+
+def test_envi_interleaving():
+
+    for filename in ('data/envi/envi_rgbsmall_bip.img', 'data/envi/envi_rgbsmall_bil.img', 'data/envi/envi_rgbsmall_bsq.img'):
+        ds = gdal.Open(filename)
+        assert ds, filename
+        assert ds.GetRasterBand(1).Checksum() == 20718, filename
+        assert ds.GetRasterBand(2).Checksum() == 20669, filename
+        assert ds.GetRasterBand(3).Checksum() == 20895, filename
+        ds = None
+
+###############################################################################
+# Test nodata
+
+
+def test_envi_nodata():
+
+    filename = '/vsimem/test_envi_nodata.dat'
+    ds = gdal.GetDriverByName('ENVI').Create(filename, 1, 1)
+    ds.GetRasterBand(1).SetNoDataValue(1)
+    ds = None
+
+    gdal.Unlink(filename + '.aux.xml')
+
+    ds = gdal.Open(filename)
+    assert ds.GetRasterBand(1).GetNoDataValue() == 1.0
+    ds = None
+
+    gdal.GetDriverByName('ENVI').Delete(filename)
+
+
+###############################################################################
+# Test reading and writing geotransform matrix with rotation = 180
+
+
+def test_envi_rotation_180():
+
+    filename = '/vsimem/test_envi_rotation_180.dat'
+    ds = gdal.GetDriverByName('ENVI').Create(filename, 1, 1)
+    ds.SetGeoTransform([0,10,0,0,0,10])
+    ds = None
+
+    gdal.Unlink(filename + '.aux.xml')
+
+    ds = gdal.Open(filename)
+    got_gt = ds.GetGeoTransform()
+    assert got_gt == (0,10,0,0,0,10)
+    ds = None
+
+    gdal.GetDriverByName('ENVI').Delete(filename)

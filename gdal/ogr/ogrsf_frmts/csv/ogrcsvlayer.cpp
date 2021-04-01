@@ -6,7 +6,7 @@
  *
  ******************************************************************************
  * Copyright (c) 2004, Frank Warmerdam <warmerdam@pobox.com>
- * Copyright (c) 2008-2014, Even Rouault <even dot rouault at mines-paris dot org>
+ * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -517,17 +517,22 @@ void OGRCSVLayer::BuildFeatureDefn( const char *pszNfdcGeomField,
     char **papszFieldTypes = nullptr;
     if( !bNew )
     {
-        char *dname = CPLStrdup(CPLGetDirname(pszFilename));
-        char *fname = CPLStrdup(CPLGetBasename(pszFilename));
-        VSILFILE *fpCSVT =
-            VSIFOpenL(CPLFormFilename(dname, fname, ".csvt"), "r");
-        CPLFree(dname);
-        CPLFree(fname);
-        if( fpCSVT != nullptr )
+        // Only try to read .csvt from files that have an extension
+        const char* pszExt = CPLGetExtension(pszFilename);
+        if( pszExt[0] )
         {
-            VSIRewindL(fpCSVT);
-            papszFieldTypes = OGRCSVReadParseLineL(fpCSVT, ',', false, false);
-            VSIFCloseL(fpCSVT);
+            char *dname = CPLStrdup(CPLGetDirname(pszFilename));
+            char *fname = CPLStrdup(CPLGetBasename(pszFilename));
+            VSILFILE *fpCSVT =
+                VSIFOpenL(CPLFormFilename(dname, fname, ".csvt"), "r");
+            CPLFree(dname);
+            CPLFree(fname);
+            if( fpCSVT != nullptr )
+            {
+                VSIRewindL(fpCSVT);
+                papszFieldTypes = OGRCSVReadParseLineL(fpCSVT, ',', false, false);
+                VSIFCloseL(fpCSVT);
+            }
         }
     }
 
@@ -766,6 +771,7 @@ void OGRCSVLayer::BuildFeatureDefn( const char *pszNfdcGeomField,
                 {
                     const int nEPSGCode = atoi(pszEPSG + strlen("_EPSG_"));
                     OGRSpatialReference *poSRS = new OGRSpatialReference();
+                    poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     poSRS->importFromEPSG(nEPSGCode);
                     oGeomFieldDefn.SetSpatialRef(poSRS);
                     poSRS->Release();
@@ -955,6 +961,7 @@ void OGRCSVLayer::BuildFeatureDefn( const char *pszNfdcGeomField,
             if( VSIIngestFile(fpPRJ, nullptr, &pabyRet, nullptr, 1000000) )
             {
                 OGRSpatialReference *poSRS = new OGRSpatialReference();
+                poSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                 if( poSRS->SetFromUserInput((const char *)pabyRet) ==
                     OGRERR_NONE )
                 {
@@ -1964,8 +1971,12 @@ OGRErr OGRCSVLayer::CreateGeomField( OGRGeomFieldDefn *poGeomField,
 
         return OGRERR_FAILURE;
     }
-
-    poFeatureDefn->AddGeomFieldDefn(poGeomField);
+    OGRGeomFieldDefn oGeomField(poGeomField);
+    if( oGeomField.GetSpatialRef() )
+    {
+        oGeomField.GetSpatialRef()->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    poFeatureDefn->AddGeomFieldDefn(&oGeomField);
 
     const char *pszName = poGeomField->GetNameRef();
     if( EQUAL(pszName, ""))
@@ -2389,6 +2400,7 @@ OGRErr OGRCSVLayer::ICreateFeature( OGRFeature *poNewFeature )
             }
             else
             {
+                CPLFree(pszEscaped);
                 pszEscaped = CPLStrdup("");
             }
         }

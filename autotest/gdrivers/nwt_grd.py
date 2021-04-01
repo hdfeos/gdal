@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env pytest
 ###############################################################################
 # $Id$
 #
@@ -28,10 +28,8 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import sys
 import shutil
 
-sys.path.append('../pymod')
 
 from osgeo import gdal
 import gdaltest
@@ -40,26 +38,23 @@ import gdaltest
 # Test a GRD dataset with three bands + Z
 
 
-def nwt_grd_1():
+def test_nwt_grd_1():
 
-    tst1 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd.grd', 1, 28093)
-    status1 = tst1.testOpen()
-    tst2 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd.grd', 2, 33690)
-    status2 = tst2.testOpen()
-    tst3 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd.grd', 3, 20365)
-    status3 = tst3.testOpen()
-    tst4 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd.grd', 4, 25856)
-    status4 = tst4.testOpen()
-    if status1 == 'success' and status2 == 'success' and status3 == 'success' and status4 == 'success':
-        return 'success'
-    return 'fail'
+    tst1 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd/nwt_grd.grd', 1, 28093)
+    tst1.testOpen()
+    tst2 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd/nwt_grd.grd', 2, 33690)
+    tst2.testOpen()
+    tst3 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd/nwt_grd.grd', 3, 20365)
+    tst3.testOpen()
+    tst4 = gdaltest.GDALTest('NWT_GRD', 'nwt_grd/nwt_grd.grd', 4, 25856)
+    tst4.testOpen()
 
 
-def nwt_grd_2():
+def test_nwt_grd_2():
     """
     Test writing a GRD via CreateCopy
     """
-    shutil.copy('data/nwt_grd.grd', 'tmp/nwt_grd.grd')
+    shutil.copy('data/nwt_grd/nwt_grd.grd', 'tmp/nwt_grd.grd')
     tst1 = gdaltest.GDALTest('NWT_GRD', 'tmp/nwt_grd.grd', 1, 25856, filename_absolute=1, open_options=['BAND_COUNT=1'])
     ret = tst1.testCreateCopy(new_filename='tmp/out.grd', check_minmax=0, dest_open_options=['BAND_COUNT=1'])
     gdal.Unlink('tmp/nwt_grd.grd')
@@ -67,13 +62,4 @@ def nwt_grd_2():
     return ret
 
 
-gdaltest_list = [
-    nwt_grd_1, nwt_grd_2]
 
-if __name__ == '__main__':
-
-    gdaltest.setup_run('nwt_grd')
-
-    gdaltest.run_tests(gdaltest_list)
-
-    sys.exit(gdaltest.summarize())
