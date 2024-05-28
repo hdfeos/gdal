@@ -29,8 +29,10 @@
 ###############################################################################
 
 
-
 import gdaltest
+import pytest
+
+pytestmark = pytest.mark.require_driver("LAN")
 
 ###############################################################################
 # Test reading a - fake - LAN 8 bit dataset
@@ -38,8 +40,9 @@ import gdaltest
 
 def test_lan_1():
 
-    tst = gdaltest.GDALTest('LAN', 'lan/fakelan.lan', 1, 10)
-    return tst.testOpen()
+    tst = gdaltest.GDALTest("LAN", "lan/fakelan.lan", 1, 10)
+    tst.testOpen()
+
 
 ###############################################################################
 # Test reading a - fake - LAN 4 bit dataset
@@ -47,8 +50,5 @@ def test_lan_1():
 
 def test_lan_2():
 
-    tst = gdaltest.GDALTest('LAN', 'lan/fakelan4bit.lan', 1, 10)
-    return tst.testOpen()
-
-
-
+    tst = gdaltest.GDALTest("LAN", "lan/fakelan4bit.lan", 1, 10)
+    tst.testOpen()

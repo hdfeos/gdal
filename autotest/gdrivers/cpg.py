@@ -28,9 +28,10 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-
-
 import gdaltest
+import pytest
+
+pytestmark = pytest.mark.require_driver("CPG")
 
 ###############################################################################
 # Test a fake CPG dataset
@@ -38,8 +39,5 @@ import gdaltest
 
 def test_cpg_1():
 
-    tst = gdaltest.GDALTest('CPG', 'cpg/fakecpgSIRC.hdr', 1, 0)
+    tst = gdaltest.GDALTest("CPG", "cpg/fakecpgSIRC.hdr", 1, 0)
     return tst.testOpen()
-
-
-

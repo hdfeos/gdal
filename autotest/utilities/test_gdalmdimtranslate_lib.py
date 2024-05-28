@@ -29,102 +29,112 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-import gdaltest
+import collections
+import os
+import pathlib
 import struct
+
+import gdaltest
+import pytest
 
 from osgeo import gdal
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_no_arg():
+def test_gdalmdimtranslate_no_arg(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt')
+    tmpfile = tmp_vsimem / "out.vrt"
+    assert gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt")
 
-    assert gdal.MultiDimInfo(tmpfile) == gdal.MultiDimInfo('data/mdim.vrt')
-    gdal.Unlink(tmpfile)
+    assert gdal.MultiDimInfo(tmpfile) == gdal.MultiDimInfo("data/mdim.vrt")
+
 
 ###############################################################################
 
 
 def test_gdalmdimtranslate_multidim_to_mem():
 
-    out_ds = gdal.MultiDimTranslate('', 'data/mdim.vrt', format = 'MEM')
+    out_ds = gdal.MultiDimTranslate("", "data/mdim.vrt", format="MEM")
     assert out_ds
     rg = out_ds.GetRootGroup()
     assert rg
-    ar = rg.OpenMDArray('time_increasing')
+    ar = rg.OpenMDArray("time_increasing")
     assert ar
-    assert ar.Read() == ['2010-01-01', '2011-01-01', '2012-01-01', '2013-01-01']
+    assert ar.Read() == ["2010-01-01", "2011-01-01", "2012-01-01", "2013-01-01"]
+
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_multidim_to_classic():
+def test_gdalmdimtranslate_multidim_to_classic(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.tif'
+    tmpfile = tmp_vsimem / "out.tif"
 
-    with gdaltest.error_handler():
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt')
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt")
 
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  arraySpecs = ['/my_subgroup/array_in_subgroup'])
+    assert gdal.MultiDimTranslate(
+        tmpfile,
+        pathlib.Path("data/mdim.vrt"),
+        arraySpecs=["/my_subgroup/array_in_subgroup"],
+    )
 
-    gdal.Unlink(tmpfile)
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_multidim_1d_to_classic():
+def test_gdalmdimtranslate_multidim_1d_to_classic(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.tif'
+    tmpfile = tmp_vsimem / "out.tif"
 
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  arraySpecs = ['latitude'])
+    assert gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", arraySpecs=["latitude"])
     ds = gdal.Open(tmpfile)
     band = ds.GetRasterBand(1)
     data = band.ReadRaster()
     assert len(data) == 10 * 4
-    assert struct.unpack('f' * 10, data)[0] == 90.0
+    assert struct.unpack("f" * 10, data)[0] == 90.0
     ds = None
 
-    gdal.Unlink(tmpfile)
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_classic_to_classic():
+def test_gdalmdimtranslate_classic_to_classic(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.tif'
+    tmpfile = tmp_vsimem / "out.tif"
 
-    ds = gdal.MultiDimTranslate(tmpfile, '../gcore/data/byte.tif')
+    ds = gdal.MultiDimTranslate(tmpfile, "../gcore/data/byte.tif")
     assert ds.GetRasterBand(1).Checksum() == 4672
     ds = None
 
-    gdal.Unlink(tmpfile)
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_classic_to_multidim():
+def test_gdalmdimtranslate_classic_to_multidim(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    tmpgtifffile = '/vsimem/tmp.tif'
-    ds = gdal.Translate(tmpgtifffile, '../gcore/data/byte.tif')
+    tmpfile = tmp_vsimem / "out.vrt"
+    tmpgtifffile = tmp_vsimem / "tmp.tif"
+    if os.path.exists("../gcore/data/byte.tif.aux.xml"):
+        os.unlink("../gcore/data/byte.tif.aux.xml")
+    ds = gdal.Translate(tmpgtifffile, "../gcore/data/byte.tif")
     ds.SetSpatialRef(None)
     ds = None
-    assert gdal.MultiDimTranslate(tmpfile, tmpgtifffile,
-                                  arraySpecs = ['band=1,dstname=ar,view=[newaxis,...]'])
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('utf-8')
+    assert gdal.MultiDimTranslate(
+        tmpfile, tmpgtifffile, arraySpecs=["band=1,dstname=ar,view=[newaxis,...]"]
+    )
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("utf-8")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
     gdal.Unlink(tmpgtifffile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="X" size="20" indexingVariable="X" />
     <Dimension name="Y" size="20" indexingVariable="Y" />
@@ -155,30 +165,38 @@ def test_gdalmdimtranslate_classic_to_multidim():
   </Group>
 </VRTDataset>
 """
+    )
+
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_array():
+def test_gdalmdimtranslate_array(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    with gdaltest.error_handler():
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          arraySpecs = ['not_existing'])
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          arraySpecs = ['name=my_variable_with_time_increasing,unknown_opt=foo'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", arraySpecs=["not_existing"])
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(
+            tmpfile,
+            "data/mdim.vrt",
+            arraySpecs=["name=my_variable_with_time_increasing,unknown_opt=foo"],
+        )
 
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  arraySpecs = ['my_variable_with_time_increasing'])
+    assert gdal.MultiDimTranslate(
+        tmpfile, "data/mdim.vrt", arraySpecs=["my_variable_with_time_increasing"]
+    )
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="latitude" type="HORIZONTAL_Y" direction="NORTH" size="10" indexingVariable="latitude" />
     <Dimension name="longitude" type="HORIZONTAL_X" direction="EAST" size="10" indexingVariable="longitude" />
@@ -228,25 +246,33 @@ def test_gdalmdimtranslate_array():
   </Group>
 </VRTDataset>
 """
+    )
 
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_array_with_transpose_and_view():
+def test_gdalmdimtranslate_array_with_transpose_and_view(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  arraySpecs = ['name=my_variable_with_time_increasing,dstname=foo,transpose=[1,2,0],view=[::-1,1,...]'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    assert gdal.MultiDimTranslate(
+        tmpfile,
+        "data/mdim.vrt",
+        arraySpecs=[
+            "name=my_variable_with_time_increasing,dstname=foo,transpose=[1,2,0],view=[::-1,1,...]"
+        ],
+    )
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="subset_latitude_9_-1_10" type="HORIZONTAL_Y" size="10" indexingVariable="subset_latitude_9_-1_10" />
     <Dimension name="time_increasing" type="TEMPORAL" size="4" indexingVariable="time_increasing" />
@@ -295,30 +321,34 @@ def test_gdalmdimtranslate_array_with_transpose_and_view():
   </Group>
 </VRTDataset>
 """
+    )
+
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_group():
+def test_gdalmdimtranslate_group(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    with gdaltest.error_handler():
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          groupSpecs = ['not_existing'])
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          groupSpecs = ['name=my_subgroup,unknown_opt=foo'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", groupSpecs=["not_existing"])
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(
+            tmpfile, "data/mdim.vrt", groupSpecs=["name=my_subgroup,unknown_opt=foo"]
+        )
 
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  groupSpecs = ['my_subgroup'])
+    assert gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", groupSpecs=["my_subgroup"])
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="latitude" type="HORIZONTAL_Y" direction="NORTH" size="10" indexingVariable="latitude" />
     <Dimension name="longitude" type="HORIZONTAL_X" direction="EAST" size="10" indexingVariable="longitude" />
@@ -356,25 +386,31 @@ def test_gdalmdimtranslate_group():
   </Group>
 </VRTDataset>
 """
+    )
 
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_two_groups():
+def test_gdalmdimtranslate_two_groups(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  groupSpecs = ['my_subgroup', 'name=other_subgroup,dstname=renamed'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    assert gdal.MultiDimTranslate(
+        tmpfile,
+        "data/mdim.vrt",
+        groupSpecs=["my_subgroup", "name=other_subgroup,dstname=renamed"],
+    )
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Group name="my_subgroup">
       <Dimension name="latitude" type="HORIZONTAL_Y" direction="NORTH" size="10" indexingVariable="latitude" />
@@ -420,72 +456,76 @@ def test_gdalmdimtranslate_two_groups():
   </Group>
 </VRTDataset>
 """
+    )
 
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_subset():
+def test_gdalmdimtranslate_subset(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    with gdaltest.error_handler():
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          subsetSpecs = ['latitude('])
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          subsetSpecs = ['latitude(1'])
-        assert not gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                          subsetSpecs = ['latitude(1,2,3)'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", subsetSpecs=["latitude("])
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(tmpfile, "data/mdim.vrt", subsetSpecs=["latitude(1"])
+    with pytest.raises(Exception):
+        gdal.MultiDimTranslate(
+            tmpfile, "data/mdim.vrt", subsetSpecs=["latitude(1,2,3)"]
+        )
 
     for subset_spec, success, expected_view in [
         # Increasing numeric variable
-        ('longitude(-180,-0.01)', False, None), # All below min
-        ('longitude(-180)', False, None),
-        ('longitude(22.51,100)', False, None), # All above max
-        ('longitude(22.51)', False, None),
-        ('longitude(-0.01,22.51)', True, None), # Encompassing whole range
-        ('longitude(0,22.5)', True, None), # Exact range
-        ('longitude(0)', True, '[0]'),
-        ('longitude(2.5)', True, '[1]'),
-        ('longitude(20)', True, '[8]'),
-        ('longitude(22.5)', True, '[9]'),
-        ('longitude(0,0)', True, '[0:1:1]'),
-        ('longitude(-0.01,0.01)', True, '[0:1:1]'),
-        ('longitude(0,0.01)', True, '[0:1:1]'),
-        ('longitude(-0.01,0)', True, '[0:1:1]'),
-        ('longitude(-0.01,22.49)', True, '[0:9:1]'),
-        ('longitude(0.01,22.49)', True, '[1:9:1]'),
-        ('longitude(0.01,22.51)', True, '[1:10:1]'),
-        ('longitude(22.5,22.5)', True, '[9:10:1]'),
-        ('longitude(22.49,22.5)', True, '[9:10:1]'),
-        ('longitude(22.49,22.51)', True, '[9:10:1]'),
-        ('longitude(22.5,22.51)', True, '[9:10:1]'),
-
+        ("longitude(-180,-0.01)", False, None),  # All below min
+        ("longitude(-180)", False, None),
+        ("longitude(22.51,100)", False, None),  # All above max
+        ("longitude(22.51)", False, None),
+        ("longitude(-0.01,22.51)", True, None),  # Encompassing whole range
+        ("longitude(0,22.5)", True, None),  # Exact range
+        ("longitude(0)", True, "[0]"),
+        ("longitude(2.5)", True, "[1]"),
+        ("longitude(20)", True, "[8]"),
+        ("longitude(22.5)", True, "[9]"),
+        ("longitude(0,0)", True, "[0:1:1]"),
+        ("longitude(-0.01,0.01)", True, "[0:1:1]"),
+        ("longitude(0,0.01)", True, "[0:1:1]"),
+        ("longitude(-0.01,0)", True, "[0:1:1]"),
+        ("longitude(-0.01,22.49)", True, "[0:9:1]"),
+        ("longitude(0.01,22.49)", True, "[1:9:1]"),
+        ("longitude(0.01,22.51)", True, "[1:10:1]"),
+        ("longitude(22.5,22.5)", True, "[9:10:1]"),
+        ("longitude(22.49,22.5)", True, "[9:10:1]"),
+        ("longitude(22.49,22.51)", True, "[9:10:1]"),
+        ("longitude(22.5,22.51)", True, "[9:10:1]"),
         # Decreasing numeric variable
-        ('latitude(-180,67.49)', False, None), # All below min
-        ('latitude(-180)', False, None),
-        ('latitude(90.01,100)', False, None), # All above max
-        ('latitude(90.01)', False, None),
-        ('latitude(64.49,90.01)', True, None), # Encompassing whole range
-        ('latitude(67.5,90)', True, None), # Exact range
-        ('latitude(67.5)', True, '[9]'),
-        ('latitude(70)', True, '[8]'),
-        ('latitude(87.5)', True, '[1]'),
-        ('latitude(90)', True, '[0]'),
-        ('latitude(70,87.5)', True, '[1:9:1]'),
-        ('latitude(90,90)', True, '[0:1:1]'),
-        ('latitude(89.99,90)', True, '[0:1:1]'),
-        ('latitude(90,90.01)', True, '[0:1:1]'),
-        ('latitude(67.5,67.5)', True, '[9:10:1]'),
-        ('latitude(67.5,67.51)', True, '[9:10:1]'),
-        ('latitude(67.49,67.5)', True, '[9:10:1]'),
-
+        ("latitude(-180,67.49)", False, None),  # All below min
+        ("latitude(-180)", False, None),
+        ("latitude(90.01,100)", False, None),  # All above max
+        ("latitude(90.01)", False, None),
+        ("latitude(64.49,90.01)", True, None),  # Encompassing whole range
+        ("latitude(67.5,90)", True, None),  # Exact range
+        ("latitude(67.5)", True, "[9]"),
+        ("latitude(70)", True, "[8]"),
+        ("latitude(87.5)", True, "[1]"),
+        ("latitude(90)", True, "[0]"),
+        ("latitude(70,87.5)", True, "[1:9:1]"),
+        ("latitude(90,90)", True, "[0:1:1]"),
+        ("latitude(89.99,90)", True, "[0:1:1]"),
+        ("latitude(90,90.01)", True, "[0:1:1]"),
+        ("latitude(67.5,67.5)", True, "[9:10:1]"),
+        ("latitude(67.5,67.51)", True, "[9:10:1]"),
+        ("latitude(67.49,67.5)", True, "[9:10:1]"),
         # Increasing string variable
-        ('time_increasing("2008-01-01","2009-01-01")', False, None), # All below min
+        ('time_increasing("2008-01-01","2009-01-01")', False, None),  # All below min
         ('time_increasing("2008-01-01")', False, None),
-        ('time_increasing("2014-01-01","2016-01-01")', False, None), # All above max
+        ('time_increasing("2014-01-01","2016-01-01")', False, None),  # All above max
         ('time_increasing("2014-01-01")', False, None),
-        ('time_increasing("2009-01-01","2014-01-01")', True, None), # Encompassing whole range
-        ('time_increasing("2010-01-01","2013-01-01")', True, None), # Exact range
+        (
+            'time_increasing("2009-01-01","2014-01-01")',
+            True,
+            None,
+        ),  # Encompassing whole range
+        ('time_increasing("2010-01-01","2013-01-01")', True, None),  # Exact range
         ('time_increasing("2010-01-01")', True, "[0]"),
         ('time_increasing("2011-01-01")', True, "[1]"),
         ('time_increasing("2012-01-01")', True, "[2]"),
@@ -499,14 +539,17 @@ def test_gdalmdimtranslate_subset():
         ('time_increasing("2012-12-13","2013-01-01")', True, "[3:4:1]"),
         ('time_increasing("2013-01-01","2013-01-01")', True, "[3:4:1]"),
         ('time_increasing("2013-01-01","2013-01-02")', True, "[3:4:1]"),
-
         # Decreasing string variable
-        ('time_decreasing("2008-01-01","2009-01-01")', False, None), # All below min
+        ('time_decreasing("2008-01-01","2009-01-01")', False, None),  # All below min
         ('time_decreasing("2008-01-01")', False, None),
-        ('time_decreasing("2014-01-01","2016-01-01")', False, None), # All above max
+        ('time_decreasing("2014-01-01","2016-01-01")', False, None),  # All above max
         ('time_decreasing("2014-01-01")', False, None),
-        ('time_decreasing("2009-01-01","2014-01-01")', True, None), # Encompassing whole range
-        ('time_decreasing("2010-01-01","2013-01-01")', True, None), # Exact range
+        (
+            'time_decreasing("2009-01-01","2014-01-01")',
+            True,
+            None,
+        ),  # Encompassing whole range
+        ('time_decreasing("2010-01-01","2013-01-01")', True, None),  # Exact range
         ('time_decreasing("2010-01-01")', True, "[3]"),
         ('time_decreasing("2011-01-01")', True, "[2]"),
         ('time_decreasing("2012-01-01")', True, "[1]"),
@@ -521,36 +564,46 @@ def test_gdalmdimtranslate_subset():
         ('time_decreasing("2013-01-01","2013-01-01")', True, "[0:1:1]"),
         ('time_decreasing("2013-01-01","2013-01-02")', True, "[0:1:1]"),
     ]:
-        with gdaltest.error_handler():
-            res = gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                        arraySpecs = [subset_spec[0:subset_spec.find('(')]],
-                                        subsetSpecs = [subset_spec]) is not None
+        with gdaltest.disable_exceptions(), gdaltest.error_handler():
+            res = (
+                gdal.MultiDimTranslate(
+                    tmpfile,
+                    "data/mdim.vrt",
+                    arraySpecs=[subset_spec[0 : subset_spec.find("(")]],
+                    subsetSpecs=[subset_spec],
+                )
+                is not None
+            )
         assert res == success, subset_spec
         if not success:
             continue
 
-        f = gdal.VSIFOpenL(tmpfile, 'rb')
-        got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+        f = gdal.VSIFOpenL(tmpfile, "rb")
+        got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
         gdal.VSIFCloseL(f)
-        #print(got_data)/
+        # print(got_data)/
 
         gdal.Unlink(tmpfile)
         if expected_view:
             assert expected_view in got_data, subset_spec
         else:
-            assert 'SourceView' not in got_data, subset_spec
+            assert "SourceView" not in got_data, subset_spec
 
+    assert gdal.MultiDimTranslate(
+        tmpfile,
+        "data/mdim.vrt",
+        subsetSpecs=["latitude(70,87.5)", 'time_increasing("2012-01-01")'],
+    )
 
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                        subsetSpecs = ['latitude(70,87.5)', 'time_increasing("2012-01-01")'])
-
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
     gdal.Unlink(tmpfile)
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="latitude" type="HORIZONTAL_Y" direction="NORTH" size="8" indexingVariable="latitude" />
     <Dimension name="longitude" type="HORIZONTAL_X" direction="EAST" size="10" indexingVariable="longitude" />
@@ -658,26 +711,32 @@ def test_gdalmdimtranslate_subset():
   </Group>
 </VRTDataset>
 """
+    )
 
 
 ###############################################################################
 
 
-def test_gdalmdimtranslate_scaleaxes():
+def test_gdalmdimtranslate_scaleaxes(tmp_vsimem):
 
-    tmpfile = '/vsimem/out.vrt'
-    assert gdal.MultiDimTranslate(tmpfile, 'data/mdim.vrt',
-                                  arraySpecs = ['my_variable_with_time_increasing'],
-                                  scaleAxesSpecs = ['longitude(2)'])
+    tmpfile = tmp_vsimem / "out.vrt"
+    assert gdal.MultiDimTranslate(
+        tmpfile,
+        "data/mdim.vrt",
+        arraySpecs=["my_variable_with_time_increasing"],
+        scaleAxesSpecs=["longitude(2)"],
+    )
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
     # print(got_data)
 
     gdal.Unlink(tmpfile)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="latitude" type="HORIZONTAL_Y" direction="NORTH" size="10" indexingVariable="latitude" />
     <Dimension name="longitude" type="HORIZONTAL_X" direction="EAST" size="5" indexingVariable="longitude" />
@@ -729,12 +788,15 @@ def test_gdalmdimtranslate_scaleaxes():
   </Group>
 </VRTDataset>
 """
+    )
 
 
-def test_gdalmdimtranslate_dims_with_same_name_different_size():
+def test_gdalmdimtranslate_dims_with_same_name_different_size(tmp_vsimem):
 
-    srcfile = '/vsimem/in.vrt'
-    gdal.FileFromMemBuffer(srcfile, """<VRTDataset>
+    srcfile = tmp_vsimem / "in.vrt"
+    gdal.FileFromMemBuffer(
+        srcfile,
+        """<VRTDataset>
     <Group name="/">
         <Array name="X">
             <DataType>Float64</DataType>
@@ -745,17 +807,20 @@ def test_gdalmdimtranslate_dims_with_same_name_different_size():
             <Dimension name="dim0" size="3"/>
         </Array>
     </Group>
-</VRTDataset>""")
+</VRTDataset>""",
+    )
 
-    tmpfile = '/vsimem/test.vrt'
-    gdal.MultiDimTranslate(tmpfile, srcfile, groupSpecs = [ '/' ], format = 'VRT')
+    tmpfile = tmp_vsimem / "test.vrt"
+    gdal.MultiDimTranslate(tmpfile, srcfile, groupSpecs=["/"], format="VRT")
 
-    f = gdal.VSIFOpenL(tmpfile, 'rb')
-    got_data = gdal.VSIFReadL(1, 10000, f).decode('ascii')
+    f = gdal.VSIFOpenL(tmpfile, "rb")
+    got_data = gdal.VSIFReadL(1, 10000, f).decode("ascii")
     gdal.VSIFCloseL(f)
-    #print(got_data)
+    # print(got_data)
 
-    assert got_data == """<VRTDataset>
+    assert (
+        got_data
+        == """<VRTDataset>
   <Group name="/">
     <Dimension name="dim0" size="2" />
     <Dimension name="dim0_2" size="3" />
@@ -782,8 +847,73 @@ def test_gdalmdimtranslate_dims_with_same_name_different_size():
   </Group>
 </VRTDataset>
 """
+    )
     gdal.Unlink(tmpfile)
     gdal.Unlink(srcfile)
+
+
+@pytest.mark.require_driver("netCDF")
+def test_gdalmdimtranslate_array_with_view():
+    ds = gdal.MultiDimTranslate(
+        "",
+        "../gdrivers/data/netcdf/byte_no_cf.nc",
+        arraySpecs=["name=Band1,view=[::2,::4]"],
+        format="MEM",
+    )
+    rg = ds.GetRootGroup()
+    ar = rg.OpenMDArray("Band1")
+    dims = ar.GetDimensions()
+    assert dims[0].GetSize() == 10
+    assert dims[1].GetSize() == 5
+
+
+@pytest.mark.require_driver("netCDF")
+def test_gdalmdimtranslate_array_resample():
+    ds = gdal.MultiDimTranslate(
+        "",
+        "../gdrivers/data/netcdf/fake_EMIT_L2A.nc",
+        arraySpecs=["name=reflectance,resample=true"],
+        format="MEM",
+    )
+    rg = ds.GetRootGroup()
+    resampled_ar = rg.OpenMDArray("reflectance")
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "lat"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "lon"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "bands"
+    assert dims[2].GetSize() == 2
+    assert resampled_ar.GetDataType() == gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    assert resampled_ar.GetSpatialRef().GetAuthorityCode(None) == "4326"
+    assert struct.unpack("f" * (3 * 3 * 2), resampled_ar.Read()) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        -30.0,
+        40.0,
+        -40.0,
+        -9999.0,
+        -9999.0,
+        10.0,
+        -10.0,
+        20.0,
+        -20.0,
+    )
+
+    lat = dims[0].GetIndexingVariable()
+    assert lat
+    assert struct.unpack("d" * 3, lat.Read()) == (3.5, 2.5, 1.5)
+
+    lon = dims[1].GetIndexingVariable()
+    assert lon
+    assert struct.unpack("d" * 3, lon.Read()) == (1.5, 2.5, 3.5)
 
 
 def XXXX_test_all():
@@ -798,3 +928,21 @@ def XXXX_test_all():
         test_gdalmdimtranslate_two_groups()
         test_gdalmdimtranslate_subset()
         test_gdalmdimtranslate_scaleaxes()
+
+
+###############################################################################
+# Test option argument handling
+
+
+def test_gdalmdimtranslate_dict_arguments():
+
+    opt = gdal.MultiDimTranslateOptions(
+        "__RETURN_OPTION_LIST__",
+        creationOptions=collections.OrderedDict(
+            (("COMPRESS", "DEFLATE"), ("LEVEL", 4))
+        ),
+    )
+
+    co_idx = opt.index("-co")
+
+    assert opt[co_idx : co_idx + 4] == ["-co", "COMPRESS=DEFLATE", "-co", "LEVEL=4"]

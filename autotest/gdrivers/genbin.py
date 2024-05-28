@@ -28,10 +28,12 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-
+import gdaltest
+import pytest
 
 from osgeo import osr
-import gdaltest
+
+pytestmark = pytest.mark.require_driver("GenBin")
 
 ###############################################################################
 # Perform simple read test.
@@ -39,17 +41,19 @@ import gdaltest
 
 def test_genbin_1():
 
-    tst = gdaltest.GDALTest('GenBin', 'genbin/tm4628_96.bil', 1, 5738,
-                            0, 0, 500, 1)
+    with gdaltest.config_option("RAW_CHECK_FILE_SIZE", "NO"):
+        tst = gdaltest.GDALTest("GenBin", "genbin/tm4628_96.bil", 1, 5738, 0, 0, 500, 1)
 
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(32049)
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(32049)
 
-    gt = (1181700.9894981384, 82.021003723042099, 0.0,
-          596254.01050186157, 0.0, -82.021003723045894)
+        gt = (
+            1181700.9894981384,
+            82.021003723042099,
+            0.0,
+            596254.01050186157,
+            0.0,
+            -82.021003723045894,
+        )
 
-    return tst.testOpen(check_prj=sr.ExportToWkt(), check_gt=gt)
-
-
-
-
+        tst.testOpen(check_prj=sr.ExportToWkt(), check_gt=gt)

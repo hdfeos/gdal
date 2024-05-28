@@ -29,8 +29,10 @@
 ###############################################################################
 
 
-
 import gdaltest
+import pytest
+
+pytestmark = pytest.mark.require_driver("GSC")
 
 ###############################################################################
 # Test a fake - and certainly incorrect - GSC dataset
@@ -38,8 +40,5 @@ import gdaltest
 
 def test_gsc_1():
 
-    tst = gdaltest.GDALTest('GSC', 'gsc/fakegsc.gsc', 1, 0)
-    return tst.testOpen()
-
-
-
+    tst = gdaltest.GDALTest("GSC", "gsc/fakegsc.gsc", 1, 0)
+    tst.testOpen()

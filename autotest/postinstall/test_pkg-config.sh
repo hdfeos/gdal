@@ -4,12 +4,14 @@
 #
 # First required argument is the installed prefix, which
 # is used to set PKG_CONFIG_PATH and LD_LIBRARY_PATH/DYLD_LIBRARY_PATH
+#
+# Second, optional argument can be '--static', to skip the ldd check.
 
 echo "Running post-install tests with pkg-config"
 
 prefix=$1
 if [ -z "$prefix" ]; then
-    echo "First positional argument to the the installed prefix is required"
+    echo "First positional argument to the installed prefix is required"
     exit 1
 fi
 
@@ -20,13 +22,19 @@ ERRORS=0
 NTESTS=0
 
 UNAME=$(uname)
-case $UNAME in
+case "$UNAME,$2" in
   Darwin*)
     alias ldd="otool -L"
     export DYLD_LIBRARY_PATH=$prefix/lib
     ;;
   Linux*)
-    export LD_LIBRARY_PATH=$prefix/lib
+    ;;
+  MINGW*,)
+    alias ldd="sh -c 'objdump -x \$1.exe' --"
+    LDD_SUBSTR="DLL Name: libgdal"
+    export PATH="$prefix/bin:$PATH"
+    ;;
+  *,--static)
     ;;
   *)
     echo "no ldd equivalent found for UNAME=$UNAME"
@@ -37,7 +45,7 @@ check_ldd(){
   printf "Testing expected ldd output ... "
   NTESTS=$(($NTESTS + 1))
   LDD_OUTPUT=$(ldd ./$1 | grep libgdal)
-  LDD_SUBSTR=$LD_LIBRARY_PATH/libgdal.
+  LDD_SUBSTR=${LDD_SUBSTR:-libgdal.}
   case "$LDD_OUTPUT" in
     *$LDD_SUBSTR*)
       echo "passed" ;;
@@ -47,12 +55,12 @@ check_ldd(){
   esac
 }
 
-PKG_CONFIG_MODVERSION=$(pkg-config gdal --modversion)
+PKG_CONFIG_MODVERSION=$(pkg-config gdal --modversion) | sed "s/-dev//"
 
 check_version(){
   printf "Testing expected version ... "
   NTESTS=$(($NTESTS + 1))
-  VERSION_OUTPUT=$(./$1)
+  VERSION_OUTPUT=$(./$1) | sed "s/-dev//"
   case "$VERSION_OUTPUT" in
     $PKG_CONFIG_MODVERSION*)
       echo "passed" ;;
@@ -69,7 +77,9 @@ cd test_c
 make clean
 make
 
-check_ldd test_c
+if test "$2" != "--static"; then
+  check_ldd test_c
+fi
 check_version test_c
 
 make clean
@@ -80,7 +90,9 @@ cd test_cpp
 make clean
 make
 
-check_ldd test_cpp
+if test "$2" != "--static"; then
+  check_ldd test_cpp
+fi
 check_version test_cpp
 
 make clean

@@ -28,9 +28,10 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-
-
 import gdaltest
+import pytest
+
+pytestmark = pytest.mark.require_driver("EIR")
 
 ###############################################################################
 # Test a fake EIR dataset
@@ -38,8 +39,5 @@ import gdaltest
 
 def test_eir_1():
 
-    tst = gdaltest.GDALTest('EIR', 'eir/fakeeir.hdr', 1, 1)
-    return tst.testOpen()
-
-
-
+    tst = gdaltest.GDALTest("EIR", "eir/fakeeir.hdr", 1, 1)
+    tst.testOpen()

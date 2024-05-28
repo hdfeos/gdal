@@ -28,50 +28,38 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-from osgeo import gdal
-from osgeo import osr
-
-
 import gdaltest
 import pytest
 
-###############################################################################
-# Test driver availability
+from osgeo import gdal, osr
 
+pytestmark = pytest.mark.require_driver("BSB")
 
-def test_bsb_0():
-    gdaltest.bsb_dr = gdal.GetDriverByName('BSB')
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
-
-    
 ###############################################################################
 # Test Read
 
 
 def test_bsb_1():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall.kap', 1, 30321)
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall.kap", 1, 30321)
 
-    return tst.testOpen()
+    tst.testOpen()
+
 
 ###############################################################################
 # Test CreateCopy
 
 
 def test_bsb_2():
-    if gdaltest.bsb_dr is None:
+
+    md = gdal.GetDriverByName("BSB").GetMetadata()
+    if "DMD_CREATIONDATATYPES" not in md:
         pytest.skip()
 
-    md = gdaltest.bsb_dr.GetMetadata()
-    if 'DMD_CREATIONDATATYPES' not in md:
-        pytest.skip()
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall.kap", 1, 30321)
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall.kap', 1, 30321)
+    tst.testCreateCopy()
 
-    return tst.testCreateCopy()
 
 ###############################################################################
 # Read a BSB with an index table at the end (#2782)
@@ -81,12 +69,11 @@ def test_bsb_2():
 
 
 def test_bsb_3():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall_index.kap', 1, 30321)
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall_index.kap", 1, 30321)
 
-    return tst.testOpen()
+    tst.testOpen()
+
 
 ###############################################################################
 # Read a BSB without an index table but with 0 in the middle of line data
@@ -95,56 +82,60 @@ def test_bsb_3():
 
 
 def test_bsb_4():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall_with_line_break.kap', 1, 30321)
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall_with_line_break.kap", 1, 30321)
 
-    return tst.testOpen()
+    tst.testOpen()
+
 
 ###############################################################################
 # Read a truncated BSB (at the level of the written scanline number starting a new row)
 
 
 def test_bsb_5():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall_truncated.kap', 1, 29696)
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall_truncated.kap", 1, -1)
 
-    gdal.PushErrorHandler('CPLQuietErrorHandler')
-    ret = tst.testOpen()
-    gdal.PopErrorHandler()
+    with pytest.raises(Exception):
+        tst.testOpen()
 
-    return ret
 
 ###############################################################################
 # Read another truncated BSB (in the middle of row data)
 
 
 def test_bsb_6():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    tst = gdaltest.GDALTest('BSB', 'bsb/rgbsmall_truncated2.kap', 1, 29696)
+    tst = gdaltest.GDALTest("BSB", "bsb/rgbsmall_truncated2.kap", 1, -1)
 
-    gdal.PushErrorHandler('CPLQuietErrorHandler')
-    ret = tst.testOpen()
-    gdal.PopErrorHandler()
+    with pytest.raises(Exception):
+        tst.testOpen()
 
-    return ret
 
 ###############################################################################
 
-def test_bsb_tmerc():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    ds = gdal.Open('data/bsb/transverse_mercator.kap')
+def test_bsb_tmerc():
+
+    ds = gdal.Open("data/bsb/transverse_mercator.kap")
     gt = ds.GetGeoTransform()
-    expected_gt = [28487.6637325402, 1.2711141208521637, 0.009061669923111566,
-                   6539651.728646593, 0.015209115944776083, -1.267821834560455]
-    assert min([gt[i] == pytest.approx(expected_gt[i], abs=1e-8 * abs(expected_gt[i])) for i in range(6)]) == True, gt
+    expected_gt = [
+        28487.6637325402,
+        1.2711141208521637,
+        0.009061669923111566,
+        6539651.728646593,
+        0.015209115944776083,
+        -1.267821834560455,
+    ]
+    assert (
+        min(
+            [
+                gt[i] == pytest.approx(expected_gt[i], abs=1e-8 * abs(expected_gt[i]))
+                for i in range(6)
+            ]
+        )
+        == True
+    ), gt
     expected_wkt = """PROJCS["unnamed",
     GEOGCS["WGS 84",
         DATUM["WGS_1984",
@@ -167,7 +158,7 @@ def test_bsb_tmerc():
     AXIS["Northing",NORTH]]"""
     expected_sr = osr.SpatialReference()
     expected_sr.SetFromUserInput(expected_wkt)
-    expected_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER);
+    expected_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     got_sr = ds.GetSpatialRef()
     assert expected_sr.IsSame(got_sr), got_sr.ExportToWkt()
     got_sr = ds.GetGCPSpatialRef()
@@ -176,18 +167,31 @@ def test_bsb_tmerc():
     gcps = ds.GetGCPs()
     assert len(gcps) == 3
 
-    assert gcps[0].GCPPixel == 25 and \
-       gcps[0].GCPLine == 577 and \
-       gcps[0].GCPX == pytest.approx(28524.670169107143, abs=1e-5) and \
-       gcps[0].GCPY == pytest.approx(6538920.57567595, abs=1e-5) and \
-       gcps[0].GCPZ == 0
+    assert (
+        gcps[0].GCPPixel == 25
+        and gcps[0].GCPLine == 577
+        and gcps[0].GCPX == pytest.approx(28524.670169107143, abs=1e-5)
+        and gcps[0].GCPY == pytest.approx(6538920.57567595, abs=1e-5)
+        and gcps[0].GCPZ == 0
+    )
+
 
 ###############################################################################
 
 
 def test_bsb_cutline():
-    if gdaltest.bsb_dr is None:
-        pytest.skip()
 
-    ds = gdal.Open('data/bsb/australia4c.kap')
-    assert ds.GetMetadataItem('BSB_CUTLINE') == 'POLYGON ((112.72859333333334 -8.25404666666667,156.57827333333333 -7.66159166666667,164.28394166666666 -40.89653000000000,106.53042166666667 -41.14970000000000))'
+    ds = gdal.Open("data/bsb/australia4c.kap")
+    assert (
+        ds.GetMetadataItem("BSB_CUTLINE")
+        == "POLYGON ((112.72859333333334 -8.25404666666667,156.57827333333333 -7.66159166666667,164.28394166666666 -40.89653000000000,106.53042166666667 -41.14970000000000))"
+    )
+
+
+###############################################################################
+# Test fix for https://github.com/OSGeo/gdal/issues/8765
+
+
+def test_bsb_with_errant_0x1A_character_in_header():
+
+    assert gdal.Open("data/bsb/NZ52201_truncated.KAP")

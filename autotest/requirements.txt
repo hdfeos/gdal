@@ -1,10 +1,8 @@
-# Python 2.7 constraints
-# more-itertools 6.0 no longer supporting Python 2.7
-more-itertools < 6.0.0; python_version < '3.0'
-# pytest 5.0 no longer supporting Python 2.7
-pytest>=3.6.0,<5.0.0; python_version < '3.0'
-
-pytest>=3.6.0; python_version >= '3.0'
-pytest-sugar
+pytest>=6.0.0
+pytest-sugar<=0.9.6; python_version < '3.7'
+pytest-sugar; python_version >= '3.7'
 pytest-env
-lxml==4.6.3
+pytest-benchmark
+lxml
+jsonschema
+filelock
