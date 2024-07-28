@@ -3232,7 +3232,7 @@ char **GDALDataset::GetFileList()
     const GDALAntiRecursionStruct::DatasetContext datasetCtxt(osMainFilename, 0,
                                                               std::string());
     auto &aosDatasetList = sAntiRecursion.aosDatasetNamesWithFlags;
-    if (aosDatasetList.find(datasetCtxt) != aosDatasetList.end())
+    if (cpl::contains(aosDatasetList, datasetCtxt))
         return nullptr;
 
     /* -------------------------------------------------------------------- */
@@ -3626,8 +3626,7 @@ GDALDatasetH CPL_STDCALL GDALOpenEx(const char *pszFilename,
         osAllowedDrivers += pszDriverName;
     auto dsCtxt = GDALAntiRecursionStruct::DatasetContext(
         std::string(pszFilename), nOpenFlags, osAllowedDrivers);
-    if (sAntiRecursion.aosDatasetNamesWithFlags.find(dsCtxt) !=
-        sAntiRecursion.aosDatasetNamesWithFlags.end())
+    if (cpl::contains(sAntiRecursion.aosDatasetNamesWithFlags, dsCtxt))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "GDALOpen() called on %s recursively", pszFilename);
@@ -7013,24 +7012,23 @@ OGRLayer *GDALDataset::BuildLayerFromSelectInfo(
     swq_select *psSelectInfo, OGRGeometry *poSpatialFilter,
     const char *pszDialect, swq_select_parse_options *poSelectParseOptions)
 {
+    std::unique_ptr<swq_select> psSelectInfoUnique(psSelectInfo);
+
     std::unique_ptr<OGRGenSQLResultsLayer> poResults;
     GDALSQLParseInfo *psParseInfo =
-        BuildParseInfo(psSelectInfo, poSelectParseOptions);
+        BuildParseInfo(psSelectInfoUnique.get(), poSelectParseOptions);
 
     if (psParseInfo)
     {
         const auto nErrorCounter = CPLGetErrorCounter();
         poResults = std::make_unique<OGRGenSQLResultsLayer>(
-            this, psSelectInfo, poSpatialFilter, psParseInfo->pszWHERE,
-            pszDialect);
+            this, std::move(psSelectInfoUnique), poSpatialFilter,
+            psParseInfo->pszWHERE, pszDialect);
         if (CPLGetErrorCounter() > nErrorCounter &&
             CPLGetLastErrorType() != CE_None)
             poResults.reset();
     }
-    else
-    {
-        delete psSelectInfo;
-    }
+
     DestroyParseInfo(psParseInfo);
 
     return poResults.release();

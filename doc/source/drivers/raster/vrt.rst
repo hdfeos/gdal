@@ -424,8 +424,9 @@ the following form:
 
 The intermediary values are calculated using a linear interpolation
 between the bounding destination values of the corresponding range.
-Source values should be monotonically non-decreasing. Clamping is performed for
-input pixel values outside of the range specified by the LUT. That is, if an
+Source values should be listed in a monotonically non-decreasing order.
+If there is a Not-A-Number (NaN) source value, it should be the first one.
+Clamping is performed for input pixel values outside of the range specified by the LUT. That is, if an
 input pixel value is lower than the minimum source value, then the destination
 value corresponding to that minimum source value is used as the output pixel value.
 And similarly for an input pixel value that is greater than the maximum source value.
@@ -2095,6 +2096,38 @@ Starting with GDAL 3.6, the ComputeStatistics() implementation can benefit from
 multi-threading if the sources are not overlapping and belong to different
 datasets. This can be enabled by setting the :config:`GDAL_NUM_THREADS`
 configuration option to an integer or ``ALL_CPUS``.
+
+Starting with GDAL 3.10, the :oo:`NUM_THREADS` open option can
+be set to control specifically the multi-threading of VRT datasets.
+It defaults to ``ALL_CPUS``, and when set, overrides :config:`GDAL_NUM_THREADS`
+or :config:`VRT_NUM_THREADS`. It applies to
+ComputeStatistics() and band-level and dataset-level RasterIO().
+For band-level RasterIO(), multi-threading is only available if more than 1
+million pixels are requested and if the VRT is made of only non-overlapping
+SimpleSource or ComplexSource belonging to different datasets.
+For dataset-level RasterIO(), multi-threading is only available if more than 1
+million pixels are requested and if the VRT is made of only non-overlapping
+SimpleSource belonging to different datasets.
+
+-  .. oo:: NUM_THREADS
+      :choices: integer, ALL_CPUS
+      :default: ALL_CPUS
+
+      Determines the number of threads used when an operation reads from
+      multiple sources.
+
+This can also be specified globally with the :config:`VRT_NUM_THREADS`
+configuration option.
+
+-  .. config:: VRT_NUM_THREADS
+      :choices: integer, ALL_CPUS
+      :default: ALL_CPUS
+
+      Determines the number of threads used when an operation reads from
+      multiple sources.
+
+Note that the number of threads actually used is also limited by the
+:config:`GDAL_MAX_DATASET_POOL_SIZE` configuration option.
 
 Multi-threading issues
 ----------------------

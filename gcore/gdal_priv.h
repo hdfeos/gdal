@@ -207,6 +207,8 @@ class CPL_DLL GDALMajorObject
 /* ******************************************************************** */
 
 //! @cond Doxygen_Suppress
+class GDALOpenInfo;
+
 class CPL_DLL GDALDefaultOverviews
 {
     friend class GDALDataset;
@@ -238,7 +240,12 @@ class CPL_DLL GDALDefaultOverviews
     ~GDALDefaultOverviews();
 
     void Initialize(GDALDataset *poDSIn, const char *pszName = nullptr,
-                    char **papszSiblingFiles = nullptr, int bNameIsOVR = FALSE);
+                    CSLConstList papszSiblingFiles = nullptr,
+                    bool bNameIsOVR = false);
+
+    void Initialize(GDALDataset *poDSIn, GDALOpenInfo *poOpenInfo,
+                    const char *pszName = nullptr,
+                    bool bTransferSiblingFilesIfLoaded = true);
 
     void TransferSiblingFiles(char **papszSiblingFiles);
 
@@ -338,6 +345,8 @@ class CPL_DLL GDALOpenInfo
     char **GetSiblingFiles();
     char **StealSiblingFiles();
     bool AreSiblingFilesLoaded() const;
+
+    bool IsSingleAllowedDriver(const char *pszDriverName) const;
 
   private:
     CPL_DISALLOW_COPY_ASSIGN(GDALOpenInfo)
@@ -1467,6 +1476,7 @@ GDALHashSetBandBlockCacheCreate(GDALRasterBand *poBand);
 /* ******************************************************************** */
 
 class GDALMDArray;
+class GDALDoublePointsCache;
 
 /** Range of values found in a mask band */
 typedef enum
@@ -1600,6 +1610,8 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     void LeaveReadWrite();
     void InitRWLock();
     void SetValidPercent(GUIntBig nSampleCount, GUIntBig nValidCount);
+
+    mutable std::unique_ptr<GDALDoublePointsCache> m_oPointsCache{};
 
     //! @endcond
 
@@ -1794,6 +1806,11 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
                               double *pdfDataPct = nullptr);
 
     std::shared_ptr<GDALMDArray> AsMDArray() const;
+
+    CPLErr InterpolateAtPoint(double dfPixel, double dfLine,
+                              GDALRIOResampleAlg eInterpolation,
+                              double *pdfRealValue,
+                              double *pdfImagValue = nullptr) const;
 
 #ifndef DOXYGEN_XML
     void ReportError(CPLErr eErrClass, CPLErrorNum err_no, const char *fmt, ...)
@@ -2272,6 +2289,7 @@ class CPL_DLL GDALDriver : public GDALMajorObject
  * @since 3.9
  */
 // clang-format on
+
 class GDALPluginDriverProxy : public GDALDriver
 {
     const std::string m_osPluginFileName;
@@ -3234,17 +3252,22 @@ class CPL_DLL GDALAttribute : virtual public GDALAbstractMDArray
     GDALRawResult ReadAsRaw() const;
     const char *ReadAsString() const;
     int ReadAsInt() const;
+    int64_t ReadAsInt64() const;
     double ReadAsDouble() const;
     CPLStringList ReadAsStringArray() const;
     std::vector<int> ReadAsIntArray() const;
+    std::vector<int64_t> ReadAsInt64Array() const;
     std::vector<double> ReadAsDoubleArray() const;
 
     using GDALAbstractMDArray::Write;
     bool Write(const void *pabyValue, size_t nLen);
     bool Write(const char *);
     bool WriteInt(int);
+    bool WriteInt64(int64_t);
     bool Write(double);
     bool Write(CSLConstList);
+    bool Write(const int *, size_t);
+    bool Write(const int64_t *, size_t);
     bool Write(const double *, size_t);
 
     //! @cond Doxygen_Suppress
@@ -3408,12 +3431,12 @@ class CPL_DLL GDALMDArray : virtual public GDALAbstractMDArray,
                                   const GDALExtendedDataType &bufferDataType,
                                   void *pDstBuffer) const;
 
-    static std::shared_ptr<GDALMDArray>
-    CreateGLTOrthorectified(const std::shared_ptr<GDALMDArray> &poParent,
-                            const std::shared_ptr<GDALMDArray> &poGLTX,
-                            const std::shared_ptr<GDALMDArray> &poGLTY,
-                            int nGLTIndexOffset,
-                            const std::vector<double> &adfGeoTransform);
+    static std::shared_ptr<GDALMDArray> CreateGLTOrthorectified(
+        const std::shared_ptr<GDALMDArray> &poParent,
+        const std::shared_ptr<GDALGroup> &poRootGroup,
+        const std::shared_ptr<GDALMDArray> &poGLTX,
+        const std::shared_ptr<GDALMDArray> &poGLTY, int nGLTIndexOffset,
+        const std::vector<double> &adfGeoTransform, CSLConstList papszOptions);
 
     //! @endcond
 
@@ -4191,20 +4214,85 @@ CPLErr CPL_DLL GDALRegenerateOverviewsMultiBand(
     const char *pszResampling, GDALProgressFunc pfnProgress,
     void *pProgressData, CSLConstList papszOptions);
 
-typedef CPLErr (*GDALResampleFunction)(
-    double dfXRatioDstToSrc, double dfYRatioDstToSrc, double dfSrcXDelta,
-    double dfSrcYDelta, GDALDataType eWrkDataType, const void *pChunk,
-    const GByte *pabyChunkNodataMask, int nChunkXOff, int nChunkXSize,
-    int nChunkYOff, int nChunkYSize, int nDstXOff, int nDstXOff2, int nDstYOff,
-    int nDstYOff2, GDALRasterBand *poOverview, void **ppDstBuffer,
-    GDALDataType *peDstBufferDataType, const char *pszResampling,
-    bool bHasNoData, double dfNoDataValue, GDALColorTable *poColorTable,
-    GDALDataType eSrcDataType, bool bPropagateNoData);
+CPLErr CPL_DLL GDALRegenerateOverviewsMultiBand(
+    const std::vector<GDALRasterBand *> &apoSrcBands,
+    // First level of array is indexed by band (thus aapoOverviewBands.size() must be equal to apoSrcBands.size())
+    // Second level is indexed by overview
+    const std::vector<std::vector<GDALRasterBand *>> &aapoOverviewBands,
+    const char *pszResampling, GDALProgressFunc pfnProgress,
+    void *pProgressData, CSLConstList papszOptions);
+
+/************************************************************************/
+/*                       GDALOverviewResampleArgs                       */
+/************************************************************************/
+
+/** Arguments for overview resampling function. */
+// Should not contain any dataset/rasterband object, as this might be
+// read in a worker thread.
+struct GDALOverviewResampleArgs
+{
+    //! Datatype of the source band argument
+    GDALDataType eSrcDataType = GDT_Unknown;
+    //! Datatype of the destination/overview band
+    GDALDataType eOvrDataType = GDT_Unknown;
+    //! Width in pixel of the destination/overview band
+    int nOvrXSize = 0;
+    //! Height in pixel of the destination/overview band
+    int nOvrYSize = 0;
+    //! NBITS value of the destination/overview band (or 0 if not set)
+    int nOvrNBITS = 0;
+    //! Factor to convert from destination X to source X
+    // (source width divided by destination width)
+    double dfXRatioDstToSrc = 0;
+    //! Factor to convert from destination Y to source Y
+    // (source height divided by destination height)
+    double dfYRatioDstToSrc = 0;
+    //! Sub-pixel delta to add to get source X
+    double dfSrcXDelta = 0;
+    //! Sub-pixel delta to add to get source Y
+    double dfSrcYDelta = 0;
+    //! Working data type (data type of the pChunk argument)
+    GDALDataType eWrkDataType = GDT_Unknown;
+    //! Array of nChunkXSize * nChunkYSize values of mask, or nullptr
+    const GByte *pabyChunkNodataMask = nullptr;
+    //! X offset of the source chunk in the source band
+    int nChunkXOff = 0;
+    //! Width in pixel of the source chunk in the source band
+    int nChunkXSize = 0;
+    //! Y offset of the source chunk in the source band
+    int nChunkYOff = 0;
+    //! Height in pixel of the source chunk in the source band
+    int nChunkYSize = 0;
+    //! X Offset of the destination chunk in the destination band
+    int nDstXOff = 0;
+    //! X Offset of the end (not included) of the destination chunk in the destination band
+    int nDstXOff2 = 0;
+    //! Y Offset of the destination chunk in the destination band
+    int nDstYOff = 0;
+    //! Y Offset of the end (not included) of the destination chunk in the destination band
+    int nDstYOff2 = 0;
+    //! Resampling method
+    const char *pszResampling = nullptr;
+    //! Whether the source band has a nodata value
+    bool bHasNoData = false;
+    //! Source band nodata value
+    double dfNoDataValue = 0;
+    //! Source color table
+    const GDALColorTable *poColorTable = nullptr;
+    //! Whether a single contributing source pixel at nodata should result
+    // in the target pixel to be at nodata too (only taken into account by
+    // average resampling)
+    bool bPropagateNoData = false;
+};
+
+typedef CPLErr (*GDALResampleFunction)(const GDALOverviewResampleArgs &args,
+                                       const void *pChunk, void **ppDstBuffer,
+                                       GDALDataType *peDstBufferDataType);
 
 GDALResampleFunction GDALGetResampleFunction(const char *pszResampling,
                                              int *pnRadius);
 
-std::string GDALGetNormalizedOvrResampling(const char *pszResampling);
+std::string CPL_DLL GDALGetNormalizedOvrResampling(const char *pszResampling);
 
 GDALDataType GDALGetOvrWorkDataType(const char *pszResampling,
                                     GDALDataType eSrcDataType);
@@ -4259,12 +4347,12 @@ int CPL_DLL GDALCheckBandCount(int nBands, int bIsZeroAllowed);
 int CPL_DLL GDALReadWorldFile2(const char *pszBaseFilename,
                                const char *pszExtension,
                                double *padfGeoTransform,
-                               char **papszSiblingFiles,
+                               CSLConstList papszSiblingFiles,
                                char **ppszWorldFileNameOut);
 int CPL_DLL GDALReadTabFile2(const char *pszBaseFilename,
                              double *padfGeoTransform, char **ppszWKT,
                              int *pnGCPCount, GDAL_GCP **ppasGCPs,
-                             char **papszSiblingFiles,
+                             CSLConstList papszSiblingFiles,
                              char **ppszTabFileNameOut);
 
 void CPL_DLL GDALCopyRasterIOExtraArg(GDALRasterIOExtraArg *psDestArg,
@@ -4370,6 +4458,15 @@ GDALRasterAttributeTable CPL_DLL *GDALCreateRasterAttributeTableFromMDArrays(
     GDALRATTableType eTableType,
     const std::vector<std::shared_ptr<GDALMDArray>> &apoArrays,
     const std::vector<GDALRATFieldUsage> &aeUsages);
+
+// Macro used so that Identify and driver metadata methods in drivers built
+// as plugin can be duplicated in libgdal core and in the driver under different
+// names
+#ifdef PLUGIN_FILENAME
+#define PLUGIN_SYMBOL_NAME(x) GDAL_core_##x
+#else
+#define PLUGIN_SYMBOL_NAME(x) GDAL_driver_##x
+#endif
 
 //! @endcond
 

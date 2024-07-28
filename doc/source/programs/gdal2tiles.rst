@@ -53,6 +53,10 @@ can publish a picture without proper georeferencing too.
 
     Config options of the input drivers may have an effect on the output of gdal2tiles. An example driver config option is GDAL_PDF_DPI, which can be found at :ref:`configoptions`
 
+.. note::
+
+    gdal2tiles is a Python utility, and is only available if GDAL Python bindings are available.
+
 
 .. program:: gdal2tiles
 
@@ -229,10 +233,6 @@ Options for generated HTML viewers a la Google Maps
   Bing Maps API key from https://www.bingmapsportal.com/
 
 
-.. note::
-
-    gdal2tiles is a Python script that needs to be run against Python GDAL binding.
-
 MapML options
 +++++++++++++
 
@@ -264,7 +264,7 @@ WEBP options
 WEBP tiledriver support is new to GDAL 3.6. It is enabled by using --tiledriver=WEBP.
 
 
-The following configuration options are available to further customize the webp output:
+The following configuration options are available to further customize the WebP output:
 
 .. option:: --webp-quality=<QUALITY>
 
@@ -288,7 +288,7 @@ JPEG tiledriver support is new to GDAL 3.9. It is enabled by using --tiledriver=
 Note that JPEG does not support transparency, hence edge tiles will display black
 pixels in areas not covered by the source raster.
 
-The following configuration options are available to further customize the webp output:
+The following configuration options are available to further customize the JPEG output:
 
 .. option:: ---jpeg-quality=JPEG_QUALITY
 

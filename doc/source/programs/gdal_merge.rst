@@ -20,7 +20,7 @@ Synopsis
                   [-ps <pixelsize_x> <pixelsize_y>] [-tap] [-separate] [-q] [-v] [-pct]
                   [-ul_lr <ulx> <uly> <lrx> <lry>] [-init "<value>[ <value>]..."]
                   [-n <nodata_value>] [-a_nodata <output_nodata_value>]
-                  [-ot <datatype>] [-createonly] <intput_file> [<intput_file>]...
+                  [-ot <datatype>] [-createonly] <input_file> [<input_file>]...
 
 Description
 -----------
@@ -32,6 +32,10 @@ the last image will be copied over earlier ones. Nodata/transparency values
 are considered on a band by band level, i.e. a nodata/transparent pixel on
 one source band will not set a nodata/transparent value on all bands for the
 target pixel in the resulting raster nor will it overwrite a valid pixel value.
+
+.. note::
+
+    gdal_merge is a Python utility, and is only available if GDAL Python bindings are available.
 
 .. program:: gdal_merge
 
@@ -66,6 +70,10 @@ target pixel in the resulting raster nor will it overwrite a valid pixel value.
     The extents of the output file.
     If not specified the aggregate extents of all input files will be
     used.
+
+.. option:: -q, -quiet
+
+    Suppress progress messages.
 
 .. option:: -v
 
@@ -169,9 +177,3 @@ copied into the destination image if it is not already defined as nodata.
 .. code-block:: bash
 
    gdal_merge -o merge.tif -n 0 image1.tif image2.tif image3.tif image4.tif
-
-
-Notes
------
-
-gdal_merge is a Python utility, and is only available if GDAL Python bindings are available.

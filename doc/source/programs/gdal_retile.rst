@@ -33,6 +33,7 @@ Description
 
 This utility will retile a set of input tile(s). All the input tile(s) must
 be georeferenced in the same coordinate system and have a matching number of bands.
+The geotransform matrix of input tiles must not contain rotation terms.
 
 Optionally pyramid levels are generated. All pyramid levels are generated from the
 input tiles (not from previous levels).
@@ -41,6 +42,10 @@ It is possible to generate shape file(s) for the tiled output.
 
 If your number of input tiles exhausts the command line buffer, use the general
 :ref:`--optfile <raster_common_options_optfile>` option
+
+.. note::
+
+    gdal_retile is a Python utility, and is only available if GDAL Python bindings are available.
 
 .. program:: gdal_retile
 
@@ -127,7 +132,3 @@ If your number of input tiles exhausts the command line buffer, use the general
 .. option:: -resume
 
     Resume mode. Generate only missing files.
-
-.. note::
-
-    gdal_retile is a Python utility, and is only available if GDAL Python bindings are available.
